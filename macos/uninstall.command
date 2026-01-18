@@ -79,30 +79,7 @@ if [ -d "/Library/Audio/MIDI Drivers/OzzyMIDI.plugin" ]; then
     echo "✅ MIDI Driver removed"
 fi
 
-# Restart audio services
-echo "🔄 Restarting audio services..."
-sudo killall coreaudiod 2>/dev/null || true
-sudo killall MIDIServer 2>/dev/null || true
-
-echo ""
-echo "======================================================"
-echo "          ✅ Uninstall Complete!"
-echo "======================================================"
-echo ""
-echo "All Ozzy components have been removed from your system."
-echo ""
-echo "Note: You may want to reboot to ensure all services are"
-echo "fully cleaned up."
-echo ""
-
-read -p "Reboot now? (y/N): " -n 1 -r
-echo
-if [[ $REPLY =~ ^[Yy]$ ]]; then
-    echo "🔄 Rebooting in 5 seconds... (Ctrl+C to cancel)"
-    sleep 5
-    sudo reboot
-fi
-move DriverKit Extension
+# Remove DriverKit Extension (if installed)
 if [ -d "/Applications/Ploytec Driver Extension.app" ]; then
     echo "🗑️  Removing DriverKit Extension..."
     sudo rm -rf "/Applications/Ploytec Driver Extension.app"
@@ -128,5 +105,14 @@ echo "======================================================"
 echo ""
 echo "All Ozzy components have been removed from your system."
 echo ""
-echo "Note: You should reboot to ensure all services are"
-echo "fully cleaned up and kernel extensions are unloaded
+echo "Note: You may want to reboot to ensure all services are"
+echo "fully cleaned up."
+echo ""
+
+read -p "Reboot now? (y/N): " -n 1 -r
+echo
+if [[ $REPLY =~ ^[Yy]$ ]]; then
+    echo "🔄 Rebooting in 5 seconds... (Ctrl+C to cancel)"
+    sleep 5
+    sudo reboot
+fi

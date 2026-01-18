@@ -153,7 +153,7 @@ sudo modprobe snd-xonedb4
 │  (Logic, etc)   │
 └────────┬────────┘
          │ CoreAudio
-┌────────▼────────┐      Shared Memory      ┌─────────────┐
+┌────────▼────────┐      Shared Memory       ┌─────────────┐
 │   OzzyHAL       │◄────────────────────────►│  OzzyKext   │
 │  (HAL Driver)   │      Ring Buffers        │   (Kernel)  │
 └─────────────────┘                          └──────┬──────┘

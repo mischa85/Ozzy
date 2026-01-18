@@ -199,15 +199,28 @@ SOURCES=(
     "Devices/Ploytec/PloytecEngine.cpp"
 )
 
+# Detect system architecture
+SYSTEM_ARCH=$(uname -m)
+if [ "$SYSTEM_ARCH" == "arm64" ]; then
+    KEXT_ARCH="arm64e"
+    echo "   🔍 Detected Apple Silicon (ARM) - building for arm64e"
+elif [ "$SYSTEM_ARCH" == "x86_64" ]; then
+    KEXT_ARCH="x86_64"
+    echo "   🔍 Detected Intel (x86_64) - building for x86_64"
+else
+    echo "❌ Unknown architecture: $SYSTEM_ARCH"
+    exit 1
+fi
+
 SDKROOT=$(xcrun --sdk macosx --show-sdk-path)
 KERNEL_HEADERS="$SDKROOT/System/Library/Frameworks/Kernel.framework/Headers"
 
-CFLAGS="-x c++ -arch arm64e -std=c++11 -O2 -DKERNEL -D__KERNEL__ -mkernel \
+CFLAGS="-x c++ -arch $KEXT_ARCH -std=c++11 -O2 -DKERNEL -D__KERNEL__ -mkernel \
 -fno-builtin -fno-exceptions -fno-rtti -fno-common -fno-use-cxa-atexit \
 -Wno-deprecated-declarations -Wno-inconsistent-missing-override \
 -nostdinc -I. -I$KERNEL_HEADERS"
 
-LDFLAGS="-arch arm64e -Xlinker -kext -nostdlib -lkmod -lcc_kext"
+LDFLAGS="-arch $KEXT_ARCH -Xlinker -kext -nostdlib -lkmod -lcc_kext"
 
 echo "   🧹 Cleaning build directory..."
 # Use sudo to remove if it has root permissions from previous install
@@ -255,6 +268,7 @@ echo "🔨 [2/3] Compiling HAL Driver..."
 xcodebuild -project "Ozzy.xcodeproj" \
            -scheme "OzzyHAL" \
            -configuration Release \
+           -arch "$SYSTEM_ARCH" \
            SYMROOT="$DIR/Build" \
            OTHER_LDFLAGS="-framework IOKit -framework CoreFoundation" \
            build > /dev/null
@@ -269,6 +283,7 @@ echo "🔨 [3/3] Compiling MIDI Driver..."
 xcodebuild -project "Ozzy.xcodeproj" \
            -scheme "OzzyMIDI" \
            -configuration Release \
+           -arch "$SYSTEM_ARCH" \
            SYMROOT="$DIR/Build" \
            OTHER_LDFLAGS="-framework IOKit -framework CoreFoundation -framework CoreMIDI" \
            build > /dev/null

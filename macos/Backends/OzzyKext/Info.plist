@@ -17,7 +17,7 @@
 		<key>XoneDB4</key>
 		<dict>
 			<key>CFBundleIdentifier</key>
-			<string>com.ozzy.kext.OzzyKext</string>
+		<string>com.ozzy.kext.OzzyKext</string>
 			<key>IOClass</key>
 			<string>OzzyKext</string>
 			<key>IOProviderClass</key>
@@ -26,6 +26,45 @@
 			<integer>2634</integer>
 			<key>idProduct</key>
 			<integer>65499</integer>
+		</dict>
+		<key>XoneDB2</key>
+		<dict>
+			<key>CFBundleIdentifier</key>
+		<string>com.ozzy.kext.OzzyKext</string>
+			<key>IOClass</key>
+			<string>OzzyKext</string>
+			<key>IOProviderClass</key>
+			<string>IOUSBHostDevice</string>
+			<key>idVendor</key>
+			<integer>2634</integer>
+			<key>idProduct</key>
+			<integer>65490</integer>
+		</dict>
+		<key>XoneDX</key>
+		<dict>
+			<key>CFBundleIdentifier</key>
+		<string>com.ozzy.kext.OzzyKext</string>
+			<key>IOClass</key>
+			<string>OzzyKext</string>
+			<key>IOProviderClass</key>
+			<string>IOUSBHostDevice</string>
+			<key>idVendor</key>
+			<integer>2634</integer>
+			<key>idProduct</key>
+			<integer>65501</integer>
+		</dict>
+		<key>Xone4D</key>
+		<dict>
+			<key>CFBundleIdentifier</key>
+		<string>com.ozzy.kext.OzzyKext</string>
+			<key>IOClass</key>
+			<string>OzzyKext</string>
+			<key>IOProviderClass</key>
+			<string>IOUSBHostDevice</string>
+			<key>idVendor</key>
+			<integer>2634</integer>
+			<key>idProduct</key>
+			<integer>65357</integer>
 		</dict>
 	</dict>
 	<key>OSBundleLibraries</key>

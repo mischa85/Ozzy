@@ -23,6 +23,10 @@
 
 #include "ploytec_defs.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /* ========================================================================
  * Vendor Request 'I' (0x49) - Hardware Control Registers
  *
@@ -115,6 +119,20 @@ static inline void ploytec_decode_aj_input(uint8_t raw, struct ploytec_aj_input_
 	out->mode5        = (raw & PLOYTEC_AJ_MODE5_BIT)        != 0;
 	out->mode6        = (raw & PLOYTEC_AJ_MODE6_BIT)        != 0;
 	out->mode7        = (raw & PLOYTEC_AJ_MODE7_BIT)        != 0;
+}
+
+/*
+ * ploytec_confirm_wvalue - Compute wValue for the status confirm write-back.
+ * @status: raw byte read from vendor request 'I', wIndex=0
+ *
+ * Sets bit 5 (MODE5/LegacyActive) and sign-extends to 16 bits,
+ * matching the official Ploytec driver's (short)(char)byte cast.
+ * The high byte is 0xFF when bit 7 is set, 0x00 when clear.
+ */
+static inline uint16_t ploytec_confirm_wvalue(uint8_t status)
+{
+	int8_t modified = (int8_t)(status | PLOYTEC_AJ_MODE5_BIT);
+	return (uint16_t)(int16_t)modified;
 }
 
 /*
@@ -215,5 +233,65 @@ static const struct ploytec_midi_slot ploytec_int_midi_slots[] = {
 
 #define PLOYTEC_BULK_NUM_MIDI_SLOTS  4
 #define PLOYTEC_INT_NUM_MIDI_SLOTS   4
+
+
+/* ========================================================================
+ * Sample Rate Encoding
+ *
+ * The Ploytec chipset uses 3-byte little-endian sample rate encoding
+ * for SET_CUR / GET_CUR requests.
+ * ======================================================================== */
+
+/*
+ * ploytec_encode_rate - Encode a sample rate into 3-byte little-endian.
+ * @rate: sample rate in Hz (e.g. 44100, 48000, 96000)
+ * @buf: output buffer, must be at least 3 bytes
+ */
+static inline void ploytec_encode_rate(uint32_t rate, uint8_t buf[3])
+{
+	buf[0] = rate & 0xFF;
+	buf[1] = (rate >> 8) & 0xFF;
+	buf[2] = (rate >> 16) & 0xFF;
+}
+
+/*
+ * ploytec_decode_rate - Decode a 3-byte little-endian sample rate.
+ * @buf: input buffer with 3 bytes from GET_CUR response
+ * Returns the sample rate in Hz.
+ */
+static inline uint32_t ploytec_decode_rate(const uint8_t buf[3])
+{
+	return (uint32_t)buf[0] |
+	       ((uint32_t)buf[1] << 8) |
+	       ((uint32_t)buf[2] << 16);
+}
+
+
+/* ========================================================================
+ * Firmware Version
+ * ======================================================================== */
+
+struct ploytec_firmware_version {
+	uint8_t chip_id;     /* byte[0] of 'V' response */
+	uint8_t major;       /* byte[2] / 10 */
+	uint8_t minor;       /* byte[2] % 10 */
+};
+
+/*
+ * ploytec_parse_firmware - Extract version from vendor request 'V' response.
+ * @raw: pointer to at least 3 bytes from the firmware version response
+ */
+static inline struct ploytec_firmware_version ploytec_parse_firmware(const uint8_t *raw)
+{
+	struct ploytec_firmware_version fw;
+	fw.chip_id = raw[0];
+	fw.major   = raw[2] / 10;
+	fw.minor   = raw[2] % 10;
+	return fw;
+}
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* OZZY_PLOYTEC_PROTOCOL_H */

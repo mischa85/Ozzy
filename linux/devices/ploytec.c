@@ -70,10 +70,14 @@ static int ploytec_get_firmware(struct ozzy_chip *chip)
 	if (ret < 0)
 		return ret;
 
-	ploytec_log(&chip->dev->dev,
-		    "firmware: v1.%d.%d (chip ID: 0x%02X, raw: %*ph)\n",
-		    priv->firmware_ver[2] / 10, priv->firmware_ver[2] % 10,
-		    priv->firmware_ver[0], 15, priv->firmware_ver);
+	{
+		struct ploytec_firmware_version fw =
+			ploytec_parse_firmware(priv->firmware_ver);
+		ploytec_log(&chip->dev->dev,
+			    "firmware: v1.%d.%d (chip ID: 0x%02X, raw: %*ph)\n",
+			    fw.major, fw.minor, fw.chip_id,
+			    15, priv->firmware_ver);
+	}
 
 	return 0;
 }
@@ -123,9 +127,7 @@ static int ploytec_get_rate(struct ozzy_chip *chip)
 	if (ret < 0)
 		return ret;
 
-	rate = (uint32_t)priv->xfer_buf[0] |
-	       ((uint32_t)priv->xfer_buf[1] << 8) |
-	       ((uint32_t)priv->xfer_buf[2] << 16);
+	rate = ploytec_decode_rate(priv->xfer_buf);
 
 	ploytec_log(&chip->dev->dev, "hardware sample rate: %u Hz (raw: %02X %02X %02X)\n",
 		    rate, priv->xfer_buf[0], priv->xfer_buf[1], priv->xfer_buf[2]);
@@ -144,17 +146,13 @@ static int ploytec_get_rate(struct ozzy_chip *chip)
 /*
  * ploytec_confirm_status - Read-modify-write the AJ Input Selector register.
  *
- * Reads the status byte from vendor request 'I' (wIndex=0), sets bit 5
- * (PLOYTEC_AJ_MODE5_BIT), and writes it back as wValue = 0xFF00 | byte.
+ * Reads the status byte from vendor request 'I' (wIndex=0), then writes
+ * it back with bit 5 set using sign-extension to compute the 16-bit wValue.
  * This completes the handshake and arms the device for streaming.
- *
- * The 0xFF high byte may be related to input/output channel configuration,
- * but this is not yet confirmed.
  */
 static int ploytec_confirm_status(struct ozzy_chip *chip)
 {
 	struct ploytec_private *priv = chip->private_data;
-	uint8_t modified;
 	uint16_t wvalue;
 	int ret;
 
@@ -165,8 +163,7 @@ static int ploytec_confirm_status(struct ozzy_chip *chip)
 	if (ret < 0)
 		return ret;
 
-	modified = priv->status[0] | PLOYTEC_AJ_MODE5_BIT;
-	wvalue = 0xFF00 | modified;
+	wvalue = ploytec_confirm_wvalue(priv->status[0]);
 
 	ret = usb_control_msg(chip->dev, usb_sndctrlpipe(chip->dev, 0),
 			      PLOYTEC_CMD_STATUS, 0x40,
@@ -271,9 +268,7 @@ static int ploytec_set_rate(struct ozzy_chip *chip, unsigned int rate_index)
 		return -EINVAL;
 
 	rate = chip->info->rates[rate_index];
-	priv->xfer_buf[0] = rate & 0xFF;
-	priv->xfer_buf[1] = (rate >> 8) & 0xFF;
-	priv->xfer_buf[2] = (rate >> 16) & 0xFF;
+	ploytec_encode_rate(rate, priv->xfer_buf);
 
 	ret = usb_control_msg(chip->dev, usb_sndctrlpipe(chip->dev, 0),
 			      PLOYTEC_CMD_SET_RATE_REQ, PLOYTEC_CMD_SET_RATE_TYPE,

@@ -1,4 +1,5 @@
 #include "PloytecEngine.h"
+#include "PloytecProtocol.h"
 #include "../../Shared/OzzyLog.h"
 
 // --- CONSTANTS ---
@@ -8,8 +9,8 @@
 #define kPloytecBulkSize             4096
 #define kPloytecInSize               5120
 
-// Endpoints
-#define kEpPcmOut   0x05
+// Endpoints (from ploytec_defs.h)
+#define kEpPcmOut   PLOYTEC_EP_PCM_OUT
 #define kEpPcmIn    0x86
 #define kEpMidiIn   0x83
 
@@ -65,7 +66,17 @@ bool PloytecEngine::Start() {
     GetHardwareFrameRate(); 
     mBus->Sleep(50);
     
-    WriteHardwareStatus(0xFFB2); 
+    /* Read status, set MODE5 bit, sign-extend, and write back */
+    {
+        uint8_t statusBuf[1] = {0};
+        if (!mBus->VendorRequest(0xC0, 'I', 0, 0, statusBuf, 1)) {
+            LogPloytec("Failed to read status for confirm");
+            return false;
+        }
+        uint16_t wval = ploytec_confirm_wvalue(statusBuf[0]);
+        WriteHardwareStatus(wval);
+        LogPloytec("Status confirmed: read=0x%02X, wrote=0x%04X", statusBuf[0], wval);
+    }
     ReadHardwareStatus();
     
     // Hardware is confirmed working and communicating
@@ -260,8 +271,9 @@ void PloytecEngine::SubmitMIDIIn(uint32_t idx) {
 
 bool PloytecEngine::ReadFirmwareVersion() {
     uint8_t buf[16] = {0};
-    if (!mBus->VendorRequest(0xC0, 'V', 0, 0, buf, 0x0F)) return false;
-    LogPloytec("Firmware: v1.%u.%u (ID:0x%02X)", buf[2]/10, buf[2]%10, buf[0]);
+    if (!mBus->VendorRequest(0xC0, PLOYTEC_CMD_FIRMWARE, 0, 0, buf, 0x0F)) return false;
+    struct ploytec_firmware_version fw = ploytec_parse_firmware(buf);
+    LogPloytec("Firmware: v1.%u.%u (ID:0x%02X)", fw.major, fw.minor, fw.chip_id);
     return true;
 }
 
@@ -283,7 +295,7 @@ bool PloytecEngine::ReadHardwareStatus() {
 bool PloytecEngine::GetHardwareFrameRate() {
     uint8_t buf[3] = {0};
     if (!mBus->VendorRequest(0xA2, 0x81, 0x0100, 0, buf, 3)) return false;
-    uint32_t rate = (uint32_t)buf[0] | ((uint32_t)buf[1] << 8) | ((uint32_t)buf[2] << 16);
+    uint32_t rate = ploytec_decode_rate(buf);
     LogPloytec("Current Rate: %u Hz", rate);
     return true;
 }
@@ -291,14 +303,14 @@ bool PloytecEngine::GetHardwareFrameRate() {
 bool PloytecEngine::SetHardwareFrameRate(uint32_t r) {
     LogPloytec("Setting Rate to %u Hz...", r);
     uint8_t buf[3];
-    buf[0]=(uint8_t)r; buf[1]=(uint8_t)(r>>8); buf[2]=(uint8_t)(r>>16);
-    
-    mBus->VendorRequest(0x22, 0x01, 0x0100, 0x0086, buf, 3);
-    mBus->VendorRequest(0x22, 0x01, 0x0100, 0x0005, buf, 3);
-    mBus->VendorRequest(0x22, 0x01, 0x0100, 0x0086, buf, 3);
-    mBus->VendorRequest(0x22, 0x01, 0x0100, 0x0005, buf, 3);
-    
-    return mBus->VendorRequest(0x22, 0x01, 0x0100, 0x0086, buf, 3);
+    ploytec_encode_rate(r, buf);
+
+    mBus->VendorRequest(PLOYTEC_CMD_SET_RATE_TYPE, PLOYTEC_CMD_SET_RATE_REQ, 0x0100, PLOYTEC_EP_RATE_IN, buf, 3);
+    mBus->VendorRequest(PLOYTEC_CMD_SET_RATE_TYPE, PLOYTEC_CMD_SET_RATE_REQ, 0x0100, PLOYTEC_EP_RATE_OUT, buf, 3);
+    mBus->VendorRequest(PLOYTEC_CMD_SET_RATE_TYPE, PLOYTEC_CMD_SET_RATE_REQ, 0x0100, PLOYTEC_EP_RATE_IN, buf, 3);
+    mBus->VendorRequest(PLOYTEC_CMD_SET_RATE_TYPE, PLOYTEC_CMD_SET_RATE_REQ, 0x0100, PLOYTEC_EP_RATE_OUT, buf, 3);
+
+    return mBus->VendorRequest(PLOYTEC_CMD_SET_RATE_TYPE, PLOYTEC_CMD_SET_RATE_REQ, 0x0100, PLOYTEC_EP_RATE_IN, buf, 3);
 }
 
 bool PloytecEngine::WriteHardwareStatus(uint16_t v) {

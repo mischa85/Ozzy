@@ -11,6 +11,10 @@
 #ifndef OZZY_PLOYTEC_DEFS_H
 #define OZZY_PLOYTEC_DEFS_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /* USB vendor and product IDs */
 #define PLOYTEC_VENDOR_ID           0x0A4A
 #define PLOYTEC_PID_XONE_DB4       0xFFDB
@@ -50,7 +54,15 @@
 #define PLOYTEC_CMD_GET_RATE_REQ    0x81  /* bRequest for GET_CUR sample rate */
 #define PLOYTEC_CMD_GET_RATE_TYPE   0xA2  /* bmRequestType for GET_CUR sample rate */
 
+/* SET_CUR sample rate endpoint addresses (wIndex field) */
+#define PLOYTEC_EP_RATE_IN          0x0086
+#define PLOYTEC_EP_RATE_OUT         0x0005
+
 /* MIDI idle/sync byte (sent when no MIDI data is pending) */
 #define PLOYTEC_MIDI_IDLE_BYTE      0xFD
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* OZZY_PLOYTEC_DEFS_H */

@@ -14,7 +14,7 @@
 #ifndef OZZY_PLOYTEC_PROTOCOL_H
 #define OZZY_PLOYTEC_PROTOCOL_H
 
-#ifdef __KERNEL__
+#if defined(__KERNEL__) && defined(__linux__)
 #include <linux/types.h>
 #else
 #include <stdint.h>

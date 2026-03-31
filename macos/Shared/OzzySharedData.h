@@ -39,11 +39,7 @@ struct OzzyAudioBuffer {
     // Generic flags (Bit 0: Bulk Mode for Ploytec, etc.)
     AtomicU32  deviceFlags; 
 
-    // Critical: The Kernel tells the HAL how often to sync.
-    // Ploytec = 640. Denon might be 512.
-    AtomicU32 updateIntervalFrames;
-    
-    // NEW: Frame format info set by device engine
+    // Frame format info set by device engine
     uint32_t framesPerPacket;     // How many frames in each USB packet (e.g., 80 for Ploytec @ 96kHz)
     uint32_t samplesPerPacket;    // How many samples per USB packet (e.g., 10 for Ploytec)
     uint32_t outputBytesPerFrame; // Encoded bytes per frame for output (e.g., 48)

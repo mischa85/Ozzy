@@ -1,5 +1,6 @@
 #include "OzzyHAL.h"
 #include "../Devices/Ploytec/PloytecCodec.h"
+#include "../Devices/Ploytec/PloytecProtocol.h"
 #include "../Shared/OzzyLog.h"
 #include <CoreAudio/CoreAudio.h>
 
@@ -61,7 +62,7 @@ OzzyHAL& OzzyHAL::Get() {
 }
 
 void OzzyHAL::Init(AudioServerPlugInHostRef host) {
-    LogOzzyHAL("Init");
+    LogOzzyHAL("init");
     mHost = host;
 
     mDeviceUID = CFSTR("OzzyHAL.device");
@@ -134,18 +135,18 @@ void OzzyHAL::MapSharedMemory() {
     io_service_t service = IOServiceGetMatchingService(kIOMainPortDefault, matching);
     
     if (service) {
-        LogOzzyHAL("Found OzzyKext service, attempting to connect...");
+        LogOzzyHAL("found OzzyKext service, connecting...");
         kern_return_t kr = IOServiceOpen(service, mach_task_self(), 0, &mKextConnect);
         IOObjectRelease(service);
-        
+
         if (kr == KERN_SUCCESS) {
             kr = IOConnectMapMemory(mKextConnect, 0, mach_task_self(), &mKextMapAddress, &mKextMapSize, kIOMapAnywhere);
             if (kr == KERN_SUCCESS) {
                 mSHM = (OzzySharedMemory*)mKextMapAddress;
                 mIsKextMapping = true;
-                LogOzzyHAL("Attached to Kext (Session: 0x%08X)", mSHM->sessionID);
+                LogOzzyHAL("attached to kext (session: 0x%{public}08X)", mSHM->sessionID);
             } else {
-                LogOzzyHALError("Failed to map Kext memory (0x%x)", kr);
+                LogOzzyHALError("failed to map kext memory (0x%{public}x)", kr);
                 IOServiceClose(mKextConnect);
                 mKextConnect = IO_OBJECT_NULL;
             }
@@ -163,7 +164,7 @@ void OzzyHAL::MapSharedMemory() {
                 void* ptr = mmap(NULL, sizeof(OzzySharedMemory), PROT_READ | PROT_WRITE, MAP_SHARED, mSHMFd, 0);
                 if (ptr != MAP_FAILED) {
                     mSHM = (OzzySharedMemory*)ptr;
-                    LogOzzyHAL("Attached to Daemon via shm_open");
+                    LogOzzyHAL("attached to daemon via shm_open");
                 } else {
                     close(mSHMFd); mSHMFd = -1;
                 }
@@ -176,7 +177,12 @@ void OzzyHAL::MapSharedMemory() {
     // --- Validation & Config ---
     if (mSHM) {
         if (mSHM->magic != kOzzyMagic) {
-            LogOzzyHALError("SHM Magic Mismatch!");
+            LogOzzyHALError("SHM magic mismatch");
+            UnmapSharedMemory();
+            return;
+        }
+
+        if (mSHM->vendorID == 0) {
             UnmapSharedMemory();
             return;
         }
@@ -196,14 +202,14 @@ void OzzyHAL::MapSharedMemory() {
         mZeroTimestampPeriod = 2 * mFramesPerPacket * 4;
         
         // Set codec based on device (vendorID/productID)
-        if (mSHM->vendorID == 0x0A4A) { // Ploytec
+        if (mSHM->vendorID == PLOYTEC_VENDOR_ID) {
             mEncode = PloytecEncodePCM;
             mDecode = PloytecDecodePCM;
             // Ploytec uses interrupt mode (for now)
             mWriteOutput = PloytecWriteOutputInterrupt;
             mReadInput = PloytecReadInput;
             mClearOutput = PloytecClearOutputInterrupt;
-            LogOzzyHAL("Using Ploytec codec for VID:0x%04X", mSHM->vendorID);
+            LogOzzyHAL("using Ploytec codec for VID:0x%{public}04X", mSHM->vendorID);
         } else {
             // Default/fallback codec
             mEncode = PloytecEncodePCM;
@@ -211,7 +217,7 @@ void OzzyHAL::MapSharedMemory() {
             mWriteOutput = PloytecWriteOutputInterrupt;
             mReadInput = PloytecReadInput;
             mClearOutput = PloytecClearOutputInterrupt;
-            LogOzzyHAL("Using default codec for VID:0x%04X", mSHM->vendorID);
+            LogOzzyHAL("using default codec for VID:0x%{public}04X", mSHM->vendorID);
         }
     }
 }
@@ -256,7 +262,7 @@ void OzzyHAL::MonitorLoop() {
         bool initiallyConnected = (hwReady && drvReady && metaReady);
         
         if (initiallyConnected) {
-            LogOzzyHAL("Device already connected at startup");
+            LogOzzyHAL("device already connected at startup");
             mLastConnectedState = true;
             
             // Update device metadata
@@ -285,12 +291,16 @@ void OzzyHAL::MonitorLoop() {
     
     while (mMonitorRunning) {
         if (!mSHM) {
+            if (!mLoggedWaitingForDriver) {
+                LogOzzyHAL("waiting for driver...");
+                mLoggedWaitingForDriver = true;
+            }
             MapSharedMemory();
             if (!mSHM) {
-                // Wait a bit before trying again
                 usleep(100000); // 100ms
                 continue;
             }
+            mLoggedWaitingForDriver = false;
         } else {
             // Check Health
             if (mIsKextMapping) {
@@ -299,7 +309,7 @@ void OzzyHAL::MonitorLoop() {
                 bool hwPresent = magicValid && mSHM->audio.hardwarePresent.load(std::memory_order_relaxed);
                 
                 if (!magicValid || !hwPresent) {
-                     LogOzzyHAL("Device Disconnected (magic: %d, hw: %d)", magicValid, hwPresent);
+                     LogOzzyHAL("device disconnected (magic: %{public}d, hw: %{public}d)", magicValid, hwPresent);
                      UnmapSharedMemory();
                      // Don't continue - let state update happen below
                 }
@@ -307,16 +317,16 @@ void OzzyHAL::MonitorLoop() {
                 // If using Daemon, check inode and hardware presence
                 struct stat sb;
                 if (fstat(mSHMFd, &sb) != 0 || sb.st_nlink == 0 || sb.st_ino != mSHMInode) {
-                    LogOzzyHALError("Shared memory unlinked (Daemon died).");
+                    LogOzzyHALError("shared memory unlinked (daemon died)");
                     UnmapSharedMemory();
                     // Don't continue - let state update happen below
                 } else {
                     // Also check if hardware is still present
                     bool magicValid = (mSHM->magic == kOzzyMagic);
                     bool hwPresent = magicValid && mSHM->audio.hardwarePresent.load(std::memory_order_relaxed);
-                    
+
                     if (!magicValid || !hwPresent) {
-                        LogOzzyHAL("Device Disconnected (magic: %d, hw: %d)", magicValid, hwPresent);
+                        LogOzzyHAL("device disconnected (magic: %{public}d, hw: %{public}d)", magicValid, hwPresent);
                         UnmapSharedMemory();
                         // Don't continue - let state update happen below
                     }
@@ -345,17 +355,17 @@ void OzzyHAL::MonitorLoop() {
                     snprintf(uidBuf, sizeof(uidBuf), "OzzyHAL.%s", mSHM->serialNumber);
                     mDeviceUID = SafeCreateString(uidBuf);
                 }
-                LogOzzyHAL("Device Ready: '%{public}s'", mSHM->productName);
+                LogOzzyHAL("device ready: '%{public}s'", mSHM->productName);
             }
 
             mLastConnectedState = currentlyConnected;
-            LogOzzyHAL("Connection: %{public}s", currentlyConnected ? "UP" : "DOWN");
+            LogOzzyHAL("connection: %{public}s", currentlyConnected ? "UP" : "DOWN");
             
             // Stop I/O if device disconnected
             if (!currentlyConnected && mIOStarted) {
                 mIOStarted = false;
                 mTimestampSeed++;
-                LogOzzyHAL("Auto-stopped I/O due to disconnect");
+                LogOzzyHAL("auto-stopped I/O due to disconnect");
             }
             
             if (mHost) {
@@ -391,14 +401,14 @@ kern_return_t OzzyHAL::StartIO() {
     if (mSHM) {
         mSHM->audio.halWritePosition.store(0, std::memory_order_relaxed);
     }
-    LogOzzyHAL("StartIO");
+    LogOzzyHAL("start I/O");
     mIOStarted = true;
     mTimestampSeed++;
     return kIOReturnSuccess;
 }
 
 kern_return_t OzzyHAL::StopIO() {
-    LogOzzyHAL("StopIO");
+    LogOzzyHAL("stop I/O");
     mIOStarted = false;
     mTimestampSeed++;
     ClearOutputBuffer();

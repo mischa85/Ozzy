@@ -28,10 +28,10 @@
 #define ALSA_FRAME_SIZE   (PLOYTEC_CHANNELS * 3)
 
 /* Number of ALSA bytes per output packet */
-#define ALSA_OUT_PKT_SIZE (PLOYTEC_FRAMES_PER_OUT_PKT * ALSA_FRAME_SIZE)
+#define ALSA_OUT_PKT_SIZE (PLOYTEC_FRAMES_PER_PKT * ALSA_FRAME_SIZE)
 
 /* Number of ALSA bytes per input packet */
-#define ALSA_IN_PKT_SIZE  (PLOYTEC_FRAMES_PER_IN_PKT * ALSA_FRAME_SIZE)
+#define ALSA_IN_PKT_SIZE  (PLOYTEC_FRAMES_PER_PKT * ALSA_FRAME_SIZE)
 
 /*
  * struct ploytec_private - Ploytec device-specific runtime data.
@@ -394,7 +394,7 @@ static unsigned int ploytec_process_in_packet(struct ozzy_chip *chip,
 	unsigned int f;
 	unsigned int dst_off;
 
-	for (f = 0; f < PLOYTEC_FRAMES_PER_IN_PKT; f++) {
+	for (f = 0; f < PLOYTEC_FRAMES_PER_PKT; f++) {
 		dst_off = dma_off + f * ALSA_FRAME_SIZE;
 		if (dst_off >= pcm_buffer_size)
 			dst_off -= pcm_buffer_size;
@@ -516,8 +516,8 @@ const struct ozzy_device_info ploytec_info = {
 	.capture_channels      = PLOYTEC_CHANNELS,
 	.out_packet_size       = PLOYTEC_BULK_OUT_PKT_SIZE,
 	.in_packet_size        = PLOYTEC_IN_PKT_SIZE,
-	.frames_per_out_packet = PLOYTEC_FRAMES_PER_OUT_PKT,
-	.frames_per_in_packet  = PLOYTEC_FRAMES_PER_IN_PKT,
+	.frames_per_out_packet = PLOYTEC_FRAMES_PER_PKT,
+	.frames_per_in_packet  = PLOYTEC_FRAMES_PER_PKT,
 	.out_ep                = PLOYTEC_EP_PCM_OUT,
 	.in_ep                 = PLOYTEC_EP_PCM_IN,
 	.alsa_format           = SNDRV_PCM_FMTBIT_S24_3LE,

@@ -21,7 +21,6 @@ static MIDIDriverRef gDriverRef = nullptr;
 static std::atomic<bool> gThreadShouldRun{false};
 static pthread_t gPollThread = nullptr;
 static uint32_t gLastSessionID = 0;
-static uint32_t gErrorLogCounter = 0;
 
 // IOKit connection state
 static io_connect_t gKextConnect = IO_OBJECT_NULL;
@@ -69,7 +68,7 @@ static void EnsureMIDIDeviceCreated() {
 		if (vendorName) MIDIObjectSetStringProperty(gMidiDeviceRef, kMIDIPropertyManufacturer, vendorName);
 		SetDeviceOnline(true);
 	} else {
-			LogOzzyMIDI("Creating Device: '%{public}s'", nameBuf);
+			LogOzzyMIDI("creating device: '%{public}s'", nameBuf);
 		OSStatus err = MIDIDeviceCreate(gDriverRef, deviceName, vendorName, deviceName, &gMidiDeviceRef);
 		
 		if (err == noErr) {
@@ -80,7 +79,7 @@ static void EnsureMIDIDeviceCreated() {
 			MIDIObjectSetIntegerProperty(gMidiDeviceRef, kMIDIPropertyDriverOwner, val);
 			SetDeviceOnline(true);
 		} else {
-				LogOzzyMIDIError("Failed to create device: %{public}d", (int)err);
+				LogOzzyMIDIError("failed to create device: %{public}d", (int)err);
 		}
 	}
 	
@@ -105,7 +104,7 @@ static void DisconnectSharedMemory() {
 			}
 		}
 		gSharedMem = nullptr;
-		LogOzzyMIDI("Disconnected");
+		LogOzzyMIDI("disconnected");
 		SetDeviceOnline(false);
 	}
 }
@@ -113,12 +112,12 @@ static void DisconnectSharedMemory() {
 static bool UpdateConnectionState() {
 	if (gSharedMem) {
 		if (gSharedMem->magic != kOzzyMagic) {
-				LogOzzyMIDIError("Bad Magic. Disconnecting.");
+				LogOzzyMIDIError("bad magic, disconnecting");
 			DisconnectSharedMemory();
 			return false;
 		}
 		if (gSharedMem->sessionID != gLastSessionID) {
-				LogOzzyMIDI("RAM Session Changed. Reconnecting.");
+				LogOzzyMIDI("session changed, reconnecting");
 			DisconnectSharedMemory();
 			return false;
 		}
@@ -130,7 +129,7 @@ static bool UpdateConnectionState() {
 	io_service_t service = IOServiceGetMatchingService(kIOMainPortDefault, matching);
 	
 	if (service) {
-		LogOzzyMIDI("Found OzzyKext service, attempting to connect...");
+		LogOzzyMIDI("found OzzyKext service, connecting...");
 		kern_return_t kr = IOServiceOpen(service, mach_task_self(), 0, &gKextConnect);
 		IOObjectRelease(service);
 		
@@ -140,11 +139,11 @@ static bool UpdateConnectionState() {
 				gSharedMem = (OzzySharedMemory*)gKextMapAddress;
 				gIsKextMapping = true;
 				gLastSessionID = gSharedMem->sessionID;
-					LogOzzyMIDI("Connected to Kext (Session: 0x%{public}08X)", gLastSessionID);
+					LogOzzyMIDI("connected to kext (session: 0x%{public}08X)", gLastSessionID);
 				EnsureMIDIDeviceCreated();
 				return true;
 			} else {
-					LogOzzyMIDIError("Failed to map Kext memory (0x%x)", kr);
+					LogOzzyMIDIError("failed to map kext memory (0x%{public}x)", kr);
 				IOServiceClose(gKextConnect);
 				gKextConnect = IO_OBJECT_NULL;
 			}
@@ -154,10 +153,7 @@ static bool UpdateConnectionState() {
 	// --- 2. Fallback to Daemon (shm_open) ---
 	gIsKextMapping = false;
 	int fd = shm_open(kOzzySharedMemName, O_RDWR, 0666);
-	if (fd == -1) {
-		if (++gErrorLogCounter > 200) { gErrorLogCounter = 0; }
-		return false;
-	}
+	if (fd == -1) return false;
 
 	struct stat sb;
 	if (fstat(fd, &sb) == -1) { close(fd); return false; }
@@ -181,7 +177,7 @@ static bool UpdateConnectionState() {
 
 	gLastSessionID = gSharedMem->sessionID;
 	
-	LogOzzyMIDI("Connected via shm_open (Session: 0x%{public}08X)", gLastSessionID);
+	LogOzzyMIDI("connected via shm_open (session: 0x%{public}08X)", gLastSessionID);
 	EnsureMIDIDeviceCreated();
 	return true;
 }
@@ -200,7 +196,7 @@ static int GetExpectedDataLength(uint8_t status) {
 }
 
 static void* MidiInputPollThread(void* arg) {
-	LogOzzyMIDI("Poll Thread Started");
+	LogOzzyMIDI("poll thread started");
 	Byte msgBuffer[16];
 	int msgIndex = 0;
 	int msgExpected = 0;
@@ -222,7 +218,7 @@ static void* MidiInputPollThread(void* arg) {
 				bool hwPresent = gSharedMem->audio.hardwarePresent.load(std::memory_order_relaxed);
 				
 				if (!magicValid || !sessionValid || !hwPresent) {
-						LogOzzyMIDIError("Connection lost (magic:%d session:%d hw:%d). Reconnecting.",
+						LogOzzyMIDIError("connection lost (magic:%{public}d session:%{public}d hw:%{public}d), reconnecting",
 						magicValid, sessionValid, hwPresent);
 					DisconnectSharedMemory();
 					continue;
@@ -231,7 +227,7 @@ static void* MidiInputPollThread(void* arg) {
 			
 			// Also check hardware presence on every iteration (fast check)
 			if (!gSharedMem->audio.hardwarePresent.load(std::memory_order_relaxed)) {
-				LogOzzyMIDIError("Hardware unplugged. Disconnecting.");
+				LogOzzyMIDIError("device disconnected");
 				DisconnectSharedMemory();
 				continue;
 			}

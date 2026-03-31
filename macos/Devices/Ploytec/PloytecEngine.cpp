@@ -3,27 +3,21 @@
 #include "../../Shared/OzzyLog.h"
 
 // --- CONSTANTS ---
-#define kPloytecFramesPerPacket      80
-#define kPloytecSyncInterval         640
-#define kPloytecInterruptSize        3856
-#define kPloytecBulkSize             4096
-#define kPloytecInSize               5120
-
-// Endpoints (from ploytec_defs.h)
+// Endpoints (direction bit OR'd with base address from ploytec_defs.h)
 #define kEpPcmOut   PLOYTEC_EP_PCM_OUT
-#define kEpPcmIn    0x86
-#define kEpMidiIn   0x83
+#define kEpPcmIn    (PLOYTEC_EP_PCM_IN | 0x80)
+#define kEpMidiIn   (PLOYTEC_EP_MIDI_IN | 0x80)
 
 PloytecEngine::PloytecEngine(uint16_t pid) {
     mIsBulk = false;
-    mPacketSizeOut = mIsBulk ? kPloytecBulkSize : kPloytecInterruptSize;
+    mPacketSizeOut = mIsBulk ? PLOYTEC_BULK_OUT_PKT_SIZE : PLOYTEC_INT_OUT_PKT_SIZE;
 
     // --- Define Hardware Topology ---
     // The Xone:DB4 presents two interfaces:
     // Intf 0: Control + PCM Out + MIDI In
     // Intf 1: PCM In
     
-    mProfile.interfaceCount = 2;
+    mProfile.interfaceCount = PLOYTEC_NUM_INTERFACES;
     mProfile.interfaceIndices[0] = 0;
     mProfile.interfaceIndices[1] = 1;
     
@@ -44,22 +38,21 @@ bool PloytecEngine::Start() {
     auto* shm = GetSHM();
     if(!shm) return false;
     
-    LogPloytec("PloytecEngine: Initializing...");
+    LogPloytec("--- begin handshake sequence ---");
 
     // 1. Setup Shared Memory (device names already set by kext from USB descriptors)
-    shm->audio.updateIntervalFrames = kPloytecSyncInterval;
     shm->audio.deviceFlags = (mIsBulk ? 1 : 0);
-    shm->audio.framesPerPacket = kPloytecFramesPerPacket;  // 80 frames per logical packet
-    shm->audio.samplesPerPacket = 10;  // 10 samples per USB sub-packet (8 sub-packets per logical packet)
-    shm->audio.outputBytesPerFrame = 48; // Ploytec encoding: 48 bytes per frame
-    shm->audio.inputBytesPerFrame = 64;  // Ploytec encoding: 64 bytes per frame
+    shm->audio.framesPerPacket = PLOYTEC_FRAMES_PER_PKT;  // 80 frames per logical packet
+    shm->audio.samplesPerPacket = 10;  // 10 samples per USB sub-packet
+    shm->audio.outputBytesPerFrame = PLOYTEC_OUT_FRAME_SIZE;
+    shm->audio.inputBytesPerFrame = PLOYTEC_IN_FRAME_SIZE;
     
     // 2. Hardware Handshake Sequence
     ReadFirmwareVersion();
     GetHardwareFrameRate(); 
     
     if (!SetHardwareFrameRate(96000)) {
-        LogPloytec("Failed to set Sample Rate");
+        LogPloytec("handshake failed: sample rate");
         return false;
     }
     
@@ -69,13 +62,13 @@ bool PloytecEngine::Start() {
     /* Read status, set MODE5 bit, sign-extend, and write back */
     {
         uint8_t statusBuf[1] = {0};
-        if (!mBus->VendorRequest(0xC0, 'I', 0, 0, statusBuf, 1)) {
-            LogPloytec("Failed to read status for confirm");
+        if (!mBus->VendorRequest(0xC0, PLOYTEC_CMD_STATUS, 0, 0, statusBuf, 1)) {
+            LogPloytec("handshake failed: status read");
             return false;
         }
         uint16_t wval = ploytec_confirm_wvalue(statusBuf[0]);
         WriteHardwareStatus(wval);
-        LogPloytec("Status confirmed: read=0x%02X, wrote=0x%04X", statusBuf[0], wval);
+        LogPloytec("status confirmed: read=0x%02X, wrote=0x%04X", statusBuf[0], wval);
     }
     ReadHardwareStatus();
     
@@ -98,8 +91,8 @@ bool PloytecEngine::Start() {
         // Fill MIDI bytes in all 8 USB sub-packets within this logical packet
         for (uint32_t subPacket = 0; subPacket < 8; subPacket++) {
             uint32_t midiAddr = logicalPacketBase + (subPacket * subPacketSize) + midiOffset;
-            shm->audio.outputBuffer[midiAddr] = 0xFD;
-            shm->audio.outputBuffer[midiAddr + 1] = 0xFD;
+            shm->audio.outputBuffer[midiAddr] = PLOYTEC_MIDI_IDLE_BYTE;
+            shm->audio.outputBuffer[midiAddr + 1] = PLOYTEC_MIDI_IDLE_BYTE;
         }
     }
 
@@ -113,7 +106,7 @@ bool PloytecEngine::Start() {
     // Driver is now fully initialized and ready for I/O
     shm->audio.driverReady = true;
 
-    LogPloytec("PloytecEngine: Started.");
+    LogPloytec("--- handshake complete, device ready ---");
     return true;
 }
 
@@ -125,7 +118,7 @@ void PloytecEngine::Stop() {
     shm->audio.driverReady = false;
     shm->audio.hardwarePresent = false;
     
-    LogPloytec("PloytecEngine: Stopped.");
+    LogPloytec("engine stopped");
 }
 
 void PloytecEngine::ProcessMIDIOutput(uint32_t packetIdx) {
@@ -155,7 +148,7 @@ void PloytecEngine::ProcessMIDIOutput(uint32_t packetIdx) {
         shm->midiOut.readIndex = r;
     } else {
         // No MIDI data available - write ignore byte
-        shm->audio.outputBuffer[midiAddr] = 0xFD;
+        shm->audio.outputBuffer[midiAddr] = PLOYTEC_MIDI_IDLE_BYTE;
     }
 }
 
@@ -198,7 +191,7 @@ void PloytecEngine::OnPacketComplete(uint8_t pipeID, void* ctx, int status, uint
                                  (uint8_t*)GetSHM()->audio.outputBuffer + (packetIdx * kOzzyMaxPacketSize), 
                                  mPacketSizeOut,
                                  (void*)(uintptr_t)nextIdx)) {
-             LogPloytec("Output Submission Failed for Index %d", nextIdx);
+             LogPloytec("output submission failed (idx: %d)", nextIdx);
         }
     }
     else if (pipeID == kEpPcmIn) {
@@ -207,8 +200,8 @@ void PloytecEngine::OnPacketComplete(uint8_t pipeID, void* ctx, int status, uint
         uint32_t offset = packetIdx * kOzzyMaxPacketSize;
         uint8_t* buf = (uint8_t*)GetSHM()->audio.inputBuffer + offset;
 
-        if (!mBus->SubmitUSBPacket(kEpPcmIn, buf, kPloytecInSize, (void*)(uintptr_t)nextIdx)) {
-            LogPloytec("Input Submission Failed! (Idx: %d, Offset: %u)", nextIdx, offset);
+        if (!mBus->SubmitUSBPacket(kEpPcmIn, buf, PLOYTEC_IN_PKT_SIZE, (void*)(uintptr_t)nextIdx)) {
+            LogPloytec("input submission failed (idx: %d, offset: %u)", nextIdx, offset);
         }
     }
     else if (pipeID == kEpMidiIn) {
@@ -224,9 +217,9 @@ void PloytecEngine::UpdateTimestamp() {
     auto* shm = GetSHM();
     if(!shm || !shm->audio.driverReady) return;
 
-    mHwSampleTime += kPloytecFramesPerPacket;
+    mHwSampleTime += PLOYTEC_FRAMES_PER_PKT;
 
-    if ((mHwSampleTime % kPloytecSyncInterval) == 0) {
+    if ((mHwSampleTime % (PLOYTEC_FRAMES_PER_PKT * 8)) == 0) {
         volatile auto* ts = &shm->audio.timestamp;
         uint32_t seq = ts->sequence;
         ts->sequence = seq + 1;
@@ -255,13 +248,13 @@ void PloytecEngine::SubmitPCMIn(uint32_t packetIdx) {
     uint8_t* buffer = (uint8_t*)shm->audio.inputBuffer + (pIdx * kOzzyMaxPacketSize);
     
     // 0x86 & 0x80 = In, handled by KextBus logic
-    mBus->SubmitUSBPacket(kEpPcmIn, buffer, kPloytecInSize, (void*)(uintptr_t)packetIdx);
+    mBus->SubmitUSBPacket(kEpPcmIn, buffer, PLOYTEC_IN_PKT_SIZE, (void*)(uintptr_t)packetIdx);
 }
 
 void PloytecEngine::SubmitMIDIIn(uint32_t idx) {
     auto* shm = GetSHM();
     if (!mBus->SubmitUSBPacket(kEpMidiIn, (void*)shm->midiInUSBBuffer, sizeof(shm->midiInUSBBuffer), (void*)(uintptr_t)idx)) {
-        LogPloytec("MIDI Input Submission Failed (idx: %u)", idx);
+        LogPloytec("MIDI input submission failed (idx: %u)", idx);
     }
 }
 
@@ -273,16 +266,16 @@ bool PloytecEngine::ReadFirmwareVersion() {
     uint8_t buf[16] = {0};
     if (!mBus->VendorRequest(0xC0, PLOYTEC_CMD_FIRMWARE, 0, 0, buf, 0x0F)) return false;
     struct ploytec_firmware_version fw = ploytec_parse_firmware(buf);
-    LogPloytec("Firmware: v1.%u.%u (ID:0x%02X)", fw.major, fw.minor, fw.chip_id);
+    LogPloytec("firmware: v1.%u.%u (chip ID: 0x%02X)", fw.major, fw.minor, fw.chip_id);
     return true;
 }
 
 bool PloytecEngine::ReadHardwareStatus() {
     uint8_t buf[1] = {0};
-    if (!mBus->VendorRequest(0xC0, 'I', 0, 0, buf, 1)) return false;
+    if (!mBus->VendorRequest(0xC0, PLOYTEC_CMD_STATUS, 0, 0, buf, 1)) return false;
     uint8_t s = buf[0];
     
-    LogPloytec("Status: [0x%02X] %s %s %s %s %s %s", s,
+    LogPloytec("status: [0x%02X] %s %s %s %s %s %s", s,
               (s & 0x80) ? "[HighSpeed]"   : "[FullSpeed]",
               (s & 0x20) ? "[Legacy/BCD1]" : "[Modern/BCD3]",
               (s & 0x10) ? "[Armed]"       : "[Disarmed]",
@@ -294,14 +287,14 @@ bool PloytecEngine::ReadHardwareStatus() {
 
 bool PloytecEngine::GetHardwareFrameRate() {
     uint8_t buf[3] = {0};
-    if (!mBus->VendorRequest(0xA2, 0x81, 0x0100, 0, buf, 3)) return false;
+    if (!mBus->VendorRequest(PLOYTEC_CMD_GET_RATE_TYPE, PLOYTEC_CMD_GET_RATE_REQ, 0x0100, 0, buf, 3)) return false;
     uint32_t rate = ploytec_decode_rate(buf);
-    LogPloytec("Current Rate: %u Hz", rate);
+    LogPloytec("hardware sample rate: %u Hz", rate);
     return true;
 }
 
 bool PloytecEngine::SetHardwareFrameRate(uint32_t r) {
-    LogPloytec("Setting Rate to %u Hz...", r);
+    LogPloytec("setting sample rate to %u Hz...", r);
     uint8_t buf[3];
     ploytec_encode_rate(r, buf);
 
@@ -310,6 +303,6 @@ bool PloytecEngine::SetHardwareFrameRate(uint32_t r) {
 }
 
 bool PloytecEngine::WriteHardwareStatus(uint16_t v) {
-    LogPloytec("Writing Status: 0x%04X", v);
-    return mBus->VendorRequest(0x40, 'I', v, 0, nullptr, 0);
+    LogPloytec("writing status: 0x%04X", v);
+    return mBus->VendorRequest(0x40, PLOYTEC_CMD_STATUS, v, 0, nullptr, 0);
 }

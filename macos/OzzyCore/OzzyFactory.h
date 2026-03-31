@@ -8,7 +8,7 @@ class OzzyFactory {
 public:
     static OzzyEngine* CreateEngine(uint16_t vendorID, uint16_t productID) {
         // Ploytec Devices
-        if (vendorID == 0x0A4A) {
+        if (vendorID == PLOYTEC_VENDOR_ID) {
             return new PloytecEngine(productID);
         }
         

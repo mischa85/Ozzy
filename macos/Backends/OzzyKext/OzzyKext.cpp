@@ -122,11 +122,11 @@ OSDefineMetaClassAndStructors(OzzyKext, IOService)
 
 bool OzzyKext::start(IOService* provider) {
     if (!IOService::start(provider)) return false;
-    LogOzzyKext("Start (SubDescriptor Arch)");
+    LogOzzyKext("start");
 
     mHostDevice = OSDynamicCast(IOUSBHostDevice, provider);
     if (!mHostDevice || !mHostDevice->open(this)) {
-        LogOzzyKext("Open Failed");
+        LogOzzyKext("open failed");
         return false;
     }
 
@@ -147,8 +147,12 @@ bool OzzyKext::start(IOService* provider) {
         GetRegistryString(mHostDevice, "USB Product Name", mSHM->productName, 64);
         GetRegistryString(mHostDevice, "USB Serial Number", mSHM->serialNumber, 64);
         
-        LogOzzyKext("Device: %s %s (S/N: %s)", mSHM->manufacturerName, mSHM->productName, 
+        LogOzzyKext("found device: %s %s (S/N: %s)", mSHM->manufacturerName, mSHM->productName,
             mSHM->serialNumber[0] ? mSHM->serialNumber : "none");
+        LogOzzyKext("  USB ID: %04x:%04x", desc->idVendor, desc->idProduct);
+        LogOzzyKext("  speed: %s",
+            mHostDevice->getSpeed() == kUSBHostConnectionSpeedHigh ? "high" :
+            mHostDevice->getSpeed() == kUSBHostConnectionSpeedFull ? "full" : "unknown");
     }
     
     uint16_t pid = desc ? desc->idProduct : 0;
@@ -163,26 +167,23 @@ bool OzzyKext::start(IOService* provider) {
     // NEW: Hand the Master Descriptor to the Bus
     mBus->SetSharedMemory(mShmDescriptor, mSHM);
 
-    LogOzzyKext("Engine Active. Configuring...");
+    LogOzzyKext("configuring hardware...");
     if (!ConfigureHardware()) {
-        LogOzzyKext("Config Failed");
+        LogOzzyKext("configuration failed");
         return false;
     }
 
-    LogOzzyKext("Linking Bus...");
     mBus->SetPipePool(mPipes, kMaxPipes);
-    
-    LogOzzyKext("Initializing Engine...");
+
+    LogOzzyKext("initializing engine...");
     mEngine->Init(mBus, mSHM);
     
-    LogOzzyKext("Starting Engine...");
-    
     if (!mEngine->Start()) {
-        LogOzzyKext("Engine Start Failed");
+        LogOzzyKext("engine start failed");
         return false;
     }
 
-    LogOzzyKext("Driver Fully Operational");
+    LogOzzyKext("driver ready");
 
     registerService();
 
@@ -191,7 +192,7 @@ bool OzzyKext::start(IOService* provider) {
 
 IOReturn OzzyKext::message(UInt32 type, IOService* provider, void* argument) {
     if (type == kIOMessageServiceIsTerminated) {
-        LogOzzyKext("USB Device Terminated (Unplugged)");
+        LogOzzyKext("device disconnected");
         
         // Immediately signal HAL that hardware is gone
         if (mSHM) {
@@ -217,7 +218,7 @@ IOReturn OzzyKext::message(UInt32 type, IOService* provider, void* argument) {
 }
 
 void OzzyKext::stop(IOService* provider) {
-    LogOzzyKext("Stop");
+    LogOzzyKext("stop");
     
     // 0. Invalidate shared memory magic to signal HAL immediately
     if (mSHM) {
@@ -279,7 +280,7 @@ void OzzyKext::stop(IOService* provider) {
 }
 
 void OzzyKext::free() {
-    LogOzzyKext("Free");
+    LogOzzyKext("free");
     IOService::free();
 }
 
@@ -313,7 +314,7 @@ void OzzyKext::UnmapSharedMemory() {
 bool OzzyKext::ConfigureHardware() {
     // 1. Get WorkLoop
     IOWorkLoop* wl = getWorkLoop();
-    if (!wl) { LogOzzyKext("No WorkLoop"); return false; }
+    if (!wl) { LogOzzyKext("no workloop"); return false; }
 
     const OzzyDeviceProfile& profile = mEngine->GetProfile();
 
@@ -373,13 +374,13 @@ bool OzzyKext::ConfigureHardware() {
             if (p) {
                 if (pipeCounter < kMaxPipes) {
                     mPipes[pipeCounter++] = p;
-                    LogOzzyKext("   Pipe 0x%02X Opened", cfg->address);
+                    LogOzzyKext("  pipe 0x%02x opened", cfg->address);
                 } else p->release();
             } else {
-                LogOzzyKext("   Failed to open Pipe 0x%02X", cfg->address);
+                LogOzzyKext("  failed to open pipe 0x%02x", cfg->address);
             }
         } else {
-            LogOzzyKext("   No interface found for Pipe 0x%02X", cfg->address);
+            LogOzzyKext("  no interface found for pipe 0x%02x", cfg->address);
         }
     }
     return true;

@@ -115,6 +115,7 @@ private:
     pthread_t mMonitorThread;
     std::atomic<bool> mMonitorRunning { false };
     bool mLastConnectedState = false;
+    bool mLoggedWaitingForDriver = false;
     alignas(16) uint8_t mChannelLayoutBuffer[0x50C];
 
     void MapSharedMemory();

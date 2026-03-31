@@ -14,7 +14,7 @@ struct TransferContext {
 void KextBus_GlobalCompletion(void* owner, void* parameter, IOReturn status, uint32_t bytesTransferred) {
     TransferContext* ctx = (TransferContext*)parameter;
     if (!ctx) {
-        LogOzzyKext("Callback fired with NULL Context!");
+        LogOzzyKext("callback: NULL context");
         return;
     }
 
@@ -33,7 +33,7 @@ void KextBus_GlobalCompletion(void* owner, void* parameter, IOReturn status, uin
     */
     // Log errors immediately
     if (status != kIOReturnSuccess && status != kIOReturnAborted) {
-        LogOzzyKext("Error on Pipe 0x%02X: 0x%x", ctx->pipeID, status);
+        LogOzzyKext("pipe 0x%02x error: 0x%x", ctx->pipeID, status);
     }
     // ---------------------------
 

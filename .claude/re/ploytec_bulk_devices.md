@@ -46,6 +46,29 @@ Examples from `onServiceStart`:
 - 0x2573/0x0012: HS=16in+8out, FS=2in+2out
 - 0x200C/0x1006: HS=6in+6out, FS=2in+2out
 
+## Interrupt sub-packet wire format (confirmed for DB2 by Windows USB capture)
+
+Both bulk and interrupt sub-packets use **identical 512-byte wire format**:
+
+```
+Bulk:      [480 bytes PCM (10 frames × 48)][2 bytes MIDI][30 bytes padding] = 512 bytes
+Interrupt: [480 bytes PCM (10 frames × 48)][2 bytes MIDI][30 bytes padding] = 512 bytes
+```
+
+**MIDI is always at byte offset 480** — immediately after the 10th PCM frame.
+
+Evidence from `db2.pcapng` (Windows driver, DB2 interrupt endpoint 0x05):
+- URBs are 7168 bytes = 14 × 512 sub-packets (bulk format, NOT 14 × 482)
+- Zero regions appear every 512 bytes at offset 480 (MIDI + 30-byte pad)
+- Audio data only in bytes 0x00-0x01 per sub-packet (bit-scatter ch0 confirmed)
+
+The Windows driver sends 14 sub-packets per URB (7168 bytes). Our driver uses 8 per URB
+(4096 bytes). Sub-packet count per URB should not affect correctness — the device consumes
+sub-packets independently. The 512-byte wire format is the critical invariant.
+
+**DB2 sample rate**: 48000 Hz (0x00BB80). Windows driver sets 48kHz, NOT 96kHz.
+Device power-on default is 44100 Hz (0x00AC44).
+
 ## Firmware version and transfer types
 
 For the DB4 specifically:

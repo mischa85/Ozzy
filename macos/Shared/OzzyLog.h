@@ -41,4 +41,8 @@ static inline os_log_t GetOzzyMIDILog() {
 #define LogOzzyMIDI(fmt, ...) os_log_info(GetOzzyMIDILog(), "[OzzyMIDI] " fmt, ##__VA_ARGS__)
 #define LogOzzyMIDIError(fmt, ...) os_log_error(GetOzzyMIDILog(), "[OzzyMIDI] " fmt, ##__VA_ARGS__)
 
+/* Kext macros available in userspace (clangd, unit tests). */
+#define LogOzzyKext(fmt, ...) os_log(OS_LOG_DEFAULT, "[OzzyKext] " fmt, ##__VA_ARGS__)
+#define LogPloytec(fmt, ...)  os_log(OS_LOG_DEFAULT, "[Ploytec] "  fmt, ##__VA_ARGS__)
+
 #endif

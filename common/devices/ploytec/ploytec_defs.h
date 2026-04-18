@@ -36,14 +36,14 @@ extern "C" {
 
 /* USB sub-packet sizes (minimal transfer unit) */
 #define PLOYTEC_BULK_OUT_SUBPKT_SIZE  512   /* bytes per bulk output sub-packet */
-#define PLOYTEC_INT_OUT_SUBPKT_SIZE   482   /* bytes per interrupt output sub-packet */
+#define PLOYTEC_INT_OUT_SUBPKT_SIZE   512   /* bytes per interrupt output sub-packet (same as bulk: 480 PCM + 2 MIDI + 30 pad) */
 #define PLOYTEC_IN_SUBPKT_SIZE        512   /* bytes per input sub-packet (bulk & interrupt) */
 #define PLOYTEC_FRAMES_PER_OUT_SUBPKT 10    /* audio frames per output sub-packet */
 #define PLOYTEC_FRAMES_PER_IN_SUBPKT  8     /* audio frames per input sub-packet */
 
 /* Packet sizes */
 #define PLOYTEC_BULK_OUT_PKT_SIZE   4096    /* 8 bulk sub-packets (512 * 8) */
-#define PLOYTEC_INT_OUT_PKT_SIZE    3856    /* 8 interrupt sub-packets (482 * 8) */
+#define PLOYTEC_INT_OUT_PKT_SIZE    4096    /* 8 interrupt sub-packets (512 * 8, same bulk wire format confirmed by USB capture) */
 #define PLOYTEC_IN_PKT_SIZE         5120    /* 10 input sub-packets (512 * 10) */
 
 /* USB interface configuration */

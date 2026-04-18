@@ -6,13 +6,14 @@
 // ============================================================================
 // KERNEL (KEXT) LOGGING
 // ============================================================================
-#include <IOKit/IOLib.h>
+// IOLog is deprecated and invisible on macOS 12+. Use os_log instead.
+#include <os/log.h>
 
 // OzzyKext logging (device-agnostic kext code)
-#define LogOzzyKext(fmt, ...) IOLog("[OzzyKext] " fmt "\n", ##__VA_ARGS__)
+#define LogOzzyKext(fmt, ...) os_log(OS_LOG_DEFAULT, "[OzzyKext] " fmt, ##__VA_ARGS__)
 
 // Ploytec logging (device-specific code in kext)
-#define LogPloytec(fmt, ...) IOLog("[Ploytec] " fmt "\n", ##__VA_ARGS__)
+#define LogPloytec(fmt, ...) os_log(OS_LOG_DEFAULT, "[Ploytec] " fmt, ##__VA_ARGS__)
 
 #else
 // ============================================================================
@@ -40,5 +41,9 @@ static inline os_log_t GetOzzyMIDILog() {
 // Logging macros for MIDI
 #define LogOzzyMIDI(fmt, ...) os_log_info(GetOzzyMIDILog(), "[OzzyMIDI] " fmt, ##__VA_ARGS__)
 #define LogOzzyMIDIError(fmt, ...) os_log_error(GetOzzyMIDILog(), "[OzzyMIDI] " fmt, ##__VA_ARGS__)
+
+/* Kext macros available in userspace (clangd, unit tests). */
+#define LogOzzyKext(fmt, ...) os_log(OS_LOG_DEFAULT, "[OzzyKext] " fmt, ##__VA_ARGS__)
+#define LogPloytec(fmt, ...)  os_log(OS_LOG_DEFAULT, "[Ploytec] "  fmt, ##__VA_ARGS__)
 
 #endif

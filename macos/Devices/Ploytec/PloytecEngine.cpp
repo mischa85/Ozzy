@@ -55,7 +55,7 @@ bool PloytecEngine::Start() {
     ReadFirmwareVersion();
     GetHardwareFrameRate(); 
     
-    if (!SetHardwareFrameRate(96000)) {
+    if (!SetHardwareFrameRate(48000)) {
         LogPloytec("handshake failed: sample rate");
         return false;
     }
@@ -79,15 +79,22 @@ bool PloytecEngine::Start() {
     // Hardware is confirmed working and communicating
     shm->audio.hardwarePresent = true;
 
-    // 3. Reset Engine State
+    // 3. Reset Engine State — initialize timestamp with current host time so
+    //    GetZeroTimeStamp never returns hostTime=0 (which makes CoreAudio think
+    //    the clock started at boot and floods the ring buffer to "catch up").
     mHwSampleTime = 0;
-    shm->audio.timestamp.sampleTime = 0;
+    {
+        volatile auto* ts = &shm->audio.timestamp;
+        ts->sequence    = 0;
+        ts->sampleTime  = 0;
+        ts->hostTime    = mBus->GetTime();
+    }
 
     // 4. Pre-fill MIDI/UART sync pattern (0xFD) in entire output buffer
     // Each logical packet occupies kOzzyMaxPacketSize bytes
-    // Each logical packet contains 8 USB sub-packets (482 or 512 bytes each)
-    uint32_t subPacketSize = mIsBulk ? 512 : 482;
-    uint32_t midiOffset = mIsBulk ? 480 : 432;
+    // Each logical packet contains 8 USB sub-packets (512 bytes each for both bulk and interrupt)
+    uint32_t subPacketSize = 512;
+    uint32_t midiOffset = 480;  // MIDI always follows 10 samples × 48 bytes; 30-byte pad follows MIDI
     
     for (uint32_t logicalPacket = 0; logicalPacket < kOzzyNumPackets; logicalPacket++) {
         uint32_t logicalPacketBase = logicalPacket * kOzzyMaxPacketSize;
@@ -136,8 +143,7 @@ void PloytecEngine::ProcessMIDIOutput(uint32_t packetIdx) {
     // Calculate MIDI byte positions for this packet (8 USB sub-packets per logical packet)
     uint32_t logicalPacket = packetIdx % kOzzyNumPackets;
     uint32_t logicalPacketBase = logicalPacket * kOzzyMaxPacketSize;
-    uint32_t subPacketSize = mIsBulk ? 512 : 482;
-    uint32_t midiOffset = mIsBulk ? 480 : 432;
+    uint32_t midiOffset = 480;  // MIDI always follows 10 samples × 48 bytes; 30-byte pad follows MIDI
     
     // Only use the first MIDI byte position in the first sub-packet
     // This limits MIDI output to ~1200 bytes/sec (9600 bps) at 96kHz, safely below 31.25 kbps
@@ -180,8 +186,9 @@ void PloytecEngine::OnPacketComplete(uint8_t pipeID, void* ctx, int status, uint
     uint32_t finishedIdx = (uint32_t)(uintptr_t)ctx;
     uint32_t nextIdx = finishedIdx + 2;
 
-    // DIAGNOSTIC: Confirm we entered the function
-    // mBus->Log("🧩 Engine: Pipe 0x%02X Pkt %d Done -> Queueing %d", pipeID, finishedIdx, nextIdx);
+    // DIAGNOSTIC: Log every 960th callback (~1/sec at 96kHz) to confirm ring buffer is running
+    if ((finishedIdx % 960) == 0)
+        LogPloytec("heartbeat: pipe 0x%02X pkt %u", pipeID, finishedIdx);
 
     if (pipeID == kEpPcmOut) { 
         UpdateTimestamp();
@@ -302,8 +309,20 @@ bool PloytecEngine::SetHardwareFrameRate(uint32_t r) {
     uint8_t buf[3];
     ploytec_encode_rate(r, buf);
 
-    mBus->VendorRequest(PLOYTEC_CMD_SET_RATE_TYPE, PLOYTEC_CMD_SET_RATE_REQ, 0x0100, PLOYTEC_EP_RATE_IN, buf, 3);
-    return mBus->VendorRequest(PLOYTEC_CMD_SET_RATE_TYPE, PLOYTEC_CMD_SET_RATE_REQ, 0x0100, PLOYTEC_EP_RATE_OUT, buf, 3);
+    /* Windows driver sends 7 SET_CUR calls alternating IN/OUT, starting with IN:
+     * IN, OUT, IN, OUT, IN, OUT, IN  (4× IN endpoint 0x86, 3× OUT endpoint 0x05)
+     * Confirmed from USB capture of Allen & Heath Xone:DB2 on Windows. */
+    const uint16_t eps[7] = {
+        PLOYTEC_EP_RATE_IN,  PLOYTEC_EP_RATE_OUT,
+        PLOYTEC_EP_RATE_IN,  PLOYTEC_EP_RATE_OUT,
+        PLOYTEC_EP_RATE_IN,  PLOYTEC_EP_RATE_OUT,
+        PLOYTEC_EP_RATE_IN
+    };
+    for (int i = 0; i < 7; i++) {
+        if (!mBus->VendorRequest(PLOYTEC_CMD_SET_RATE_TYPE, PLOYTEC_CMD_SET_RATE_REQ, 0x0100, eps[i], buf, 3))
+            return false;
+    }
+    return true;
 }
 
 bool PloytecEngine::WriteHardwareStatus(uint16_t v) {

@@ -70,17 +70,17 @@ void OzzyHAL::Init(AudioServerPlugInHostRef host) {
     mManufacturerUID = CFSTR("Ozzy");
     mZeroTimestampPeriod = 640;
 
-    mCurrentStreamFormat.mSampleRate = 96000.0;
+    mCurrentStreamFormat.mSampleRate = 48000.0;
     mCurrentStreamFormat.mFormatID = kAudioFormatLinearPCM;
-    mCurrentStreamFormat.mFormatFlags = kAudioFormatFlagIsFloat;
+    mCurrentStreamFormat.mFormatFlags = kAudioFormatFlagsNativeFloatPacked;
     mCurrentStreamFormat.mBytesPerPacket = 32;
     mCurrentStreamFormat.mFramesPerPacket = 1;
     mCurrentStreamFormat.mBytesPerFrame = 32;
     mCurrentStreamFormat.mChannelsPerFrame = 8;
     mCurrentStreamFormat.mBitsPerChannel = 32;
 
-    mAvailableSampleRates.mMinimum = 96000.0; 
-    mAvailableSampleRates.mMaximum = 96000.0;
+    mAvailableSampleRates.mMinimum = 48000.0;
+    mAvailableSampleRates.mMaximum = 48000.0;
 
     RebuildStreamConfigs();
 
@@ -139,7 +139,9 @@ void OzzyHAL::MapSharedMemory() {
         kern_return_t kr = IOServiceOpen(service, mach_task_self(), 0, &mKextConnect);
         IOObjectRelease(service);
 
-        if (kr == KERN_SUCCESS) {
+        if (kr != KERN_SUCCESS) {
+            LogOzzyHALError("IOServiceOpen failed: 0x%{public}x", kr);
+        } else {
             kr = IOConnectMapMemory(mKextConnect, 0, mach_task_self(), &mKextMapAddress, &mKextMapSize, kIOMapAnywhere);
             if (kr == KERN_SUCCESS) {
                 mSHM = (OzzySharedMemory*)mKextMapAddress;
@@ -449,6 +451,32 @@ OSStatus OzzyHAL::ioOperation(AudioServerPlugInDriverRef inDriver, AudioObjectID
     if (inOperationID == kAudioServerPlugInIOOperationWriteMix) {
         if (mWriteOutput) {
             uint64_t sampleTime = (uint64_t)inIOCycleInfo->mOutputTime.mSampleTime;
+
+            /* Diagnostic: log every ~1 sec. Show raw buffer pointer, first 4 uint32 words
+             * as hex, and peak. This helps distinguish:
+             *   - ioMainBuffer == null
+             *   - ioMainBuffer is an AudioBufferList* (first word = small int numBuffers)
+             *   - ioMainBuffer is a flat float array (first words = float audio) */
+            static uint64_t sLastLoggedWrite = UINT64_MAX;
+            if (sLastLoggedWrite == UINT64_MAX || sampleTime - sLastLoggedWrite >= 4800) { /* every 50ms */
+                const uint32_t* raw = (const uint32_t*)ioMainBuffer;
+                const float*    f   = (const float*)ioMainBuffer;
+                float peak = 0.0f;
+                if (f) {
+                    for (uint32_t k = 0; k < inIOBufferFrameSize * mCurrentStreamFormat.mChannelsPerFrame; k++) {
+                        float v = f[k] < 0 ? -f[k] : f[k];
+                        if (v > peak) peak = v;
+                    }
+                }
+                LogOzzyHAL("write st=%{public}llu fr=%{public}u buf=%{public}p sec=%{public}p "
+                            "raw=[%{public}08X %{public}08X %{public}08X %{public}08X] peak=%.6f stream=%{public}u",
+                            (unsigned long long)sampleTime, inIOBufferFrameSize,
+                            ioMainBuffer, ioSecondaryBuffer,
+                            raw ? raw[0] : 0, raw ? raw[1] : 0, raw ? raw[2] : 0, raw ? raw[3] : 0,
+                            peak, inStreamObjectID);
+                sLastLoggedWrite = sampleTime;
+            }
+
             mWriteOutput(mOutputBufferAddr, (const float*)ioMainBuffer, sampleTime, inIOBufferFrameSize, mRingSize, mOutputBytesPerFrame);
             mSHM->audio.halWritePosition.store(sampleTime + inIOBufferFrameSize, std::memory_order_release);
         }
@@ -468,7 +496,7 @@ CFStringRef OzzyHAL::GetDeviceUID() const { return mDeviceUID; }
 CFStringRef OzzyHAL::GetModelUID() const { return mModelUID; }
 UInt32 OzzyHAL::GetTransportType() const { return kAudioDeviceTransportTypeUSB; }
 UInt32 OzzyHAL::GetClockDomain() const { return 0x504C4F59; }
-Float64 OzzyHAL::GetNominalSampleRate() const { return 96000.0; }
+Float64 OzzyHAL::GetNominalSampleRate() const { return 48000.0; }
 AudioValueRange OzzyHAL::GetAvailableSampleRates() const { return mAvailableSampleRates; }
 AudioBufferList* OzzyHAL::GetInputStreamConfiguration() const { return const_cast<AudioBufferList*>(&mInputConfig); }
 AudioBufferList* OzzyHAL::GetOutputStreamConfiguration() const { return const_cast<AudioBufferList*>(&mOutputConfig); }
@@ -477,25 +505,26 @@ AudioObjectID OzzyHAL::GetOutputStreamID() const { return kOzzyOutputStreamID; }
 AudioStreamBasicDescription OzzyHAL::GetStreamFormat() const { return mCurrentStreamFormat; }
 AudioStreamRangedDescription OzzyHAL::GetStreamRangedDescription() const {
     AudioStreamRangedDescription outDesc; outDesc.mFormat = GetStreamFormat();
-    outDesc.mSampleRateRange.mMinimum = 96000.0; outDesc.mSampleRateRange.mMaximum = 96000.0;
+    outDesc.mSampleRateRange.mMinimum = 48000.0; outDesc.mSampleRateRange.mMaximum = 48000.0;
     return outDesc;
 }
 UInt32 OzzyHAL::GetZeroTimestampPeriod() const { return mZeroTimestampPeriod; }
 
 AudioChannelLayout* OzzyHAL::GetPreferredChannelLayout(AudioObjectPropertyScope inScope) {
     AudioChannelLayout* layout = (AudioChannelLayout*)mChannelLayoutBuffer;
-    layout->mChannelLayoutTag = kAudioChannelLayoutTag_UseChannelDescriptions;
+    /* MPEG_7_1_A: L, R, C, LFE, Ls, Rs, Lss, Rss (8 channels with standard L/R labels).
+     * CoreAudio maps stereo afplay (L→ch0, R→ch1) because the first two channels carry
+     * kAudioChannelLabel_Left and kAudioChannelLabel_Right.
+     * DiscreteInOrder would assign kAudioChannelLabel_Discrete_0..7 which never matches
+     * any stereo source label, causing CoreAudio to silence the entire mix. */
+    layout->mChannelLayoutTag = kAudioChannelLayoutTag_MPEG_7_1_A;
     layout->mChannelBitmap = 0;
-    layout->mNumberChannelDescriptions = 8;
-    for (UInt32 i = 0; i < 8; ++i) {
-        layout->mChannelDescriptions[i].mChannelLabel = kAudioChannelLabel_Unknown;
-        layout->mChannelDescriptions[i].mChannelFlags = kAudioChannelFlags_AllOff;
-    }
+    layout->mNumberChannelDescriptions = 0;
     return layout;
 }
 
 UInt32 OzzyHAL::GetPreferredChannelLayoutSize(AudioObjectPropertyScope inScope) const {
-    return offsetof(AudioChannelLayout, mChannelDescriptions) + (8 * sizeof(AudioChannelDescription));
+    return offsetof(AudioChannelLayout, mChannelDescriptions); /* no descriptions when using tag */
 }
 
 extern "C" HRESULT OzzyInitialize(AudioServerPlugInDriverRef, AudioServerPlugInHostRef inHost) {
@@ -696,7 +725,26 @@ extern "C" HRESULT OzzySetPropertyData(AudioServerPlugInDriverRef, AudioObjectID
 extern "C" HRESULT OzzyStartIO(AudioServerPlugInDriverRef, AudioObjectID, UInt32) { return OzzyHAL::Get().StartIO(); }
 extern "C" HRESULT OzzyStopIO(AudioServerPlugInDriverRef, AudioObjectID, UInt32) { return OzzyHAL::Get().StopIO(); }
 extern "C" HRESULT OzzyGetZeroTimeStamp(AudioServerPlugInDriverRef inDriver, AudioObjectID inDeviceObjectID, UInt32 inClientID, Float64* outSampleTime, UInt64* outHostTime, UInt64* outSeed) { return OzzyHAL::Get().GetZeroTimeStamp(inDriver, inDeviceObjectID, inClientID, outSampleTime, outHostTime, outSeed); }
-extern "C" OSStatus OzzyWillDoIOOperation(AudioServerPlugInDriverRef, AudioObjectID, UInt32, UInt32 inOperationID, Boolean* outWillDo, Boolean* outWillDoInPlace) { bool willDo = false; bool willDoInPlace = true; switch (inOperationID) { case kAudioServerPlugInIOOperationWriteMix: case kAudioServerPlugInIOOperationReadInput: willDo = true; break; default: willDo = false; break; } if (outWillDo) *outWillDo = willDo; if (outWillDoInPlace) *outWillDoInPlace = willDoInPlace; return kAudioHardwareNoError; }
+extern "C" OSStatus OzzyWillDoIOOperation(AudioServerPlugInDriverRef, AudioObjectID, UInt32, UInt32 inOperationID, Boolean* outWillDo, Boolean* outWillDoInPlace) {
+    bool willDo = false;
+    bool willDoInPlace = true;
+    switch (inOperationID) {
+        case kAudioServerPlugInIOOperationWriteMix:
+            willDo = true;
+            willDoInPlace = false;  /* CoreAudio must provide a separate float PCM mix buffer */
+            break;
+        case kAudioServerPlugInIOOperationReadInput:
+            willDo = true;
+            willDoInPlace = true;
+            break;
+        default:
+            willDo = false;
+            break;
+    }
+    if (outWillDo) *outWillDo = willDo;
+    if (outWillDoInPlace) *outWillDoInPlace = willDoInPlace;
+    return kAudioHardwareNoError;
+}
 extern "C" OSStatus OzzyBeginIOOperation(AudioServerPlugInDriverRef, AudioObjectID, UInt32, UInt32, UInt32, const AudioServerPlugInIOCycleInfo*) { return 0; }
 extern "C" OSStatus OzzyDoIOOperation(AudioServerPlugInDriverRef inDriver, AudioObjectID inDeviceObjectID, UInt32 inStreamObjectID, UInt32 inClientID, UInt32 inOperationID, UInt32 inIOBufferFrameSize, const AudioServerPlugInIOCycleInfo* inIOCycleInfo, void* ioMainBuffer, void* ioSecondaryBuffer) { return OzzyHAL::Get().ioOperation(inDriver, inDeviceObjectID, inStreamObjectID, inClientID, inOperationID, inIOBufferFrameSize, inIOCycleInfo, ioMainBuffer, ioSecondaryBuffer); }
 extern "C" OSStatus OzzyEndIOOperation(AudioServerPlugInDriverRef, AudioObjectID, UInt32, UInt32, UInt32, const AudioServerPlugInIOCycleInfo*) { return 0; }

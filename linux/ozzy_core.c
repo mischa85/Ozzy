@@ -255,6 +255,7 @@ static void ozzy_disconnect(struct usb_interface *intf)
 	if (intf != chip->intf)
 		return;
 
+	ozzy_pcm_drain(chip);
 	ozzy_pcm_abort(chip);
 	ozzy_midi_abort(chip);
 
@@ -341,6 +342,8 @@ static struct usb_driver ozzy_usb_driver = {
 	.name        = DRIVER_NAME,
 	.probe       = ozzy_probe,
 	.disconnect  = ozzy_disconnect,
+	/* Don't let the USB core kill our URBs before ozzy_disconnect drains them */
+	.soft_unbind = 1,
 	.pre_reset   = ozzy_pre_reset,
 	.post_reset  = ozzy_post_reset,
 	.id_table    = ozzy_id_table,

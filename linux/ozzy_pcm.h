@@ -76,4 +76,10 @@ int ozzy_pcm_init_urbs(struct ozzy_chip *chip);
  */
 void ozzy_pcm_abort(struct ozzy_chip *chip);
 
+/*
+ * ozzy_pcm_drain - Stop resubmitting and let in-flight URBs complete.
+ * Call before ozzy_pcm_abort when the device stays connected.
+ */
+void ozzy_pcm_drain(struct ozzy_chip *chip);
+
 #endif /* OZZY_PCM_H */

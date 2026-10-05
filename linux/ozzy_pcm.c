@@ -9,6 +9,7 @@
  * Copyright (C) 2024 Marcel Bierling <marcel@hackerman.art>
  */
 
+#include <linux/delay.h>
 #include <linux/slab.h>
 #include <sound/pcm.h>
 
@@ -635,6 +636,25 @@ error:
 /* ========================================================================
  * Init / Abort
  * ======================================================================== */
+
+/*
+ * ozzy_pcm_drain - Stop resubmitting and let in-flight URBs complete.
+ * Killing a URB mid-packet can wedge the Xone:4D's audio engine until the
+ * mixer is power-cycled, and the PCM streams always run. So an unbind while
+ * the device stays connected (rmmod, or a userspace driver taking it over
+ * through usbfs) must let the queued packets finish first. Each URB takes
+ * under 2 ms, so 20 ms covers the whole queue.
+ */
+void ozzy_pcm_drain(struct ozzy_chip *chip)
+{
+	struct pcm_runtime *rt = chip->pcm;
+
+	if (!rt || rt->panic)
+		return;
+
+	rt->stream_state = STREAM_STOPPING;
+	msleep(20);
+}
 
 /*
  * ozzy_pcm_abort - Emergency stop all PCM activity.

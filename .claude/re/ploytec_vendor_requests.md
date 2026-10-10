@@ -196,8 +196,16 @@ wIndex:        0x0086 / 0x0005 (endpoint addresses)
 wLength:       3
 ```
 
-Sends 3 bytes, little-endian sample rate. Sent 5 times alternating between endpoints
-0x0086 and 0x0005 (3x to 0x0086, 2x to 0x0005).
+Sends 3 bytes, little-endian sample rate. How many times it is sent differs per source:
+- DB4 Windows capture: 5× alternating (3× 0x0086, 2× 0x0005)
+- DB2 Windows capture (PR #70): 7× alternating 0x86,0x05,0x86,0x05,0x86,0x05,0x86, ~27 ms apart,
+  then GET_CUR with wIndex=0x0086 to read it back
+- Official macOS driver: `setFrequency` once per pipe (2 total)
+- Ozzy currently sends 2 (commit bbfa66d). Issue #72 reports the DB2 PLL only locks with the 7-call
+  sequence. **Unconfirmed** whether the count matters or whether it's just timing.
+
+Neither driver ever sends GET_MIN/GET_MAX/GET_RES. The device is never asked which rates it
+supports. See `ploytec_sample_rates.md`.
 
 ## Standard USB Requests
 

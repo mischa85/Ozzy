@@ -2,10 +2,17 @@
 
 ## Open Questions
 
-### Sample rate change: 5-call dance vs official driver
-Our driver sends SET_CUR 5 times alternating 0x86/0x05 (from Windows USB capture). The official
-macOS driver only calls `setFrequency` once per pipe (2 total: input + output). The 5-call
-pattern may be a Windows driver quirk, or redundant. Need to test if 2 calls works for all devices.
+### Sample rate change: how many SET_CUR calls?
+Ozzy now sends 2 (one per endpoint, like the official macOS driver; commit bbfa66d). The Windows
+driver sends 5 (DB4) or 7 (DB2). Issue #72 / PR #70 report that the DB2 only produces output with
+the 7-call sequence. Need to test on DB2 whether the call count matters or whether a delay/readback
+after SET_CUR is enough.
+
+### Does the Xone:DB2 really support 88.2/96 kHz?
+The official driver offers 44.1/48/88.2/96 for the DB2 (same hardcoded table as DB4). A&H specs say
+the USB soundcard runs at 48k. The device is never asked. Test plan is in `ploytec_sample_rates.md`.
+Lead: status bit 7 (0x80) is set on DB4 and clear on DB2. Could mean "high rate capable"
+(speculative).
 
 ### Junction encoder vs our bit-interleaved codec
 `pcmTo24Junction6CH` does **channel reordering** (0→0, 3→1, 1→2, 4→3, 2→4, 5→5) and

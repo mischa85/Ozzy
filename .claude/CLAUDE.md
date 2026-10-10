@@ -9,6 +9,7 @@ This project involves ongoing reverse engineering of the Ploytec USB protocol. R
 - `ploytec_bulk_devices.md` — USB High Speed flag and transfer type selection (isPloytecBulkDevice is really isPloytecHighSpeedDevice)
 - `ploytec_vendor_requests.md` — all known USB control requests ('I','V','A','B','M','T', etc.)
 - `ploytec_vendor_request_I.md` — deep dive on vendor request 0x49 registers and bit fields
+- `ploytec_sample_rates.md` — how the official driver picks sample rates (hardcoded dummy descriptors, no device query), DB2 96k question
 - `open_questions.md` — unresolved questions and investigation leads
 
 When new RE findings come up in conversation, update these files. Treat protocol definitions as evolving — flag anything that looks partially understood.

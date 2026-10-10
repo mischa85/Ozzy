@@ -12,6 +12,7 @@
  * Copyright (C) 2024 Marcel Bierling <marcel@hackerman.art>
  */
 
+#include <linux/delay.h>
 #include <linux/slab.h>
 #include <linux/usb.h>
 
@@ -190,6 +191,28 @@ static int ploytec_confirm_status(struct ozzy_chip *chip)
 	return ret;
 }
 
+/*
+ * ploytec_clear_pcm_halt - Reset both PCM endpoints before streaming starts.
+ * The A&H Windows driver does this after the status confirm (abort + clear
+ * ENDPOINT_HALT on EP 0x86, then EP 0x05), seen in captures of the Xone:DB2 and
+ * Xone:4D. Without it the 4D never starts streaming on Linux (#75).
+ */
+static int ploytec_clear_pcm_halt(struct ozzy_chip *chip)
+{
+	int ret;
+
+	msleep(500);
+	ret = usb_clear_halt(chip->dev, usb_rcvintpipe(chip->dev, chip->info->in_ep));
+	if (ret < 0) {
+		ploytec_err(&chip->dev->dev, "clear halt on PCM in failed (ret=%d)\n", ret);
+		return ret;
+	}
+	ret = usb_clear_halt(chip->dev, usb_sndintpipe(chip->dev, chip->info->out_ep));
+	if (ret < 0)
+		ploytec_err(&chip->dev->dev, "clear halt on PCM out failed (ret=%d)\n", ret);
+	return ret;
+}
+
 /* ========================================================================
  * Device Ops Implementation
  * ======================================================================== */
@@ -245,6 +268,10 @@ static int ploytec_init(struct ozzy_chip *chip)
 
 	ploytec_log(&chip->dev->dev, "[7/7] confirming device status...\n");
 	ret = ploytec_confirm_status(chip);
+	if (ret < 0)
+		goto err;
+
+	ret = ploytec_clear_pcm_halt(chip);
 	if (ret < 0)
 		goto err;
 

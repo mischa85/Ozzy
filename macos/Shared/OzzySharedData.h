@@ -36,7 +36,7 @@ struct OzzyAudioBuffer {
     AtomicBool driverReady;
     AtomicU32  sampleRate;
     
-    // Generic flags (Bit 0: Bulk Mode for Ploytec, etc.)
+    // Generic flags (Bit 0: Ploytec 512-byte "bulk" output layout, else 482-byte "interrupt" layout)
     AtomicU32  deviceFlags; 
 
     // Frame format info set by device engine

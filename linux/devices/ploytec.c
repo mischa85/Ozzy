@@ -48,8 +48,27 @@ struct ploytec_private {
 /* Supported sample rates */
 static const unsigned int ploytec_rates[] = { 44100, 48000, 88200, 96000 };
 
+/*
+ * Xone:DB2 is 48 kHz only. This matches the official driver's per-device format
+ * table (kConfigurationData in the XONE_DB2.kext plist). The device boots at
+ * 44100 Hz but accepts other rates at the USB level without its DSP following.
+ */
+static const unsigned int ploytec_db2_rates[] = { 48000 };
+
 /* Forward declarations */
 static int ploytec_set_rate(struct ozzy_chip *chip, unsigned int rate_index);
+
+/*
+ * ploytec_out_bulk_layout - True if the output uses the 512-byte ("bulk") packet layout.
+ * The layout follows the output endpoint's wMaxPacketSize, not its transfer type,
+ * like the official driver (AudioBulkIRP::useOut): <= 512 uses the bulk layout,
+ * larger (964) uses the interrupt layout. DB2 fw 1.2.0 is an interrupt endpoint
+ * with wMaxPacketSize 512 and needs the bulk layout.
+ */
+static bool ploytec_out_bulk_layout(const struct ozzy_chip *chip)
+{
+	return chip->out_maxpacket <= PLOYTEC_BULK_OUT_SUBPKT_SIZE;
+}
 
 /* ========================================================================
  * Vendor Request Helpers
@@ -112,7 +131,8 @@ static int ploytec_get_status(struct ozzy_chip *chip)
 
 /*
  * ploytec_get_rate - Read the current hardware sample rate and update chip->current_rate.
- * Returns 0 on success, negative errno on failure.
+ * Returns 0 on success, 1 if the rate is not in the device's rate table
+ * (e.g. the DB2 boots at 44100 Hz), negative errno on failure.
  */
 static int ploytec_get_rate(struct ozzy_chip *chip)
 {
@@ -139,8 +159,8 @@ static int ploytec_get_rate(struct ozzy_chip *chip)
 		}
 	}
 
-	ploytec_err(&chip->dev->dev, "unsupported sample rate: %u Hz\n", rate);
-	return -EINVAL;
+	ploytec_log(&chip->dev->dev, "hardware rate %u Hz not in rate table\n", rate);
+	return 1;
 }
 
 /*
@@ -220,6 +240,8 @@ static int ploytec_init(struct ozzy_chip *chip)
 
 	ploytec_log(&chip->dev->dev, "[5/7] verifying sample rate...\n");
 	ret = ploytec_get_rate(chip);
+	if (ret > 0)
+		ret = -EINVAL;
 	if (ret < 0)
 		goto err;
 
@@ -373,7 +395,7 @@ static unsigned int ploytec_process_out_packet(struct ozzy_chip *chip,
 					       unsigned int dma_off,
 					       unsigned int pcm_buffer_size)
 {
-	if (chip->is_bulk)
+	if (ploytec_out_bulk_layout(chip))
 		return ploytec_process_out_bulk(chip, urb_buf, dma_area,
 						dma_off, pcm_buffer_size);
 	else
@@ -420,7 +442,7 @@ static void ploytec_init_out_urb(struct ozzy_chip *chip, uint8_t *buffer)
 	unsigned int num_slots, i, j;
 	unsigned int pkt_size;
 
-	if (chip->is_bulk) {
+	if (ploytec_out_bulk_layout(chip)) {
 		slots = ploytec_bulk_midi_slots;
 		num_slots = PLOYTEC_BULK_NUM_MIDI_SLOTS;
 		pkt_size = PLOYTEC_BULK_OUT_PKT_SIZE;
@@ -439,7 +461,7 @@ static void ploytec_init_out_urb(struct ozzy_chip *chip, uint8_t *buffer)
 			buffer[slots[i].offset + j] = PLOYTEC_MIDI_IDLE_BYTE;
 
 	/* Bulk mode: sync byte at offset 481 within each sub-packet */
-	if (chip->is_bulk) {
+	if (ploytec_out_bulk_layout(chip)) {
 		for (i = 0; i < PLOYTEC_BULK_NUM_SUBPACKETS; i++)
 			buffer[ploytec_bulk_subpackets[i].byte_offset + 481] = 0xFF;
 	}
@@ -477,7 +499,7 @@ static void ploytec_fill_midi_out(struct ozzy_chip *chip, uint8_t *urb_buf)
 	if (!rt)
 		return;
 
-	if (chip->is_bulk) {
+	if (ploytec_out_bulk_layout(chip)) {
 		slots = ploytec_bulk_midi_slots;
 		num_slots = PLOYTEC_BULK_NUM_MIDI_SLOTS;
 	} else {
@@ -503,7 +525,7 @@ static void ploytec_fill_midi_out(struct ozzy_chip *chip, uint8_t *urb_buf)
  */
 static unsigned int ploytec_get_out_packet_size(struct ozzy_chip *chip, bool is_bulk)
 {
-	return is_bulk ? PLOYTEC_BULK_OUT_PKT_SIZE : PLOYTEC_INT_OUT_PKT_SIZE;
+	return ploytec_out_bulk_layout(chip) ? PLOYTEC_BULK_OUT_PKT_SIZE : PLOYTEC_INT_OUT_PKT_SIZE;
 }
 
 /* ========================================================================
@@ -531,6 +553,30 @@ const struct ozzy_device_info ploytec_info = {
 	.rates_mask            = SNDRV_PCM_RATE_44100 | SNDRV_PCM_RATE_48000 | SNDRV_PCM_RATE_88200 | SNDRV_PCM_RATE_96000,
 	.rate_min              = 44100,
 	.rate_max              = 96000,
+};
+
+/* Xone:DB2: identical to ploytec_info except for the 48 kHz-only rate table */
+const struct ozzy_device_info ploytec_db2_info = {
+	.name                  = "Ploytec Xone",
+	.playback_channels     = PLOYTEC_CHANNELS,
+	.capture_channels      = PLOYTEC_CHANNELS,
+	.out_packet_size       = PLOYTEC_BULK_OUT_PKT_SIZE,
+	.in_packet_size        = PLOYTEC_IN_PKT_SIZE,
+	.frames_per_out_packet = PLOYTEC_FRAMES_PER_PKT,
+	.frames_per_in_packet  = PLOYTEC_FRAMES_PER_PKT,
+	.out_ep                = PLOYTEC_EP_PCM_OUT,
+	.in_ep                 = PLOYTEC_EP_PCM_IN,
+	.alsa_format           = SNDRV_PCM_FMTBIT_S24_3LE,
+	.bytes_per_sample      = 3,
+	.midi_in_ep            = PLOYTEC_EP_MIDI_IN,
+	.midi_out_embedded     = true,
+	.num_interfaces        = PLOYTEC_NUM_INTERFACES,
+	.alt_setting           = PLOYTEC_ALT_SETTING,
+	.rates                 = ploytec_db2_rates,
+	.num_rates             = ARRAY_SIZE(ploytec_db2_rates),
+	.rates_mask            = SNDRV_PCM_RATE_48000,
+	.rate_min              = 48000,
+	.rate_max              = 48000,
 };
 
 const struct ozzy_device_ops ploytec_ops = {

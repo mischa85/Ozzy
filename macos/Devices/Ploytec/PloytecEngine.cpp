@@ -10,6 +10,10 @@
 
 PloytecEngine::PloytecEngine(uint16_t pid) {
 
+    // Xone:DB2 is 48 kHz only (official driver's per-device format table, XONE_DB2.kext plist).
+    // Other devices keep running at 96 kHz.
+    mSampleRate = (pid == PLOYTEC_PID_XONE_DB2) ? 48000 : 96000;
+
     // --- Define Hardware Topology ---
     // The Xone:DB4 presents two interfaces:
     // Intf 0: Control + PCM Out + MIDI In
@@ -32,10 +36,15 @@ PloytecEngine::PloytecEngine(uint16_t pid) {
     mProfile.midiIn.interfaceIndex = 0;
 }
 
-void PloytecEngine::SetBulk(bool isBulk) {
-    mIsBulk = isBulk;
-    mPacketSizeOut = mIsBulk ? PLOYTEC_BULK_OUT_PKT_SIZE : PLOYTEC_INT_OUT_PKT_SIZE;
-    LogPloytec("transport: %s (out packet: %u bytes)", mIsBulk ? "bulk" : "interrupt", mPacketSizeOut);
+/* The output packet layout follows the endpoint's wMaxPacketSize, not its transfer type,
+ * like the official driver (AudioBulkIRP::useOut): <= 512 uses the bulk layout, larger (964)
+ * uses the interrupt layout. DB2 fw 1.2.0 is an interrupt endpoint with wMaxPacketSize 512. */
+void PloytecEngine::SetOutEndpoint(bool isBulk, uint16_t maxPacketSize) {
+    mBulkLayout = maxPacketSize <= PLOYTEC_BULK_OUT_SUBPKT_SIZE;
+    mPacketSizeOut = mBulkLayout ? PLOYTEC_BULK_OUT_PKT_SIZE : PLOYTEC_INT_OUT_PKT_SIZE;
+    LogPloytec("transport: %s, wMaxPacketSize %u (%s layout, out packet: %u bytes)",
+               isBulk ? "bulk" : "interrupt", maxPacketSize,
+               mBulkLayout ? "bulk" : "interrupt", mPacketSizeOut);
 }
 
 bool PloytecEngine::Start() {
@@ -45,7 +54,8 @@ bool PloytecEngine::Start() {
     LogPloytec("--- begin handshake sequence ---");
 
     // 1. Setup Shared Memory (device names already set by kext from USB descriptors)
-    shm->audio.deviceFlags = (mIsBulk ? 1 : 0);
+    shm->audio.deviceFlags = (mBulkLayout ? 1 : 0);
+    shm->audio.sampleRate = mSampleRate;
     shm->audio.framesPerPacket = PLOYTEC_FRAMES_PER_PKT;  // 80 frames per logical packet
     shm->audio.samplesPerPacket = 10;  // 10 samples per USB sub-packet
     shm->audio.outputBytesPerFrame = PLOYTEC_OUT_FRAME_SIZE;
@@ -55,7 +65,7 @@ bool PloytecEngine::Start() {
     ReadFirmwareVersion();
     GetHardwareFrameRate(); 
     
-    if (!SetHardwareFrameRate(96000)) {
+    if (!SetHardwareFrameRate(mSampleRate)) {
         LogPloytec("handshake failed: sample rate");
         return false;
     }
@@ -86,8 +96,8 @@ bool PloytecEngine::Start() {
     // 4. Pre-fill MIDI/UART sync pattern (0xFD) in entire output buffer
     // Each logical packet occupies kOzzyMaxPacketSize bytes
     // Each logical packet contains 8 USB sub-packets (482 or 512 bytes each)
-    uint32_t subPacketSize = mIsBulk ? 512 : 482;
-    uint32_t midiOffset = mIsBulk ? 480 : 432;
+    uint32_t subPacketSize = mBulkLayout ? 512 : 482;
+    uint32_t midiOffset = mBulkLayout ? 480 : 432;
     
     for (uint32_t logicalPacket = 0; logicalPacket < kOzzyNumPackets; logicalPacket++) {
         uint32_t logicalPacketBase = logicalPacket * kOzzyMaxPacketSize;
@@ -136,8 +146,8 @@ void PloytecEngine::ProcessMIDIOutput(uint32_t packetIdx) {
     // Calculate MIDI byte positions for this packet (8 USB sub-packets per logical packet)
     uint32_t logicalPacket = packetIdx % kOzzyNumPackets;
     uint32_t logicalPacketBase = logicalPacket * kOzzyMaxPacketSize;
-    uint32_t subPacketSize = mIsBulk ? 512 : 482;
-    uint32_t midiOffset = mIsBulk ? 480 : 432;
+    uint32_t subPacketSize = mBulkLayout ? 512 : 482;
+    uint32_t midiOffset = mBulkLayout ? 480 : 432;
     
     // Only use the first MIDI byte position in the first sub-packet
     // This limits MIDI output to ~1200 bytes/sec (9600 bps) at 96kHz, safely below 31.25 kbps
@@ -280,7 +290,7 @@ bool PloytecEngine::ReadHardwareStatus() {
     uint8_t s = buf[0];
     
     LogPloytec("status: [0x%02X] %s %s %s %s %s %s", s,
-              (s & 0x80) ? "[HighSpeed]"   : "[FullSpeed]",
+              (s & 0x80) ? "[b7:1]"        : "[b7:0]",  /* unknown; NOT USB speed (DB4 sets it, DB2 does not) */
               (s & 0x20) ? "[Legacy/BCD1]" : "[Modern/BCD3]",
               (s & 0x10) ? "[Armed]"       : "[Disarmed]",
               (s & 0x04) ? "[Clock-Lock]"  : "[No-Lock]",

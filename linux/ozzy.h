@@ -186,6 +186,7 @@ struct ozzy_chip {
 	unsigned int current_rate;        /* rate index currently active on hardware */
 	unsigned int requested_rate;      /* rate index requested by ALSA */
 	bool is_bulk;                     /* true if output EP uses bulk transfers */
+	uint16_t out_maxpacket;           /* output EP wMaxPacketSize */
 
 	struct usb_interface *intf;       /* primary USB interface */
 	struct usb_interface *intf2;      /* secondary USB interface (NULL if single) */

@@ -201,26 +201,42 @@ void OzzyHAL::MapSharedMemory() {
         // Calculate zero timestamp period: 2 URBs * framesPerPacket * 4
         mZeroTimestampPeriod = 2 * mFramesPerPacket * 4;
         
-        // Set codec based on device (vendorID/productID)
-        bool isBulk = (mSHM->audio.deviceFlags & 1);
-        if (mSHM->vendorID == PLOYTEC_VENDOR_ID) {
-            mEncode = PloytecEncodePCM;
-            mDecode = PloytecDecodePCM;
-            mWriteOutput = isBulk ? PloytecWriteOutputBulk : PloytecWriteOutputInterrupt;
-            mReadInput = PloytecReadInput;
-            mClearOutput = isBulk ? PloytecClearOutputBulk : PloytecClearOutputInterrupt;
-            LogOzzyHAL("using Ploytec codec (%{public}s) for VID:0x%{public}04X",
-                       isBulk ? "bulk" : "interrupt", mSHM->vendorID);
-        } else {
-            mEncode = PloytecEncodePCM;
-            mDecode = PloytecDecodePCM;
-            mWriteOutput = isBulk ? PloytecWriteOutputBulk : PloytecWriteOutputInterrupt;
-            mReadInput = PloytecReadInput;
-            mClearOutput = isBulk ? PloytecClearOutputBulk : PloytecClearOutputInterrupt;
-            LogOzzyHAL("using default codec (%{public}s) for VID:0x%{public}04X",
-                       isBulk ? "bulk" : "interrupt", mSHM->vendorID);
-        }
+        ApplyDeviceConfig();
     }
+}
+
+/* Select codec and sample rate from what the engine published in shared memory.
+ * Called on mapping and again when the device comes up, because the engine only
+ * writes deviceFlags and sampleRate during its Start() handshake. */
+void OzzyHAL::ApplyDeviceConfig() {
+    if (!mSHM) return;
+
+    // Bit 0: 512-byte "bulk" output layout (follows wMaxPacketSize, not transfer type)
+    bool isBulk = (mSHM->audio.deviceFlags & 1);
+    if (mSHM->vendorID == PLOYTEC_VENDOR_ID) {
+        mEncode = PloytecEncodePCM;
+        mDecode = PloytecDecodePCM;
+        mWriteOutput = isBulk ? PloytecWriteOutputBulk : PloytecWriteOutputInterrupt;
+        mReadInput = PloytecReadInput;
+        mClearOutput = isBulk ? PloytecClearOutputBulk : PloytecClearOutputInterrupt;
+        LogOzzyHAL("using Ploytec codec (%{public}s layout) for VID:0x%{public}04X",
+                   isBulk ? "bulk" : "interrupt", mSHM->vendorID);
+    } else {
+        mEncode = PloytecEncodePCM;
+        mDecode = PloytecDecodePCM;
+        mWriteOutput = isBulk ? PloytecWriteOutputBulk : PloytecWriteOutputInterrupt;
+        mReadInput = PloytecReadInput;
+        mClearOutput = isBulk ? PloytecClearOutputBulk : PloytecClearOutputInterrupt;
+        LogOzzyHAL("using default codec (%{public}s layout) for VID:0x%{public}04X",
+                   isBulk ? "bulk" : "interrupt", mSHM->vendorID);
+    }
+
+    uint32_t rate = mSHM->audio.sampleRate.load();
+    if (rate == 0) rate = 96000;
+    mCurrentStreamFormat.mSampleRate = rate;
+    mAvailableSampleRates.mMinimum = rate;
+    mAvailableSampleRates.mMaximum = rate;
+    LogOzzyHAL("sample rate: %{public}u Hz", rate);
 }
 
 void OzzyHAL::UnmapSharedMemory() {
@@ -356,6 +372,7 @@ void OzzyHAL::MonitorLoop() {
                     snprintf(uidBuf, sizeof(uidBuf), "OzzyHAL.%s", mSHM->serialNumber);
                     mDeviceUID = SafeCreateString(uidBuf);
                 }
+                ApplyDeviceConfig();
                 LogOzzyHAL("device ready: '%{public}s'", mSHM->productName);
             }
 
@@ -377,6 +394,10 @@ void OzzyHAL::MonitorLoop() {
                     devAddr.mSelector = kAudioObjectPropertyManufacturer;
                     mHost->PropertiesChanged(mHost, kOzzyDeviceID, 1, &devAddr);
                     devAddr.mSelector = kAudioDevicePropertyDeviceUID;
+                    mHost->PropertiesChanged(mHost, kOzzyDeviceID, 1, &devAddr);
+                    devAddr.mSelector = kAudioDevicePropertyNominalSampleRate;
+                    mHost->PropertiesChanged(mHost, kOzzyDeviceID, 1, &devAddr);
+                    devAddr.mSelector = kAudioDevicePropertyAvailableNominalSampleRates;
                     mHost->PropertiesChanged(mHost, kOzzyDeviceID, 1, &devAddr);
                     
                     AudioObjectPropertyAddress listAddr = { kAudioPlugInPropertyDeviceList, kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMain };
@@ -468,7 +489,7 @@ CFStringRef OzzyHAL::GetDeviceUID() const { return mDeviceUID; }
 CFStringRef OzzyHAL::GetModelUID() const { return mModelUID; }
 UInt32 OzzyHAL::GetTransportType() const { return kAudioDeviceTransportTypeUSB; }
 UInt32 OzzyHAL::GetClockDomain() const { return 0x504C4F59; }
-Float64 OzzyHAL::GetNominalSampleRate() const { return 96000.0; }
+Float64 OzzyHAL::GetNominalSampleRate() const { return mCurrentStreamFormat.mSampleRate; }
 AudioValueRange OzzyHAL::GetAvailableSampleRates() const { return mAvailableSampleRates; }
 AudioBufferList* OzzyHAL::GetInputStreamConfiguration() const { return const_cast<AudioBufferList*>(&mInputConfig); }
 AudioBufferList* OzzyHAL::GetOutputStreamConfiguration() const { return const_cast<AudioBufferList*>(&mOutputConfig); }
@@ -477,7 +498,7 @@ AudioObjectID OzzyHAL::GetOutputStreamID() const { return kOzzyOutputStreamID; }
 AudioStreamBasicDescription OzzyHAL::GetStreamFormat() const { return mCurrentStreamFormat; }
 AudioStreamRangedDescription OzzyHAL::GetStreamRangedDescription() const {
     AudioStreamRangedDescription outDesc; outDesc.mFormat = GetStreamFormat();
-    outDesc.mSampleRateRange.mMinimum = 96000.0; outDesc.mSampleRateRange.mMaximum = 96000.0;
+    outDesc.mSampleRateRange = mAvailableSampleRates;
     return outDesc;
 }
 UInt32 OzzyHAL::GetZeroTimestampPeriod() const { return mZeroTimestampPeriod; }

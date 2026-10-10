@@ -86,7 +86,7 @@ So transfer type only matters in two places:
 2. **The isoc keep-alive on EP 0x02**: `rtsIsocAudioRunKeepAlive` is started only if the IN
    pipe *or* the OUT pipe is bulk. All-interrupt devices (DB2 fw 1.2.0, DB4 fw 1.4.1, 4D) get no
    keep-alive. **Ozzy never sends the keep-alive.** This could matter for bulk-mode firmware
-   (DB4 fw 1.3.9, DB2 fw 1.0.8). Untested.
+   (DB4 fw 1.3.9, DB2 fw 1.0.8). Decided not needed for Ozzy.
 
 ## Output framing depends on wMaxPacketSize, NOT on bulk vs interrupt
 
@@ -114,8 +114,9 @@ behave as audio (≈50% non-zero at every offset, including 432–433), and byte
 always 0. The Windows driver sends `00 00` in the MIDI slot when idle.
 
 **Consequences:**
-- Ozzy (macOS commit c1f48bd and Linux `is_bulk`) picks the 482 layout for *any* interrupt
-  endpoint. That's wrong for the DB2 and is the root cause of the white noise in #72 / #48.
+- Ozzy (macOS commit c1f48bd and Linux `is_bulk`) picked the 482 layout for *any* interrupt
+  endpoint. That's wrong for the DB2 and was the root cause of the white noise in #72 / #48.
+  Fixed: the layout now follows wMaxPacketSize.
 - PR #70 and PR #83 switch interrupt to the 512 layout for *all* devices. That fixes the DB2
   but breaks the DB4 fw 1.4.1 and the 4D. The selector has to be wMaxPacketSize.
 - The c1f48bd commit message ("DB2 (older firmware) exposes bulk endpoints") is only true for

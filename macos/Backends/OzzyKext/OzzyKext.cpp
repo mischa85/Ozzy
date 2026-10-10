@@ -376,12 +376,13 @@ bool OzzyKext::ConfigureHardware() {
                     mPipes[pipeCounter++] = p;
                     LogOzzyKext("  pipe 0x%02x opened", cfg->address);
 
-                    // Detect bulk vs interrupt from the output endpoint descriptor
+                    // Pass transfer type and wMaxPacketSize of the output endpoint to the engine
                     if (k == 0) {
                         const StandardUSB::EndpointDescriptor* epDesc = p->getEndpointDescriptor();
                         if (epDesc) {
                             bool isBulk = (epDesc->bmAttributes & 0x03) == 0x02;
-                            mEngine->SetBulk(isBulk);
+                            uint16_t maxPacketSize = USBToHost16(epDesc->wMaxPacketSize) & 0x07FF;
+                            mEngine->SetOutEndpoint(isBulk, maxPacketSize);
                         }
                     }
                 } else p->release();

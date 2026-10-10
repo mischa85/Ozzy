@@ -119,6 +119,7 @@ private:
     alignas(16) uint8_t mChannelLayoutBuffer[0x50C];
 
     void MapSharedMemory();
+    void ApplyDeviceConfig();
     void UnmapSharedMemory();
     static void* MonitorEntry(void* arg);
     void MonitorLoop();

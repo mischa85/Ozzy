@@ -6,7 +6,8 @@
 
 class PloytecEngine : public OzzyEngine {
     uint64_t mHwSampleTime = 0;
-    bool mIsBulk = false;
+    bool mBulkLayout = false;   // 512-byte output packet layout (wMaxPacketSize <= 512)
+    uint32_t mSampleRate = 96000;
     uint32_t mPacketSizeOut = 0;
     
     // Storage for the profile
@@ -19,7 +20,7 @@ public:
     PloytecEngine(uint16_t pid);
     
     virtual const OzzyDeviceProfile& GetProfile() const override { return mProfile; }
-    virtual void SetBulk(bool isBulk) override;
+    virtual void SetOutEndpoint(bool isBulk, uint16_t maxPacketSize) override;
     virtual bool Start() override;
     virtual void Stop() override;
     virtual void OnPacketComplete(uint8_t pipeID, void* ctx, int status, uint32_t bytes) override;

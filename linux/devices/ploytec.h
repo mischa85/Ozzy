@@ -11,6 +11,7 @@
 #include "../ozzy.h"
 
 extern const struct ozzy_device_info ploytec_info;
+extern const struct ozzy_device_info ploytec_db2_info;
 extern const struct ozzy_device_ops ploytec_ops;
 
 #endif /* OZZY_PLOYTEC_H */

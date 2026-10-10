@@ -48,9 +48,14 @@ static const struct ozzy_device_desc ploytec_desc = {
 	.ops  = &ploytec_ops,
 };
 
+static const struct ozzy_device_desc ploytec_db2_desc = {
+	.info = &ploytec_db2_info,
+	.ops  = &ploytec_ops,
+};
+
 static const struct usb_device_id ozzy_id_table[] = {
 	{ USB_DEVICE(0x0a4a, 0xffdb), .driver_info = (kernel_ulong_t)&ploytec_desc }, /* Xone:DB4 */
-	{ USB_DEVICE(0x0a4a, 0xffd2), .driver_info = (kernel_ulong_t)&ploytec_desc }, /* Xone:DB2 */
+	{ USB_DEVICE(0x0a4a, 0xffd2), .driver_info = (kernel_ulong_t)&ploytec_db2_desc }, /* Xone:DB2 */
 	{ USB_DEVICE(0x0a4a, 0xffdd), .driver_info = (kernel_ulong_t)&ploytec_desc }, /* Xone:DX */
 	{ USB_DEVICE(0x0a4a, 0xff4d), .driver_info = (kernel_ulong_t)&ploytec_desc }, /* Xone:4D */
 	{ USB_DEVICE(0x0a4a, 0xffad), .driver_info = (kernel_ulong_t)&ploytec_desc }, /* Wizard 4 */
@@ -169,15 +174,17 @@ static int ozzy_probe(struct usb_interface *intf,
 
 	/* Detect output endpoint transfer type */
 	if (device->ep_out[chip->info->out_ep]) {
-		uint8_t attr = device->ep_out[chip->info->out_ep]->desc.bmAttributes;
+		const struct usb_endpoint_descriptor *epd = &device->ep_out[chip->info->out_ep]->desc;
 
-		chip->is_bulk = (attr & USB_ENDPOINT_XFERTYPE_MASK) == USB_ENDPOINT_XFER_BULK;
+		chip->is_bulk = usb_endpoint_xfer_bulk(epd);
+		chip->out_maxpacket = usb_endpoint_maxp(epd);
 	}
 
 	ozzy_log(&device->dev, "  interfaces claimed: %u (alt setting %u)\n",
 		 chip->info->num_interfaces, chip->info->alt_setting);
-	ozzy_log(&device->dev, "  PCM out: EP %u (%s)\n",
-		 chip->info->out_ep, chip->is_bulk ? "bulk" : "interrupt");
+	ozzy_log(&device->dev, "  PCM out: EP %u (%s, wMaxPacketSize %u)\n",
+		 chip->info->out_ep, chip->is_bulk ? "bulk" : "interrupt",
+		 chip->out_maxpacket);
 	ozzy_log(&device->dev, "  PCM in:  EP %u\n", chip->info->in_ep);
 	if (chip->info->midi_in_ep)
 		ozzy_log(&device->dev, "  MIDI in: EP %u%s\n",

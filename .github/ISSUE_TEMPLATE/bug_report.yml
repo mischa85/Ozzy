@@ -21,7 +21,7 @@ body:
         
         **🍏 macOS Users:**
         1. Download the driver folder.
-        2. Double-click **`debug_logs.command`**.
+        2. Double-click **`debuglogs.command`**.
         3. Wait for it to dump history, then reproduce your glitch.
         4. A text file will appear on your Desktop. Attach it below.
         

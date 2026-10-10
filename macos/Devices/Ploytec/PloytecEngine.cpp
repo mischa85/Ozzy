@@ -40,11 +40,11 @@ PloytecEngine::PloytecEngine(uint16_t pid) {
  * like the official driver (AudioBulkIRP::useOut): <= 512 uses the bulk layout, larger (964)
  * uses the interrupt layout. DB2 fw 1.2.0 is an interrupt endpoint with wMaxPacketSize 512. */
 void PloytecEngine::SetOutEndpoint(bool isBulk, uint16_t maxPacketSize) {
-    mBulkLayout = maxPacketSize <= PLOYTEC_BULK_OUT_SUBPKT_SIZE;
-    mPacketSizeOut = mBulkLayout ? PLOYTEC_BULK_OUT_PKT_SIZE : PLOYTEC_INT_OUT_PKT_SIZE;
+    mOutLayout = ploytec_out_layout_for_maxpacket(maxPacketSize);
+    mPacketSizeOut = ploytec_out_packet_size(mOutLayout);
     LogPloytec("transport: %s, wMaxPacketSize %u (%s layout, out packet: %u bytes)",
                isBulk ? "bulk" : "interrupt", maxPacketSize,
-               mBulkLayout ? "bulk" : "interrupt", mPacketSizeOut);
+               mOutLayout == PLOYTEC_OUT_LAYOUT_BULK ? "bulk" : "interrupt", mPacketSizeOut);
 }
 
 bool PloytecEngine::Start() {
@@ -54,7 +54,7 @@ bool PloytecEngine::Start() {
     LogPloytec("--- begin handshake sequence ---");
 
     // 1. Setup Shared Memory (device names already set by kext from USB descriptors)
-    shm->audio.deviceFlags = (mBulkLayout ? 1 : 0);
+    shm->audio.deviceFlags = (mOutLayout == PLOYTEC_OUT_LAYOUT_BULK ? 1 : 0);
     shm->audio.sampleRate = mSampleRate;
     shm->audio.framesPerPacket = PLOYTEC_FRAMES_PER_PKT;  // 80 frames per logical packet
     shm->audio.samplesPerPacket = 10;  // 10 samples per USB sub-packet
@@ -93,21 +93,9 @@ bool PloytecEngine::Start() {
     mHwSampleTime = 0;
     shm->audio.timestamp.sampleTime = 0;
 
-    // 4. Pre-fill MIDI/UART sync pattern (0xFD) in entire output buffer
-    // Each logical packet occupies kOzzyMaxPacketSize bytes
-    // Each logical packet contains 8 USB sub-packets (482 or 512 bytes each)
-    uint32_t subPacketSize = mBulkLayout ? 512 : 482;
-    uint32_t midiOffset = mBulkLayout ? 480 : 432;
-    
+    // 4. Fill every logical packet (kOzzyMaxPacketSize stride) with silence and idle MIDI bytes
     for (uint32_t logicalPacket = 0; logicalPacket < kOzzyNumPackets; logicalPacket++) {
-        uint32_t logicalPacketBase = logicalPacket * kOzzyMaxPacketSize;
-        
-        // Fill MIDI bytes in all 8 USB sub-packets within this logical packet
-        for (uint32_t subPacket = 0; subPacket < 8; subPacket++) {
-            uint32_t midiAddr = logicalPacketBase + (subPacket * subPacketSize) + midiOffset;
-            shm->audio.outputBuffer[midiAddr] = PLOYTEC_MIDI_IDLE_BYTE;
-            shm->audio.outputBuffer[midiAddr + 1] = PLOYTEC_MIDI_IDLE_BYTE;
-        }
+        ploytec_out_init_packet(mOutLayout, (uint8_t*)shm->audio.outputBuffer + logicalPacket * kOzzyMaxPacketSize);
     }
 
     // 5. Kickstart USB transfers
@@ -146,12 +134,10 @@ void PloytecEngine::ProcessMIDIOutput(uint32_t packetIdx) {
     // Calculate MIDI byte positions for this packet (8 USB sub-packets per logical packet)
     uint32_t logicalPacket = packetIdx % kOzzyNumPackets;
     uint32_t logicalPacketBase = logicalPacket * kOzzyMaxPacketSize;
-    uint32_t subPacketSize = mBulkLayout ? 512 : 482;
-    uint32_t midiOffset = mBulkLayout ? 480 : 432;
     
     // Only use the first MIDI byte position in the first sub-packet
     // This limits MIDI output to ~1200 bytes/sec (9600 bps) at 96kHz, safely below 31.25 kbps
-    uint32_t midiAddr = logicalPacketBase + midiOffset;
+    uint32_t midiAddr = logicalPacketBase + ploytec_out_midi_offset(mOutLayout, 0);
     
     // Write one MIDI byte if available, otherwise write 0xFD (sync/ignore byte)
     if (r != w) {

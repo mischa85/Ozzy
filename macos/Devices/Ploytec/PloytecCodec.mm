@@ -1,4 +1,5 @@
 #include "PloytecCodec.h"
+#include "PloytecProtocol.h"
 #include "../../Shared/OzzySharedData.h"
 #include <cstring>
 
@@ -106,49 +107,25 @@ void PloytecDecodePCM(float* dst, const uint8_t* src) {
     }
 }
 
-// BULK Mode: Ring buffer mirrors USB packet structure for zero-copy
-// Packet structure: [480 bytes PCM (10 samples)][2 bytes MIDI][30 bytes padding] = 512 bytes/packet
-void PloytecWriteOutputBulk(uint8_t* ringBuffer, const float* srcFrames, uint64_t sampleTime, uint32_t frameCount, uint32_t ringSize, uint32_t bytesPerFrame) {
+// Ring buffer mirrors the USB packet structure for zero-copy: logical packets of 80 frames at
+// kOzzyMaxPacketSize stride. Frame offsets inside a packet come from the shared layout helpers.
+static void PloytecWriteOutput(enum ploytec_out_layout layout, uint8_t* ringBuffer, const float* srcFrames, uint64_t sampleTime, uint32_t frameCount, uint32_t ringSize) {
     for (uint32_t i = 0; i < frameCount; i++) {
         uint32_t sampleOffset = (uint32_t)((sampleTime + i) % ringSize);
-        
-        // Each logical packet = 80 frames = 8 USB sub-packets of 10 frames each
-        uint32_t logicalPacket = sampleOffset / 80;
-        uint32_t frameInLogicalPacket = sampleOffset % 80;
-        uint32_t usbSubPacket = frameInLogicalPacket / 10;
-        uint32_t sampleInSubPacket = frameInLogicalPacket % 10;
-        
-        // Calculate byte address: logical packet base + USB sub-packet offset + sample offset
-        uint32_t byteOffset = (logicalPacket * kOzzyMaxPacketSize) + (usbSubPacket * 512) + (sampleInSubPacket * bytesPerFrame);
+        uint32_t logicalPacket = sampleOffset / PLOYTEC_FRAMES_PER_PKT;
+        uint32_t frameInLogicalPacket = sampleOffset % PLOYTEC_FRAMES_PER_PKT;
+
+        uint32_t byteOffset = (logicalPacket * kOzzyMaxPacketSize) + ploytec_out_frame_offset(layout, frameInLogicalPacket);
         PloytecEncodePCM(ringBuffer + byteOffset, srcFrames + (i * 8));
     }
 }
 
-// INTERRUPT Mode: Ring buffer mirrors USB packet structure for zero-copy
-// Packet structure: [432 bytes PCM (9 samples)][2 bytes MIDI][48 bytes PCM (1 sample)] = 482 bytes/packet
+void PloytecWriteOutputBulk(uint8_t* ringBuffer, const float* srcFrames, uint64_t sampleTime, uint32_t frameCount, uint32_t ringSize, uint32_t bytesPerFrame) {
+    PloytecWriteOutput(PLOYTEC_OUT_LAYOUT_BULK, ringBuffer, srcFrames, sampleTime, frameCount, ringSize);
+}
+
 void PloytecWriteOutputInterrupt(uint8_t* ringBuffer, const float* srcFrames, uint64_t sampleTime, uint32_t frameCount, uint32_t ringSize, uint32_t bytesPerFrame) {
-    for (uint32_t i = 0; i < frameCount; i++) {
-        uint32_t sampleOffset = (uint32_t)((sampleTime + i) % ringSize);
-        
-        // Each logical packet = 80 frames = 8 USB sub-packets of 10 frames each
-        uint32_t logicalPacket = sampleOffset / 80;
-        uint32_t frameInLogicalPacket = sampleOffset % 80;
-        uint32_t usbSubPacket = frameInLogicalPacket / 10;
-        uint32_t sampleInSubPacket = frameInLogicalPacket % 10;
-        
-        // Calculate byte address within the USB sub-packet
-        uint32_t sampleByteOffset;
-        if (sampleInSubPacket < 9) {
-            // Samples 0-8: at beginning of USB sub-packet
-            sampleByteOffset = sampleInSubPacket * bytesPerFrame;
-        } else {
-            // Sample 9: after MIDI bytes (432 + 2)
-            sampleByteOffset = 434;
-        }
-        
-        uint32_t byteOffset = (logicalPacket * kOzzyMaxPacketSize) + (usbSubPacket * 482) + sampleByteOffset;
-        PloytecEncodePCM(ringBuffer + byteOffset, srcFrames + (i * 8));
-    }
+    PloytecWriteOutput(PLOYTEC_OUT_LAYOUT_INT, ringBuffer, srcFrames, sampleTime, frameCount, ringSize);
 }
 
 // Read input samples from ring buffer
@@ -166,47 +143,20 @@ void PloytecReadInput(float* dstFrames, const uint8_t* ringBuffer, uint64_t samp
     }
 }
 
-// Clear output buffer - BULK mode: Clear PCM samples only, preserve MIDI byte positions
-// Ring buffer layout: 128 logical packets at kOzzyMaxPacketSize stride
-// Each logical packet contains 8 USB sub-packets
-// Packet structure: [480 bytes PCM][2 bytes MIDI][30 bytes padding] = 512 bytes/packet
-void PloytecClearOutputBulk(uint8_t* outputBuffer, uint32_t bufferSize) {
-    const uint32_t usbPacketSize = 512;
-    const uint32_t pcmSize = 480;
-    const uint32_t numLogicalPackets = kOzzyNumPackets;  // 128 logical packets
-    const uint32_t usbSubPacketsPerLogical = 8;
-    
-    for (uint32_t logicalPacket = 0; logicalPacket < numLogicalPackets; logicalPacket++) {
-        uint32_t logicalPacketBase = logicalPacket * kOzzyMaxPacketSize;
-        
-        for (uint32_t subPacket = 0; subPacket < usbSubPacketsPerLogical; subPacket++) {
-            uint8_t* usbPacket = outputBuffer + logicalPacketBase + (subPacket * usbPacketSize);
-            memset(usbPacket, 0, pcmSize);  // Clear PCM bytes 0-479
-            // Leave MIDI bytes 480-481 untouched
-            memset(usbPacket + 482, 0, 30); // Clear padding bytes 482-511
+// Clear output buffer: zero all PCM frames, leave the MIDI and sync bytes untouched
+static void PloytecClearOutput(enum ploytec_out_layout layout, uint8_t* outputBuffer) {
+    for (uint32_t logicalPacket = 0; logicalPacket < kOzzyNumPackets; logicalPacket++) {
+        uint8_t* packet = outputBuffer + logicalPacket * kOzzyMaxPacketSize;
+        for (uint32_t frame = 0; frame < PLOYTEC_FRAMES_PER_PKT; frame++) {
+            memset(packet + ploytec_out_frame_offset(layout, frame), 0, PLOYTEC_OUT_FRAME_SIZE);
         }
     }
 }
 
-// Clear output buffer - INTERRUPT mode: Clear PCM samples only, preserve MIDI byte positions
-// Ring buffer layout: 128 logical packets at kOzzyMaxPacketSize stride
-// Each logical packet contains 8 USB sub-packets
-// Packet structure: [432 bytes PCM (9 samples)][2 bytes MIDI][48 bytes PCM (1 sample)] = 482 bytes/packet
+void PloytecClearOutputBulk(uint8_t* outputBuffer, uint32_t bufferSize) {
+    PloytecClearOutput(PLOYTEC_OUT_LAYOUT_BULK, outputBuffer);
+}
+
 void PloytecClearOutputInterrupt(uint8_t* outputBuffer, uint32_t bufferSize) {
-    const uint32_t usbPacketSize = 482;
-    const uint32_t pcm1Size = 432;
-    const uint32_t pcm2Size = 48;
-    const uint32_t numLogicalPackets = kOzzyNumPackets;  // 128 logical packets
-    const uint32_t usbSubPacketsPerLogical = 8;
-    
-    for (uint32_t logicalPacket = 0; logicalPacket < numLogicalPackets; logicalPacket++) {
-        uint32_t logicalPacketBase = logicalPacket * kOzzyMaxPacketSize;
-        
-        for (uint32_t subPacket = 0; subPacket < usbSubPacketsPerLogical; subPacket++) {
-            uint8_t* usbPacket = outputBuffer + logicalPacketBase + (subPacket * usbPacketSize);
-            memset(usbPacket, 0, pcm1Size);           // Clear PCM bytes 0-431 (9 samples)
-            // Leave MIDI bytes 432-433 untouched for CoreMIDI
-            memset(usbPacket + 434, 0, pcm2Size);     // Clear PCM bytes 434-481 (1 sample)
-        }
-    }
+    PloytecClearOutput(PLOYTEC_OUT_LAYOUT_INT, outputBuffer);
 }

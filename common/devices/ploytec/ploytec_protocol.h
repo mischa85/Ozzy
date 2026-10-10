@@ -150,90 +150,92 @@ enum ploytec_us3xx_config_flags {
 
 
 /* ========================================================================
- * Packet Layout Tables
+ * Output Packet Layout
  *
- * The Ploytec chipset groups audio frames into sub-packets with MIDI
- * byte slots between them. The layout differs between bulk and
- * interrupt transfer modes. These tables describe where things go
- * so both platforms use identical framing logic.
+ * One output packet carries PLOYTEC_FRAMES_PER_PKT (80) frames in
+ * 8 sub-packets of 10 frames, with MIDI bytes embedded in each sub-packet.
+ * There are two layouts. Which one a device uses follows the PCM OUT
+ * endpoint's wMaxPacketSize, not its transfer type, like the official
+ * driver (AudioBulkIRP::useOut):
+ *
+ *   BULK (wMaxPacketSize <= 512), 512 bytes per sub-packet:
+ *     [480 PCM (10 frames)][MIDI][0xFF sync][30 pad]
+ *   INT (wMaxPacketSize 964), 482 bytes per sub-packet, 2 per USB packet:
+ *     [432 PCM (9 frames)][2 MIDI][48 PCM (1 frame)]
+ *
+ * Both platforms compute all offsets with the helpers below.
  * ======================================================================== */
 
-/*
- * struct ploytec_subpacket - Describes one group of audio frames in an output packet.
- * @start_frame: index of the first audio frame in this group
- * @frame_count: number of audio frames in this group
- * @byte_offset: byte offset of first audio frame within the USB packet
- */
-struct ploytec_subpacket {
-	uint8_t start_frame;
-	uint8_t frame_count;
-	uint16_t byte_offset;
+enum ploytec_out_layout {
+	PLOYTEC_OUT_LAYOUT_BULK,
+	PLOYTEC_OUT_LAYOUT_INT,
 };
 
 /*
- * struct ploytec_midi_slot - Describes one MIDI byte position in an output packet.
- * @offset:    byte offset within the USB packet
- * @num_bytes: number of MIDI bytes at this position (1 for bulk, 2 for interrupt)
+ * ploytec_out_layout_for_maxpacket - Select the output layout from the
+ * PCM OUT endpoint's wMaxPacketSize.
  */
-struct ploytec_midi_slot {
-	uint16_t offset;
-	uint8_t num_bytes;
-};
+static inline enum ploytec_out_layout ploytec_out_layout_for_maxpacket(uint16_t max_packet_size)
+{
+	return max_packet_size <= PLOYTEC_BULK_OUT_SUBPKT_SIZE ? PLOYTEC_OUT_LAYOUT_BULK
+							      : PLOYTEC_OUT_LAYOUT_INT;
+}
 
 /*
- * Bulk output packet layout (2048 bytes total):
- *   4 groups of 10 frames (480 bytes) + 32-byte gap (1 MIDI + 1 sync + 30 pad)
- *   Group 0: frames  0-9  at offset 0
- *   Group 1: frames 10-19 at offset 512
- *   Group 2: frames 20-29 at offset 1024
- *   Group 3: frames 30-39 at offset 1536
+ * ploytec_out_packet_size - Size in bytes of one output packet (80 frames).
  */
-static const struct ploytec_subpacket ploytec_bulk_subpackets[] = {
-	{ .start_frame =  0, .frame_count = 10, .byte_offset = 0 },
-	{ .start_frame = 10, .frame_count = 10, .byte_offset = 512 },
-	{ .start_frame = 20, .frame_count = 10, .byte_offset = 1024 },
-	{ .start_frame = 30, .frame_count = 10, .byte_offset = 1536 },
-};
+static inline uint32_t ploytec_out_packet_size(enum ploytec_out_layout layout)
+{
+	return layout == PLOYTEC_OUT_LAYOUT_BULK ? PLOYTEC_BULK_OUT_PKT_SIZE
+						 : PLOYTEC_INT_OUT_PKT_SIZE;
+}
 
 /*
- * Interrupt output packet layout (1928 bytes total):
- *   5 groups with 2-byte MIDI gaps between them
- *   Group 0: frames  0-8  (9 frames, 432 bytes) at offset 0
- *   Group 1: frames  9-18 (10 frames) at offset 434
- *   Group 2: frames 19-28 (10 frames) at offset 916
- *   Group 3: frames 29-38 (10 frames) at offset 1398
- *   Group 4: frame  39    (1 frame)   at offset 1880
+ * ploytec_out_frame_offset - Byte offset of a frame (0-79) within an output packet.
  */
-static const struct ploytec_subpacket ploytec_int_subpackets[] = {
-	{ .start_frame =  0, .frame_count =  9, .byte_offset = 0 },
-	{ .start_frame =  9, .frame_count = 10, .byte_offset = 434 },
-	{ .start_frame = 19, .frame_count = 10, .byte_offset = 916 },
-	{ .start_frame = 29, .frame_count = 10, .byte_offset = 1398 },
-	{ .start_frame = 39, .frame_count =  1, .byte_offset = 1880 },
-};
+static inline uint32_t ploytec_out_frame_offset(enum ploytec_out_layout layout, uint32_t frame)
+{
+	uint32_t subpkt = frame / PLOYTEC_FRAMES_PER_OUT_SUBPKT;
+	uint32_t index = frame % PLOYTEC_FRAMES_PER_OUT_SUBPKT;
 
-#define PLOYTEC_BULK_NUM_SUBPACKETS  4
-#define PLOYTEC_INT_NUM_SUBPACKETS   5
+	if (layout == PLOYTEC_OUT_LAYOUT_BULK)
+		return subpkt * PLOYTEC_BULK_OUT_SUBPKT_SIZE + index * PLOYTEC_OUT_FRAME_SIZE;
 
-/* Bulk MIDI slots: 1 byte each, after each 10-frame group */
-static const struct ploytec_midi_slot ploytec_bulk_midi_slots[] = {
-	{ .offset = 480,  .num_bytes = 1 },
-	{ .offset = 992,  .num_bytes = 1 },
-	{ .offset = 1504, .num_bytes = 1 },
-	{ .offset = 2016, .num_bytes = 1 },
-};
+	/* INT: frames 0-8, then the 2 MIDI bytes, then frame 9 */
+	return subpkt * PLOYTEC_INT_OUT_SUBPKT_SIZE + index * PLOYTEC_OUT_FRAME_SIZE +
+	       (index == PLOYTEC_FRAMES_PER_OUT_SUBPKT - 1 ? 2 : 0);
+}
 
-/* Interrupt MIDI slots: 2 bytes each, between frame groups */
-static const struct ploytec_midi_slot ploytec_int_midi_slots[] = {
-	{ .offset = 432,  .num_bytes = 2 },
-	{ .offset = 914,  .num_bytes = 2 },
-	{ .offset = 1396, .num_bytes = 2 },
-	{ .offset = 1878, .num_bytes = 2 },
-};
+/*
+ * ploytec_out_midi_offset - Byte offset of the MIDI slot in a sub-packet (0-7).
+ * BULK: 1 MIDI byte followed by a 0xFF sync byte. INT: 2 MIDI bytes.
+ */
+static inline uint32_t ploytec_out_midi_offset(enum ploytec_out_layout layout, uint32_t subpkt)
+{
+	if (layout == PLOYTEC_OUT_LAYOUT_BULK)
+		return subpkt * PLOYTEC_BULK_OUT_SUBPKT_SIZE +
+		       PLOYTEC_FRAMES_PER_OUT_SUBPKT * PLOYTEC_OUT_FRAME_SIZE;
 
-#define PLOYTEC_BULK_NUM_MIDI_SLOTS  4
-#define PLOYTEC_INT_NUM_MIDI_SLOTS   4
+	return subpkt * PLOYTEC_INT_OUT_SUBPKT_SIZE +
+	       (PLOYTEC_FRAMES_PER_OUT_SUBPKT - 1) * PLOYTEC_OUT_FRAME_SIZE;
+}
 
+/*
+ * ploytec_out_init_packet - Fill an output packet with silence and idle MIDI bytes.
+ */
+static inline void ploytec_out_init_packet(enum ploytec_out_layout layout, uint8_t *pkt)
+{
+	uint32_t k, midi;
+
+	for (k = 0; k < ploytec_out_packet_size(layout); k++)
+		pkt[k] = 0;
+
+	for (k = 0; k < PLOYTEC_FRAMES_PER_PKT / PLOYTEC_FRAMES_PER_OUT_SUBPKT; k++) {
+		midi = ploytec_out_midi_offset(layout, k);
+		pkt[midi] = PLOYTEC_MIDI_IDLE_BYTE;
+		pkt[midi + 1] = layout == PLOYTEC_OUT_LAYOUT_BULK ? 0xFF : PLOYTEC_MIDI_IDLE_BYTE;
+	}
+}
 
 /* ========================================================================
  * Sample Rate Encoding

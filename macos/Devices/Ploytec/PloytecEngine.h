@@ -3,10 +3,11 @@
 
 #include "../../OzzyCore/OzzyEngine.h"
 #include "../../Shared/OzzySharedData.h"
+#include "PloytecProtocol.h"
 
 class PloytecEngine : public OzzyEngine {
     uint64_t mHwSampleTime = 0;
-    bool mBulkLayout = false;   // 512-byte output packet layout (wMaxPacketSize <= 512)
+    enum ploytec_out_layout mOutLayout = PLOYTEC_OUT_LAYOUT_INT;
     uint32_t mSampleRate = 96000;
     uint32_t mPacketSizeOut = 0;
     

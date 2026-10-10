@@ -59,20 +59,13 @@ static const unsigned int ploytec_db2_rates[] = { 48000 };
 static int ploytec_set_rate(struct ozzy_chip *chip, unsigned int rate_index);
 
 /*
- * ploytec_out_bulk_layout - True if the output uses the 512-byte ("bulk") packet layout.
- * The layout follows the output endpoint's wMaxPacketSize, not its transfer type,
- * like the official driver (AudioBulkIRP::useOut): <= 512 uses the bulk layout,
- * larger (964) uses the interrupt layout. DB2 fw 1.2.0 is an interrupt endpoint
- * with wMaxPacketSize 512 and needs the bulk layout.
+ * ploytec_out_layout - Output packet layout for this device (follows the PCM OUT
+ * endpoint's wMaxPacketSize, see ploytec_protocol.h).
  */
-static bool ploytec_out_bulk_layout(const struct ozzy_chip *chip)
+static enum ploytec_out_layout ploytec_out_layout(const struct ozzy_chip *chip)
 {
-	return chip->out_maxpacket <= PLOYTEC_BULK_OUT_SUBPKT_SIZE;
+	return ploytec_out_layout_for_maxpacket(chip->out_maxpacket);
 }
-
-/* ========================================================================
- * Vendor Request Helpers
- * ======================================================================== */
 
 /*
  * ploytec_get_firmware - Read the Ploytec firmware version.
@@ -326,81 +319,29 @@ static int ploytec_reset(struct ozzy_chip *chip)
  * ======================================================================== */
 
 /*
- * ploytec_process_out_bulk - Encode ALSA audio into a Ploytec bulk output packet.
- *
- * The Ploytec bulk format groups 10 frames (480 bytes) followed by a 32-byte
- * gap (1 MIDI + 1 sync + 30 padding), repeated 4 times for 40 frames total.
- * Total packet size: 4 * (480 + 32) = 2048 bytes.
- */
-static unsigned int ploytec_process_out_bulk(struct ozzy_chip *chip,
-					     uint8_t *urb_buf, uint8_t *dma_area,
-					     unsigned int dma_off,
-					     unsigned int pcm_buffer_size)
-{
-	unsigned int g, f, src_off;
-
-	for (g = 0; g < PLOYTEC_BULK_NUM_SUBPACKETS; g++) {
-		const struct ploytec_subpacket *sp = &ploytec_bulk_subpackets[g];
-
-		for (f = 0; f < sp->frame_count; f++) {
-			src_off = dma_off + (sp->start_frame + f) * ALSA_FRAME_SIZE;
-			if (src_off >= pcm_buffer_size)
-				src_off -= pcm_buffer_size;
-
-			ploytec_encode_frame(
-				urb_buf + sp->byte_offset + f * PLOYTEC_OUT_FRAME_SIZE,
-				dma_area + src_off);
-		}
-	}
-
-	return ALSA_OUT_PKT_SIZE;
-}
-
-/*
- * ploytec_process_out_int - Encode ALSA audio into a Ploytec interrupt output packet.
- *
- * The interrupt format has 2-byte MIDI gaps at frames 9, 19, 29, 39 and
- * different overall framing than bulk. Frame offsets accumulate a 2-byte
- * shift after each group of ~10 frames.
- */
-static unsigned int ploytec_process_out_int(struct ozzy_chip *chip,
-					    uint8_t *urb_buf, uint8_t *dma_area,
-					    unsigned int dma_off,
-					    unsigned int pcm_buffer_size)
-{
-	unsigned int g, f, src_off;
-
-	for (g = 0; g < PLOYTEC_INT_NUM_SUBPACKETS; g++) {
-		const struct ploytec_subpacket *sp = &ploytec_int_subpackets[g];
-
-		for (f = 0; f < sp->frame_count; f++) {
-			src_off = dma_off + (sp->start_frame + f) * ALSA_FRAME_SIZE;
-			if (src_off >= pcm_buffer_size)
-				src_off -= pcm_buffer_size;
-
-			ploytec_encode_frame(
-				urb_buf + sp->byte_offset + f * PLOYTEC_OUT_FRAME_SIZE,
-				dma_area + src_off);
-		}
-	}
-
-	return ALSA_OUT_PKT_SIZE;
-}
-
-/*
- * ploytec_process_out_packet - Dispatch to bulk or interrupt output processing.
+ * ploytec_process_out_packet - Encode ALSA audio into a Ploytec output packet.
+ * Frame offsets come from the shared layout helpers (ploytec_protocol.h).
+ * Zero-copy: reads from the ALSA DMA area, writes directly into the URB buffer.
+ * Handles DMA ring buffer wraparound.
  */
 static unsigned int ploytec_process_out_packet(struct ozzy_chip *chip,
 					       uint8_t *urb_buf, uint8_t *dma_area,
 					       unsigned int dma_off,
 					       unsigned int pcm_buffer_size)
 {
-	if (ploytec_out_bulk_layout(chip))
-		return ploytec_process_out_bulk(chip, urb_buf, dma_area,
-						dma_off, pcm_buffer_size);
-	else
-		return ploytec_process_out_int(chip, urb_buf, dma_area,
-					       dma_off, pcm_buffer_size);
+	enum ploytec_out_layout layout = ploytec_out_layout(chip);
+	unsigned int f, src_off;
+
+	for (f = 0; f < PLOYTEC_FRAMES_PER_PKT; f++) {
+		src_off = dma_off + f * ALSA_FRAME_SIZE;
+		if (src_off >= pcm_buffer_size)
+			src_off -= pcm_buffer_size;
+
+		ploytec_encode_frame(urb_buf + ploytec_out_frame_offset(layout, f),
+				     dma_area + src_off);
+	}
+
+	return ALSA_OUT_PKT_SIZE;
 }
 
 /*
@@ -434,98 +375,49 @@ static unsigned int ploytec_process_in_packet(struct ozzy_chip *chip,
 
 /*
  * ploytec_init_out_urb - Fill an output URB with the Ploytec silence pattern.
- * Sets up the proper padding, sync bytes, and MIDI idle bytes.
  */
 static void ploytec_init_out_urb(struct ozzy_chip *chip, uint8_t *buffer)
 {
-	const struct ploytec_midi_slot *slots;
-	unsigned int num_slots, i, j;
-	unsigned int pkt_size;
-
-	if (ploytec_out_bulk_layout(chip)) {
-		slots = ploytec_bulk_midi_slots;
-		num_slots = PLOYTEC_BULK_NUM_MIDI_SLOTS;
-		pkt_size = PLOYTEC_BULK_OUT_PKT_SIZE;
-	} else {
-		slots = ploytec_int_midi_slots;
-		num_slots = PLOYTEC_INT_NUM_MIDI_SLOTS;
-		pkt_size = PLOYTEC_INT_OUT_PKT_SIZE;
-	}
-
-	/* Zero entire packet (silence for PCM, zero for padding) */
-	memset(buffer, 0, pkt_size);
-
-	/* Fill all MIDI slot positions with idle byte */
-	for (i = 0; i < num_slots; i++)
-		for (j = 0; j < slots[i].num_bytes; j++)
-			buffer[slots[i].offset + j] = PLOYTEC_MIDI_IDLE_BYTE;
-
-	/* Bulk mode: sync byte at offset 481 within each sub-packet */
-	if (ploytec_out_bulk_layout(chip)) {
-		for (i = 0; i < PLOYTEC_BULK_NUM_SUBPACKETS; i++)
-			buffer[ploytec_bulk_subpackets[i].byte_offset + 481] = 0xFF;
-	}
+	ploytec_out_init_packet(ploytec_out_layout(chip), buffer);
 }
 
 /*
  * ploytec_fill_midi_out - Embed pending MIDI bytes into a PCM output packet.
  *
  * Rate limiting: MIDI standard baud rate is 31250 bps (~3125 bytes/sec).
- * At 96kHz with 40 frames/packet, we get ~2400 packets/sec. Using all 4
- * MIDI slots per packet would give 9600 bytes/sec -- way over the limit.
- *
- * We only use the first MIDI byte position in the first sub-packet,
- * limiting output to ~2400 bytes/sec at 96kHz (safely below 3125 bps).
- * Remaining slots are filled with the idle byte (0xFD).
- * This matches the macOS driver's approach.
- */
-/*
- * ploytec_fill_midi_out - Embed pending MIDI bytes into a PCM output packet.
- *
- * Rate limiting: MIDI standard baud rate is 31250 bps (~3125 bytes/sec).
- * At 96kHz with 40 frames/packet, we get ~2400 packets/sec. Using all
+ * At 96kHz with 80 frames/packet, we get ~1200 packets/sec. Using all
  * MIDI slots per packet would exceed the MIDI baud rate.
  *
  * We only consume 1 MIDI byte from the first slot, filling all other
- * slots with the idle byte (0xFD). This limits output to ~2400 bytes/sec
- * at 96kHz, safely below 3125 bps. Matches the macOS driver's approach.
+ * MIDI bytes with the idle byte (0xFD). Matches the macOS driver's approach.
  */
 static void ploytec_fill_midi_out(struct ozzy_chip *chip, uint8_t *urb_buf)
 {
-	const struct ploytec_midi_slot *slots;
-	unsigned int num_slots, i, j;
+	enum ploytec_out_layout layout = ploytec_out_layout(chip);
 	struct midi_runtime *rt = chip->midi;
+	unsigned int k, midi;
 
 	if (!rt)
 		return;
 
-	if (ploytec_out_bulk_layout(chip)) {
-		slots = ploytec_bulk_midi_slots;
-		num_slots = PLOYTEC_BULK_NUM_MIDI_SLOTS;
-	} else {
-		slots = ploytec_int_midi_slots;
-		num_slots = PLOYTEC_INT_NUM_MIDI_SLOTS;
+	for (k = 0; k < PLOYTEC_FRAMES_PER_PKT / PLOYTEC_FRAMES_PER_OUT_SUBPKT; k++) {
+		midi = ploytec_out_midi_offset(layout, k);
+		if (k == 0)
+			ozzy_midi_consume(rt, urb_buf + midi, 1, PLOYTEC_MIDI_IDLE_BYTE);
+		else
+			urb_buf[midi] = PLOYTEC_MIDI_IDLE_BYTE;
+		/* BULK: second byte is the 0xFF sync set by init_out_urb; INT: idle MIDI byte */
+		if (layout == PLOYTEC_OUT_LAYOUT_INT)
+			urb_buf[midi + 1] = PLOYTEC_MIDI_IDLE_BYTE;
 	}
-
-	/* First slot: consume 1 actual MIDI byte (rate-limited) */
-	ozzy_midi_consume(rt, urb_buf + slots[0].offset, 1, PLOYTEC_MIDI_IDLE_BYTE);
-
-	/* Fill remaining bytes in first slot with idle */
-	for (j = 1; j < slots[0].num_bytes; j++)
-		urb_buf[slots[0].offset + j] = PLOYTEC_MIDI_IDLE_BYTE;
-
-	/* All other slots: idle bytes only */
-	for (i = 1; i < num_slots; i++)
-		for (j = 0; j < slots[i].num_bytes; j++)
-			urb_buf[slots[i].offset + j] = PLOYTEC_MIDI_IDLE_BYTE;
 }
 
 /*
- * ploytec_get_out_packet_size - Return output packet size for bulk or interrupt.
+ * ploytec_get_out_packet_size - Return output packet size for this device's layout.
  */
 static unsigned int ploytec_get_out_packet_size(struct ozzy_chip *chip, bool is_bulk)
 {
-	return ploytec_out_bulk_layout(chip) ? PLOYTEC_BULK_OUT_PKT_SIZE : PLOYTEC_INT_OUT_PKT_SIZE;
+	return ploytec_out_packet_size(ploytec_out_layout(chip));
 }
 
 /* ========================================================================

@@ -12,7 +12,7 @@ every VID/PID the driver supports.
 | USB PID | Device Name | PCM Format | Notes |
 |---------|-------------|------------|-------|
 | 0xFFDB  | Xone:DB4    | 24-bit Ploytec bulk | Confirmed, supported in Ozzy |
-| 0xFFD2  | Xone:DB2    | 24-bit Ploytec bulk | Confirmed, supported in Ozzy. Official driver offers 44.1–96k (shared table), A&H spec says 48k only. Boots at 44.1k. See `ploytec_sample_rates.md` |
+| 0xFFD2  | Xone:DB2    | 24-bit Ploytec bulk | Confirmed, supported in Ozzy. **48 kHz only** (official plist table). fw 1.2.0: EP 0x05 interrupt, wMaxPacketSize 512 → 512 framing. Boots at 44.1k. See `ploytec_sample_rates.md`, `ploytec_bulk_devices.md` |
 | 0xFFDD  | Xone:DX     | 24-bit Ploytec bulk | Confirmed, supported in Ozzy. Special-cased in `updateAjInputSelector` |
 | 0xFF4D  | Xone:4D     | 24-bit Ploytec bulk | Confirmed, supported in Ozzy |
 | 0xFFAD  | Wizard 4    | 24-bit Ploytec bulk | Confirmed, supported in Ozzy |

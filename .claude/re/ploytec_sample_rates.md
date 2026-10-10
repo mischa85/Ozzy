@@ -1,144 +1,150 @@
-# Ploytec Sample Rates — How the Official Driver Decides
+# Ploytec Sample Rates and Stream Formats — From the Official Driver
 
-Short answer: **the official driver never asks the device which sample rates it supports.**
-Ploytec devices have no USB Audio Class descriptors, so there is nothing to ask. The rate list
-is a hardcoded per-VID/PID table inside the driver.
+Short answer: **the device is never asked which rates it supports.** The official driver ships
+a per-device format table in the kext's Info.plist (`PtSpecific.kConfigurationData`).
+**Xone:DB2 = 48 kHz only. Xone:DB4 = 44.1/48 kHz (2ch) and 44.1/48/88.2/96 kHz (8ch).**
 
-Sources: Ghidra decompile of the official macOS DB2 driver v3.4.9 (`XONE_DB2.kext` +
-`XONE_DB2.driver` CoreAudio plugin, both x86_64, with symbols), and the Windows DB2 USB capture
-from PR #70 (`db2.pcapng`, driver 2.9.91.0, audio firmware 1.2.0).
+Sources:
+- Ghidra decompile of official macOS drivers v3.4.9: `XONE_DB2.kext` + `XONE_DB2.driver`
+  (x86_64, with symbols). The DB4 v3.4.9 kext has the same code; only the plist differs.
+- Windows DB2 USB capture from PR #70 (`db2.pcapng`, driver 2.9.91.0, audio fw 1.2.0).
 
 ## 1. The device advertises nothing
 
-DB2 (0x0A4A:0xFFD2) configuration descriptor, 80 bytes, from the Windows capture:
+DB2 (0x0A4A:0xFFD2, audio fw 1.2.0) configuration descriptor, 80 bytes, from the Windows capture:
 
 ```
 Config 1, 2 interfaces, self-powered
   Interface 0 alt 0: class 0xFF, 0 endpoints
   Interface 0 alt 1: class 0xFF, 4 endpoints
-    EP 0x02 OUT  isoc       wMaxPacketSize 4    (keep-alive)
-    EP 0x83 IN   bulk       512                 (PCM in)
-    EP 0x05 OUT  interrupt  512                 (PCM out, fw 1.2.0)
-    EP 0x04 OUT  bulk       512                 (MIDI out)
+    EP 0x02 OUT  isoc       wMaxPacketSize 4     (keep-alive, only used in bulk mode)
+    EP 0x83 IN   bulk       512                  (MIDI in)
+    EP 0x05 OUT  interrupt  512                  (PCM out + embedded MIDI out)
+    EP 0x04 OUT  bulk       512
   Interface 1 alt 0: class 0xFF, 0 endpoints
   Interface 1 alt 1: class 0xFF, 1 endpoint
-    EP 0x86 IN   interrupt  512
+    EP 0x86 IN   interrupt  512                  (PCM in)
 ```
 
-Everything is vendor-specific class. There are no class-specific AS_GENERAL / FORMAT_TYPE
-descriptors, so no `tSamFreq` list.
+For comparison, the Xone:4D (issue #9, `lsusb -v`) has the same layout, except
+EP 0x05 is interrupt **964** and EP 0x86 is interrupt **1024**.
 
-## 2. The driver makes up the descriptors: `USB::buildDummyDescriptor`
+Everything is vendor-specific class. There are no audio-class descriptors, so there is no rate list.
 
-`PGDevice::scanConfigurationDescriptors` calls
-`USB::buildDummyDescriptor(VIDPID&, PGSimpleArray&, bool isHighSpeed, DeviceSpecificData&)`.
-This function builds fake audio-streaming descriptors (channels, bit depth, sample rates) on
-top of the vendor interfaces, using `genInit(numChannels, bitDepth)` and `genAddSR(rate)`.
-Later code reads them back as if they were real UAC descriptors (`"In frequencies:%d"`,
-`"Found frequency %d"` logs).
+## 2. Where the official driver gets the format table: the plist
 
-For VID 0x0A4A, these PIDs share one generic "Ploytec High Speed" branch
-(bitmask `0x2000000000a01` on `PID + 0x2E`, plus individual checks):
+`PGKernelDeviceXONEDB2::initSpecificFeatures` reads `PtSpecific` from the matching IOKit
+personality:
 
-0xFFD2 (DB2), 0xFFDB (DB4), 0xFFDD (DX), 0xFF4D (4D), 0xFFAD (Wizard 4), 0xFF01, 0xAFFE,
-0xCF00, 0xCF04, 0xDA01, 0x5A16, 0xD064.
+| Key | Meaning |
+|-----|---------|
+| `kConfigurationData` (0x178 bytes) | Copied by `PGDevice::initialSettings` into `APISpecificFeatures` at `PGDevice+0x660` (0x17C bytes); sets `this[0x7d7] = 1` ("configured from plist") |
+| `kInACR` | stored at `PGDevice+0x810` |
+| `kMsWait`, `kClockSourceSettings`, `kCustomName` | optional (absent for DB2/DB4) |
 
-The resulting rate table:
+### kConfigurationData layout
 
-| PID | High Speed rates | Full Speed rates | Notes |
-|-----|------------------|------------------|-------|
-| **0xFFD2 (DB2)** | 44100, 48000, 88200, 96000 | 44100, 48000 (2ch) | No DB2-specific entry. Same as DB4 |
-| 0xFFDB (DB4), 0xFFDD (DX), 0xFF4D (4D), 0xFFAD (WZ4) | 44100, 48000, 88200, 96000 | 44100, 48000 (2ch) | |
-| 0xD064 (Dotec) | 32ch @ 44.1/48, 16ch @ 88.2/96, 8ch @ 176.4/192 | 2ch @ 44.1/48 | Channel count depends on rate |
-| 0xC150 (SPL Crimson) | 6ch @ 44.1–96, 4ch @ 176.4/192 | 2ch @ 44.1/48 | |
-| 0x2416 (JCT2416) | 44100, 48000 | 44100, 48000 | |
-
-At Full Speed (`isHighSpeed == false`) the driver also clamps channel counts to 2.
-
-### Pruning is hardcoded too
-
-`PGDevice::disableAllByFrequency(rate)` removes a rate from the table. It is only called for
-two non-A&H devices: 0x0A4E/0x4040 (removes 88.2k and 96k) and 0x0DBA/0x3000 (removes 32k).
-Nothing is ever removed based on what the device says.
-
-## 3. CoreAudio plugin just mirrors the kext table
-
-`PtASPlugInDevice::getSampleRates` loops over 32k, 44.1k, 48k, 64k, 88.2k, 96k, 176.4k, 192k and
-asks `canSampleRate(rate)`. That function reads the kext's capability matrix (`getCaps`), which
-comes from the dummy descriptor. One exception, see below.
-
-## 4. The only things the device tells the host about rates
-
-The device only reports one value: its **current** rate, via the UAC1 endpoint
-sampling-frequency control (GET_CUR, `bmRequestType 0xA2`, `bRequest 0x81`, `wValue 0x0100`).
-The driver uses this in two places:
-
-1. **Readback check** (`updateAjInputSelector`): after configuring, it reads the rate back. If it
-   differs from what it asked for, it logs `"***** Device Frequency mismatch expected:%d current:%d"`
-   and sends SET_CUR again. It does not remove the rate from the list.
-2. **Digital lock**: if status register 'I' index 0 bit 2 (0x04, digital lock) is set, the
-   driver reads the current rate and stores it as `AjExtData.mDigitalLockFrequency`. The lock bit
-   is saved at `AjExtData+0x28` (= data block `+0x146C`). When that flag is set,
-   `canSampleRate` only accepts the current rate (data block `+0x142C`), so CoreAudio sees a
-   single rate. In other words: when the device is locked to an external clock, the clock decides.
-   - 0x0A4A/0x6A02 and 0xF1A0 get a forced SET_CUR 44100 first.
-   - It retries up to 20× when the device reports 192000 and the device has no 192k alt setting.
-
-There is no GET_MIN / GET_MAX / GET_RES / GET_RANGE anywhere, in the kext or in the
-Windows capture.
-
-## 5. What the Windows driver does with a DB2 (capture, PR #70)
+Four `APIStreamingInfo` entries of 0x4C bytes each. This is the same struct that
+`PGInterfaceDescriptorSpecificAS::getAPIStreamingInfo` would build from real UAC descriptors:
 
 ```
-GET 'V'  (0xC0/0x56)           → 33 01 14
-SET_CONFIGURATION 1
-GET 'I'  idx0  (0xC0/0x49)     → 0x12
-GET_CUR  (0xA2/0x81, wIdx 0)   → 0x00AC44 = 44100   ← power-on default
-SET_CUR  48000 → EP 0x86, 0x05, 0x86, 0x05, 0x86, 0x05, 0x86   (7 calls, ~27 ms apart)
-GET_CUR  (wIdx 0x86)           → 0x00BB80 = 48000
-GET 'I'  idx0                  → 0x12
-SET 'I'  idx0 = 0x0032
++0x00 u8  bitResolution
++0x01 u8  numChannels
++0x02 u8  isContinuous
++0x03 u8  numFrequencies (max 16)
++0x04 u32 lowerFrequency  (only if continuous)
++0x08 u32 upperFrequency  (only if continuous)
++0x0C u32 frequencies[16]
 ```
 
-The DB2 starts up at 44100 (this also matches every Ozzy debug log: "hardware sample rate:
-44100 Hz" before the first SET_CUR). The Windows driver picks 48000 itself. It does not ask
-the device first.
+After the four entries comes a flag block. Offsets 0x130.. map onto `PGDevice+0x790..`:
 
-## 6. So does the DB2 support 96 kHz?
+```
+0x130: 01 01 00 01 00 01 00 00  01 01 00 01 00 00 01 00  01 00 00 01
+        → this[0x798]=1  isJunctionCompatible() (spec feature 0)
+          this[0x7a0]=1
+          this[0x7a1]=0  setFreqOnOutPipe() capability → off
+          (identical in DB2 and DB4)
+```
 
-**The official driver thinks so.** It offers 44.1/48/88.2/96 for the DB2 at High Speed, the same
-as the DB4. The DB2 is not special-cased anywhere in `buildDummyDescriptor`,
-`scanConfigurationDescriptors` or `canSampleRate`.
+### The two official tables
 
-**A&H spec sheets say otherwise:** "USB soundcard sampling frequency: 48kHz", "DSP core
-sampling frequency: 48kHz". S/PDIF out is fixed at 48k/24-bit.
+| Entry | Xone:DB2 (`XONE_DB2.kext` 3.4.9) | Xone:DB4 (`XONE_DB4.kext` 3.4.9) |
+|-------|----------------------------------|----------------------------------|
+| 0x000 24-bit 2ch  | **48000** | 44100, 48000 |
+| 0x04C 24-bit 2ch  | **48000** | 44100, 48000 |
+| 0x098 24-bit 8ch  | **48000** | 44100, 48000, 88200, 96000 |
+| 0x0E4 24-bit 8ch  | **48000** | 44100, 48000, 88200, 96000 |
 
-Possible explanations, none confirmed yet:
-- The Ploytec USB chip runs at any of the 4 rates and the DB2 DSP sample-rate-converts.
-- The table was shared across Ploytec products and nobody tested a DB2 at 88.2/96k.
+(2ch = Full Speed fallback, 8ch = High Speed. Which entry of each pair is in vs. out is not
+confirmed.)
 
-Evidence so far:
-- No log exists of a DB2 receiving SET_CUR 96000 followed by a GET_CUR readback. Ozzy's
-  DB2 logs either predate the readback logging or use the patched 48k build.
-- The "noise at 96k" reports in #72 / #48 happened while the DB2 interrupt packet format
-  was still wrong (482-byte layout, fixed in PR #70). They don't tell us anything about 96k.
-- Status register bit 7: DB4 reads 0x92, DB2 reads 0x12. This is the only hardware
-  difference seen in the status register. Ozzy writes 0xFFB2 to the DB2 and gets 0x32 back, so
-  bit 7 does not stick. The official driver never reads or sets bit 7 for A&H devices; it
-  just preserves it. Whether bit 7 means "high rate capable" is **pure speculation**, but
-  worth checking.
+Raw dumps: `DB2_decompile/DB2_kConfigurationData.bin`, `DB4_kConfigurationData.bin` in the
+investigation folder.
 
-### How to settle it (test plan)
+### buildDummyDescriptor is NOT used for DB2/DB4
 
-1. With the fixed DB2 transport, send SET_CUR 96000 to EP 0x86 and 0x05, then GET_CUR.
-   - Readback ≠ 96000 → the device refuses. Ozzy can use readback-based detection
-     (try each rate, keep the ones that read back the same).
-   - Readback = 96000 → go to step 2.
-2. Stream a sine at 96k out and loop it back in (or record the master out). If pitch and
-   duration are correct, 96k works (possibly with SRC). If it plays at half speed or garbles,
-   the chip accepts the value but the DSP doesn't follow.
-3. Repeat for 88200.
-4. Check whether 'I' idx0 bit 7 changes at any rate.
+`USB::buildDummyDescriptor` has a generic hardcoded table that gives every Ploytec High
+Speed PID 44.1/48/88.2/96k. `scanConfigurationDescriptors` only calls it when
+`this[0x7d7] && !this[0x798] && !this[0x7ae]`. DB2 and DB4 have `0x798` set (junction
+compatible), so they skip it and use the plist table above. An earlier version of this file
+got this wrong.
 
-Until this is tested, defaulting the DB2 to 48000 is the safe choice. It matches both the
-A&H spec and what the official Windows driver picks.
+## 3. CoreAudio plugin mirrors the kext table
+
+`PtASPlugInDevice::getSampleRates` loops over 32k…192k and asks `canSampleRate(rate)`, which
+reads the kext capability matrix (`getCaps`). One exception: if the device is locked to an
+external digital clock (see §4), only the current rate is offered.
+
+## 4. The only things the device reports about rates
+
+Only its **current** rate, via UAC1 endpoint GET_CUR (`0xA2`, `0x81`, `wValue 0x0100`).
+`getFrequency` maps the 16-bit truncations 0x5888 → 88200 and 0x7700 → 96000.
+
+1. **Readback check** (`updateAjInputSelector`): if GET_CUR ≠ the configured rate, it logs
+   `"Device Frequency mismatch expected:%d current:%d"` and sends SET_CUR again.
+2. **Digital lock**: if 'I' idx0 bit 2 (0x04) is set, the driver reads the current rate as
+   `AjExtData.mDigitalLockFrequency`. The lock flag is kept at `AjExtData+0x28`
+   (= data block `+0x146C`); while it is set, CoreAudio is only offered the current rate.
+
+No GET_MIN / GET_MAX / GET_RES anywhere, in the kext or the Windows capture.
+
+## 5. SET_CUR sequence in the official driver
+
+`setFrequency(inPipe, outPipe, rate)` sends exactly **one** SET_CUR, to `inPipe` if non-null,
+otherwise to `outPipe` (wIndex = endpoint address). The only retry loop is for VID 0x0499.
+
+For Ploytec junction devices, `configureDevice` clears the isoc slots (`0xab0`, `0xac0`) and
+puts EP 0x86 into `0xa90` and EP 0x05 into `0xa98`, whether they are bulk or interrupt. The
+start path then sends:
+
+```
+startStreaming   SET_CUR → EP 0x86, SET_CUR → EP 0x05   (OUT call because isoc-in slot is empty)
+resumeStreaming  SET_CUR → EP 0x86, SET_CUR → EP 0x05   (isJunctionCompatible && !JCT30)
+bulkAudioRun     SET_CUR → EP 0x86, GET_CUR ← EP 0x86, sleep 50 ms
+```
+
+That's **5 SET_CURs + 1 GET_CUR**. The Windows capture shows the same pattern with one extra
+IN/OUT pair (86,05,86,05,86,05,86, then GET_CUR 86), so the Windows build likely goes through one
+more of these paths. The exact count is not magic; it's the sum of code paths. Ozzy
+currently sends 2 (commit bbfa66d, which was based on an incomplete reading). See open_questions.md.
+
+## 6. The DB2 can't carry more than 48 kHz anyway
+
+Interrupt endpoints with bInterval 1 move one packet per 125 µs microframe:
+
+| Device | EP | wMaxPacketSize | Frame size | Frames/µframe | Max rate |
+|--------|----|----------------|------------|---------------|----------|
+| DB2 fw 1.2.0 | 0x05 out | 512 | 48 B | 10 | 80 kHz |
+| DB2 fw 1.2.0 | 0x86 in  | 512 | 64 B | 8  | **64 kHz** |
+| Xone:4D      | 0x05 out | 964 | 48 B | 20 | 160 kHz |
+| Xone:4D      | 0x86 in  | 1024| 64 B | 16 | 128 kHz |
+
+So 88.2/96 kHz is physically impossible over the DB2's endpoints. This matches the official
+48k-only table and the A&H spec ("USB soundcard sampling frequency: 48kHz").
+
+The device does *accept* SET_CUR 96000. PR #70 reports it then plays at half speed. Ozzy
+must not offer anything but 48000 for the DB2.
+
+The DB2 boots at 44100 (GET_CUR before the first SET_CUR, in both the Windows capture and every
+Ozzy log), but 44100 is not in the official table either. Only 48000 is.

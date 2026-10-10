@@ -2,17 +2,35 @@
 
 ## Open Questions
 
-### Sample rate change: how many SET_CUR calls?
-Ozzy now sends 2 (one per endpoint, like the official macOS driver; commit bbfa66d). The Windows
-driver sends 5 (DB4) or 7 (DB2). Issue #72 / PR #70 report that the DB2 only produces output with
-the 7-call sequence. Need to test on DB2 whether the call count matters or whether a delay/readback
-after SET_CUR is enough.
+### SET_CUR count: 2 (Ozzy) vs 5 (official macOS) vs 7 (Windows)
+The official macOS driver sends 5 SET_CURs + GET_CUR + 50 ms sleep on stream start (see
+`ploytec_sample_rates.md` §5). Ozzy sends 2 and works on the DB4. Nobody has tested the DB2
+with only the framing fix and 2 calls. Matching the official 5-call sequence is cheap and safe.
 
-### Does the Xone:DB2 really support 88.2/96 kHz?
-The official driver offers 44.1/48/88.2/96 for the DB2 (same hardcoded table as DB4). A&H specs say
-the USB soundcard runs at 48k. The device is never asked. Test plan is in `ploytec_sample_rates.md`.
-Lead: status bit 7 (0x80) is set on DB4 and clear on DB2. Could mean "high rate capable"
-(speculative).
+### Isoc keep-alive on EP 0x02 (bulk-mode firmware only)
+The official driver streams isoc keep-alive on EP 0x02 when the IN or OUT PCM pipe is bulk
+(DB4 fw 1.3.9, DB2 fw 1.0.8). Ozzy never does. Unknown whether bulk-mode devices need it.
+
+### Status 'I' idx0 bit 7: DB4 0x92 vs DB2 0x12
+Not USB speed (Ozzy's `[FullSpeed]/[HighSpeed]` log label is wrong). The official driver
+preserves it but never interprets it for A&H devices. Meaning unknown.
+
+## GitHub claims audit (DB2, issue #72 / PR #70 / PR #83)
+
+Checked against the official v3.4.9 driver and the DB2 Windows capture (2026-10-10):
+
+| Claim | Source | Verdict |
+|-------|--------|---------|
+| DB2 needs 48 kHz; 96k plays at half speed | #70, #72 | **Confirmed.** Official plist table = 48000 only; endpoints can't carry more than 64 kHz in |
+| DB2 only supports 44.1 kHz | #72, #83 description | **Wrong.** Boots at 44.1k, but the official table and the Windows driver use 48k only. (#83's code actually uses 48k) |
+| Interrupt sub-packet is 512, not 482 | #70, #83 | **True for DB2 only.** The layout follows wMaxPacketSize (512 vs 964), not transfer type. Applying it to all interrupt devices breaks DB4 fw 1.4.1 / 4D |
+| 7× SET_CUR needed or the PLL won't lock | #70, #72 | **Unproven.** Official macOS sends 5. Tested together with the framing fix, so the cause wasn't isolated |
+| Channel layout UseChannelDescriptions silences stereo | #70 | **Unproven, unlikely.** Same HAL works on DB4. Not device-specific |
+| willDoInPlace=true leaves zeros in the ring buffer | #70 | **Wrong.** Ozzy reads `ioMainBuffer` on WriteMix, which is the documented in-place contract. Same HAL works on DB4 |
+| hostTime uninitialised at start | #70 | **Minor, plausible.** Only affects the window before the first USB completion; not DB2-specific |
+| Residual distortion = SoundSource | #72 | Environmental, not a driver bug |
+| `[FullSpeed]` despite High Speed enumeration | #72 title | **Log label bug.** Status bit 7 isn't USB speed |
+| Repeated disconnects (0xe00002ed) | #72 | **Open.** No root cause yet |
 
 ### Junction encoder vs our bit-interleaved codec
 `pcmTo24Junction6CH` does **channel reordering** (0→0, 3→1, 1→2, 4→3, 2→4, 5→5) and

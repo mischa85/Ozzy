@@ -200,9 +200,11 @@ Sends 3 bytes, little-endian sample rate. How many times it is sent differs per 
 - DB4 Windows capture: 5× alternating (3× 0x0086, 2× 0x0005)
 - DB2 Windows capture (PR #70): 7× alternating 0x86,0x05,0x86,0x05,0x86,0x05,0x86, ~27 ms apart,
   then GET_CUR with wIndex=0x0086 to read it back
-- Official macOS driver: `setFrequency` once per pipe (2 total)
-- Ozzy currently sends 2 (commit bbfa66d). Issue #72 reports the DB2 PLL only locks with the 7-call
-  sequence. **Unconfirmed** whether the count matters or whether it's just timing.
+- Official macOS driver: 5× (86,05 in startStreaming; 86,05 in resumeStreaming; 86 + GET_CUR 86 +
+  50 ms sleep in bulkAudioRun). Each `setFrequency` call is one request; see `ploytec_sample_rates.md` §5
+- Ozzy currently sends 2 (commit bbfa66d, based on the incorrect "once per pipe" reading). Issue #72
+  reports the DB2 only works with the 7-call sequence, but that was tested together with the framing
+  fix, so it's unproven whether the count matters.
 
 Neither driver ever sends GET_MIN/GET_MAX/GET_RES. The device is never asked which rates it
 supports. See `ploytec_sample_rates.md`.

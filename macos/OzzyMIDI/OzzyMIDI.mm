@@ -1,6 +1,7 @@
 #include "OzzyMIDI.h"
 #include "../Shared/OzzySharedData.h"
 #include "../Shared/OzzyLog.h"
+#include "../Shared/OzzyKextClient.h"
 #include <CoreFoundation/CoreFoundation.h>
 #include <CoreMIDI/CoreMIDI.h>
 #include <mach/mach_time.h>
@@ -20,6 +21,7 @@
 struct OzzyMidiPort {
 	// Connection to one OzzyKext instance; shm is null while disconnected
 	uint64_t registryID;
+	uint32_t locationID;   // USB port: tells two devices of the same model apart
 	io_connect_t connect;
 	mach_vm_address_t mapAddress;
 	mach_vm_size_t mapSize;
@@ -98,11 +100,12 @@ static bool PortIsConnected(uint64_t registryID) {
 	return false;
 }
 
-/* A free port for a device called @name: preferably the one it had before, else an unused
- * one, else any disconnected port (its device gets renamed). */
-static OzzyMidiPort* PortForName(const char* name) {
+/* A free port for a device called @name on USB port @locationID: preferably the one it had
+ * before, else an unused one, else any disconnected port (its device gets renamed). */
+static OzzyMidiPort* PortForDevice(const char* name, uint32_t locationID) {
 	for (int i = 0; i < kMaxPorts; i++)
-		if (!gPorts[i].shm && gPorts[i].device && strcmp(gPorts[i].name, name) == 0) return &gPorts[i];
+		if (!gPorts[i].shm && gPorts[i].device && gPorts[i].locationID == locationID &&
+		    strcmp(gPorts[i].name, name) == 0) return &gPorts[i];
 	for (int i = 0; i < kMaxPorts; i++)
 		if (!gPorts[i].shm && !gPorts[i].device) return &gPorts[i];
 	for (int i = 0; i < kMaxPorts; i++)
@@ -131,7 +134,7 @@ static void ConnectService(io_service_t service, uint64_t registryID) {
 	} else if (!shm->audio.hardwarePresent.load()) {
 		// Not started yet; try again on the next scan
 	} else {
-		port = PortForName(shm->productName[0] ? shm->productName : "Ozzy MIDI");
+		port = PortForDevice(shm->productName[0] ? shm->productName : "Ozzy MIDI", OzzyUSBLocationID(service));
 		if (!port) LogOzzyMIDIError("too many devices");
 	}
 	if (!port) {
@@ -141,6 +144,7 @@ static void ConnectService(io_service_t service, uint64_t registryID) {
 	}
 
 	port->registryID = registryID;
+	port->locationID = OzzyUSBLocationID(service);
 	port->connect = connect;
 	port->mapAddress = address;
 	port->mapSize = size;

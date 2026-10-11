@@ -26,6 +26,8 @@ every VID/PID the driver supports.
 | 0xC150  | "CRIMSON_SPL" | ? | SPL Crimson — named in `_IOLog` string |
 | 0xD064  | "DOTEC"     | ? | Dotec-Audio — named in `_IOLog` string. Variable channel count based on rate |
 
+**No serial numbers.** Ploytec firmware has no per-unit serial: the DB2 and DB4 set iSerialNumber = 3 and string 3 is literally `no serial number` (`captures/db2_soulcheck_windows`, `captures/db2_wedigjames`, `captures/db4_linux_18d3e0a`, and the "S/N:" lines in old Ozzy logs); the Xone:1D has iSerialNumber = 0. Two units of the same model can only be told apart by USB port (`locationID` on macOS), so OzzyHAL/OzzyMIDI build device identity from VID:PID + locationID.
+
 ## VID 0x0644 (unknown vendor — TEAC?)
 
 | USB PID | Device Name | Notes |

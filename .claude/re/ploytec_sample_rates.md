@@ -76,8 +76,9 @@ After the four entries comes a flag block. Offsets 0x130.. map onto `PGDevice+0x
 | 0x098 24-bit 8ch  | **48000** | 44100, 48000, 88200, 96000 |
 | 0x0E4 24-bit 8ch  | **48000** | 44100, 48000, 88200, 96000 |
 
-(2ch = Full Speed fallback, 8ch = High Speed. Which entry of each pair is in vs. out is not
-confirmed.)
+(Entries 0/1 = Full Speed input/output, 2/3 = High Speed input/output. The in/out order is
+confirmed by the WIZARD_4 3.3.11 kext, whose table is asymmetric: entry 2 = 16 ch, entry 3 = 2 ch,
+matching the WZ4's 16 inputs / 2 outputs. Its flags at 0x130 equal DB2/DB4's.)
 
 Raw dumps: `DB2_decompile/DB2_kConfigurationData.bin`, `DB4_kConfigurationData.bin` in the
 investigation folder.

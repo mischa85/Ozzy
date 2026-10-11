@@ -258,6 +258,39 @@ channels 10 → pcmTo24Junction10CH (inferred)
 other       → pcmTo24LSB (fallback)
 ```
 
+### Ploytec junction DMA codecs (`chooseDMADecoder` / `chooseDMAEncoder`)
+This is the "separate path" for Ploytec bulk/interrupt devices, and the frame format Ozzy implements.
+From the XONE_DB2 3.4.9 kext (Ghidra, `DB2_decompile/XONE_DB2_kext_all.c`); the WIZARD_4 3.3.11 kext
+has the same function set.
+
+**Input** (`this+0x55b8`), picked by the input channel count (settings `+4`):
+- 2..16 channels → `dmaDecode16To02..16At32Bit`, requires `this+0x55b0 == 0x10` (16 lanes)
+- 18..32 channels → `dmaDecode32To18..32At32Bit`, requires `this+0x55b0 == 0x20` (32 lanes, frame not decoded yet)
+- PID 0xD064 (Dotec) has its own `_DOTEC` variants
+
+The 16-lane input frame is **64 bytes** for any channel count up to 16 (8 frames per call, returns
+0x40 bytes per 8 ch / 0x80 per 16 ch of output):
+```
+bytes 0x00..0x17  bit b (0..7) = sample bit (23 - byte) of channel 2b+1   (odd channels)
+bytes 0x20..0x37  bit b (0..7) = sample bit (23 - byte) of channel 2b+2   (even channels)
+bytes 0x18..0x1F, 0x38..0x3F unused
+```
+`dmaDecode16To08` uses bits 0..3 (= Ozzy's 8-channel decoder), `dmaDecode16To16` uses bits 0..7.
+
+**Output** (`this+0x55c0`), picked by the output channel count (settings `+0xc`): `dmaEncode02`,
+`04`, `06` (`dmaEncode06_Int964` when the OUT endpoint has wMaxPacketSize 0x3C4 = 964), `08`, …
+All write the same **48-byte frame**, 10 frames per 480-byte block:
+```
+bytes 0x00..0x17  bit b (0..3) = sample bit (31 - byte) of channel 2b+1
+bytes 0x18..0x2F  bit b (0..3) = sample bit (31 - byte) of channel 2b+2
+```
+`dmaEncode08` uses bits 0..3 (= Ozzy's encoder), `dmaEncode02` only bit 0 (channels 1/2), so a
+2-channel device is the 8-channel frame with channels 3..8 silent.
+
+Consequence: input lanes (up to 16) and output lanes (up to 8) share one frame format; a device
+differs only in how many lanes carry audio. The MixWizard WZ4 (16 in / 2 out) uses
+`dmaDecode16To16` + `dmaEncode02`.
+
 ### US-144 special variants (24-bit)
 For devices with `this[0x1888]` and `this[0x7a9]` set, based on offsets `+0x1464` and `+0x1468`:
 - `pcmTo24LSB_US144_00`, `pcmTo24LSB_US144_10`, `pcmTo24LSB_US144_11`

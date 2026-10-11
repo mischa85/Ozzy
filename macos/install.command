@@ -229,7 +229,7 @@ sudo rm -rf "$BUILD_DIR" 2>/dev/null || rm -rf "$BUILD_DIR"
 mkdir -p "$BUILD_DIR/$KEXT_NAME.kext/Contents/MacOS"
 
 echo "   🔨 Compiling kext sources..."
-OBJECTS=""
+OBJECTS=()
 for SRC in "${SOURCES[@]}"; do
     FLAT_NAME=$(basename "${SRC%.*}")
     OBJ="$BUILD_DIR/$FLAT_NAME.o"
@@ -240,11 +240,11 @@ for SRC in "${SOURCES[@]}"; do
         echo "❌ Compilation Failed: $SRC"
         exit 1
     fi
-    OBJECTS="$OBJECTS $OBJ"
+    OBJECTS+=("$OBJ")
 done
 
 echo "   🔗 Linking kext..."
-clang++ $LDFLAGS $OBJECTS -o "$BUILD_DIR/$KEXT_NAME.kext/Contents/MacOS/$KEXT_NAME"
+clang++ $LDFLAGS "${OBJECTS[@]}" -o "$BUILD_DIR/$KEXT_NAME.kext/Contents/MacOS/$KEXT_NAME"
 
 if [ $? -ne 0 ]; then
     echo "❌ Linking Failed"

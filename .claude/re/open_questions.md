@@ -68,3 +68,10 @@ related to level metering or some control protocol. Has its own pipe assignment 
 - **rtsProcessBulkOut** — the actual real-time audio processing loop (partially decompiled, shows MIDI embedding)
 - **Real-time service functions**: `rtsBulkOutBulkIn`, `rtsInterruptOutInterruptIn` — the streaming state machines
 - Windows driver RE for sample rate change pattern comparison
+- **SET_CUR while streaming is not answered** (DB4 fw 1.4.1, Linux usbmon capture 2026-10-11,
+  `captures/db4_linux_18d3e0a/`). `ozzy_pcm_set_rate` sends SET_CUR 48000 → EP 0x86 while the
+  PCM URBs run; the control transfer never completes and is killed after ~2.1 s (`-ENOENT`).
+  The USB reset that follows makes the post-reset handshake set the rate anyway, so that SET_CUR
+  is dead weight that only adds 2 s (removed in 3ff2089; verified on DB4: reset now follows in
+  13 µs). The official driver only sends SET_CUR from the start
+  path (sample_rates.md §5), i.e. before streaming. Related to PR #86's live rate change.

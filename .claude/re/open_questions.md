@@ -75,3 +75,11 @@ related to level metering or some control protocol. Has its own pipe assignment 
   is dead weight that only adds 2 s (removed in 3ff2089; verified on DB4: reset now follows in
   13 µs). The official driver only sends SET_CUR from the start
   path (sample_rates.md §5), i.e. before streaming. Related to PR #86's live rate change.
+- **Xone:4D does not survive the Linux rate-change USB reset** (reported in PR #86, 4D fw 1.4.1,
+  not verified here; the DB4 survives it). After `usb_reset_device` descriptor reads time out
+  (-110) and the mixer needs a power cycle; WirePlumber probing at another rate is enough to
+  trigger it. #86 proposed a live rate change instead: drain in-flight URBs, kill them, SET_CUR,
+  clear the PCM endpoint halts, resubmit. Its author also saw that killing a URB mid-packet makes
+  the 4D drop the next control transfer (hence draining first). Not in `main`; #86 was closed
+  with a request for a separate PR. Open: does the official driver ever reset the device on a
+  rate change, or always stop/SET_CUR/restart (the start path in sample_rates.md §5 suggests the latter)?

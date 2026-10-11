@@ -237,6 +237,19 @@ static inline void ploytec_out_init_packet(enum ploytec_out_layout layout, uint8
 	}
 }
 
+/*
+ * ploytec_out_set_midi - Put this packet's MIDI out byte (PLOYTEC_MIDI_IDLE_BYTE if none).
+ *
+ * Only sub-packet 0's slot carries data: one byte per packet is ~1200 bytes/s
+ * at 96 kHz, below MIDI's 3125 bytes/s (31250 baud). Using every slot would
+ * overrun the device's MIDI output. The other slots keep the idle bytes from
+ * ploytec_out_init_packet().
+ */
+static inline void ploytec_out_set_midi(enum ploytec_out_layout layout, uint8_t *pkt, uint8_t byte)
+{
+	pkt[ploytec_out_midi_offset(layout, 0)] = byte;
+}
+
 /* ========================================================================
  * Sample Rate Encoding
  *

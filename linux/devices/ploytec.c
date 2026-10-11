@@ -249,34 +249,19 @@ static void ploytec_init_out_urb(struct ozzy_chip *chip, uint8_t *buffer)
 }
 
 /*
- * ploytec_fill_midi_out - Embed pending MIDI bytes into a PCM output packet.
- *
- * Rate limiting: MIDI standard baud rate is 31250 bps (~3125 bytes/sec).
- * At 96kHz with 80 frames/packet, we get ~1200 packets/sec. Using all
- * MIDI slots per packet would exceed the MIDI baud rate.
- *
- * We only consume 1 MIDI byte from the first slot, filling all other
- * MIDI bytes with the idle byte (0xFD). Matches the macOS driver's approach.
+ * ploytec_fill_midi_out - Embed the next pending MIDI byte into a PCM output packet.
+ * See ploytec_out_set_midi() for why it is one byte per packet.
  */
 static void ploytec_fill_midi_out(struct ozzy_chip *chip, uint8_t *urb_buf)
 {
-	enum ploytec_out_layout layout = ploytec_out_layout(chip);
 	struct midi_runtime *rt = chip->midi;
-	unsigned int k, midi;
+	u8 byte;
 
 	if (!rt)
 		return;
 
-	for (k = 0; k < PLOYTEC_FRAMES_PER_PKT / PLOYTEC_FRAMES_PER_OUT_SUBPKT; k++) {
-		midi = ploytec_out_midi_offset(layout, k);
-		if (k == 0)
-			ozzy_midi_consume(rt, urb_buf + midi, 1, PLOYTEC_MIDI_IDLE_BYTE);
-		else
-			urb_buf[midi] = PLOYTEC_MIDI_IDLE_BYTE;
-		/* BULK: second byte is the 0xFF sync set by init_out_urb; INT: idle MIDI byte */
-		if (layout == PLOYTEC_OUT_LAYOUT_INT)
-			urb_buf[midi + 1] = PLOYTEC_MIDI_IDLE_BYTE;
-	}
+	ozzy_midi_consume(rt, &byte, 1, PLOYTEC_MIDI_IDLE_BYTE);
+	ploytec_out_set_midi(ploytec_out_layout(chip), urb_buf, byte);
 }
 
 /*

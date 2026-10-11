@@ -129,25 +129,13 @@ void PloytecEngine::ProcessMIDIOutput(uint32_t packetIdx) {
     uint32_t r = shm->midiOut.readIndex;
     uint32_t w = shm->midiOut.writeIndex;
     
-    // Calculate MIDI byte positions for this packet (8 USB sub-packets per logical packet)
-    uint32_t logicalPacket = packetIdx % kOzzyNumPackets;
-    uint32_t logicalPacketBase = logicalPacket * kOzzyMaxPacketSize;
-    
-    // Only use the first MIDI byte position in the first sub-packet
-    // This limits MIDI output to ~1200 bytes/sec (9600 bps) at 96kHz, safely below 31.25 kbps
-    uint32_t midiAddr = logicalPacketBase + ploytec_out_midi_offset(mOutLayout, 0);
-    
-    // Write one MIDI byte if available, otherwise write 0xFD (sync/ignore byte)
+    uint8_t* packet = (uint8_t*)shm->audio.outputBuffer + (packetIdx % kOzzyNumPackets) * kOzzyMaxPacketSize;
+    uint8_t byte = PLOYTEC_MIDI_IDLE_BYTE;
     if (r != w) {
-        shm->audio.outputBuffer[midiAddr] = shm->midiOut.buffer[r];
-        r = (r + 1) & kOzzyMidiRingMask;
-        
-        // Update read index
-        shm->midiOut.readIndex = r;
-    } else {
-        // No MIDI data available - write ignore byte
-        shm->audio.outputBuffer[midiAddr] = PLOYTEC_MIDI_IDLE_BYTE;
+        byte = shm->midiOut.buffer[r];
+        shm->midiOut.readIndex = (r + 1) & kOzzyMidiRingMask;
     }
+    ploytec_out_set_midi(mOutLayout, packet, byte);
 }
 
 void PloytecEngine::ProcessMIDIInput(uint32_t bytesReceived) {

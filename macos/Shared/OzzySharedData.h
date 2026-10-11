@@ -20,6 +20,7 @@
 // --- CONFIGURATION ---
 #define kOzzySharedMemName          "/ozzy_shared_mem"
 #define kOzzyMagic                  0x4F5A5A59 // "OZZY"
+#define kOzzySharedVersion          2          // bump when OzzySharedMemory changes layout
 
 // Sizing: 8KB covers High Speed USB max packet size, devices use what they need
 #define kOzzyMaxPacketSize          8192
@@ -50,6 +51,8 @@ struct OzzyAudioBuffer {
     uint32_t samplesPerPacket;    // How many samples per USB packet (e.g., 10 for Ploytec)
     uint32_t outputBytesPerFrame; // Encoded bytes per frame for output (e.g., 48)
     uint32_t inputBytesPerFrame;  // Encoded bytes per frame for input (e.g., 64)
+    uint32_t inputChannels;       // Audio channels the device sends (e.g., 8, or 16 for the WZ4)
+    uint32_t outputChannels;      // Audio channels the device receives (e.g., 8, or 2 for the WZ4)
 
     struct {
         AtomicU32 sequence; 

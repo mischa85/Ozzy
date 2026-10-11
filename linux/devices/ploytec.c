@@ -25,15 +25,10 @@
 #include "../../common/devices/ploytec/ploytec_protocol.h"
 #include "../../common/devices/ploytec/ploytec_codec.h"
 #include "../../common/devices/ploytec/ploytec_handshake.h"
+#include "../../common/devices/ploytec/ploytec_models.h"
 
-/* ALSA frame size: 8 channels x 3 bytes (S24_3LE) */
-#define ALSA_FRAME_SIZE   (PLOYTEC_CHANNELS * 3)
-
-/* Number of ALSA bytes per output packet */
-#define ALSA_OUT_PKT_SIZE (PLOYTEC_FRAMES_PER_PKT * ALSA_FRAME_SIZE)
-
-/* Number of ALSA bytes per input packet */
-#define ALSA_IN_PKT_SIZE  (PLOYTEC_FRAMES_PER_PKT * ALSA_FRAME_SIZE)
+/* ALSA side: S24_3LE, 3 bytes per sample */
+#define ALSA_BYTES_PER_SAMPLE 3
 
 /*
  * struct ploytec_private - Ploytec device-specific runtime data.
@@ -43,17 +38,41 @@
  */
 struct ploytec_private {
 	unsigned char xfer_buf[16];     /* DMA-safe bounce buffer for control transfers */
+	struct ozzy_device_info info;   /* ploytec_info with this model's channels and rates */
+	const struct ozzy_device_info *base_info;
 };
 
-/* Supported sample rates */
+/* Placeholder until ploytec_init() applies the model's rates (ploytec_models.h) */
 static const unsigned int ploytec_rates[] = { 44100, 48000, 88200, 96000 };
 
 /*
- * Xone:DB2 is 48 kHz only. This matches the official driver's per-device format
- * table (kConfigurationData in the XONE_DB2.kext plist). The device boots at
- * 44100 Hz but accepts other rates at the USB level without its DSP following.
+ * ploytec_apply_model - Give this chip its own device info with the model's channel
+ * counts and sample rates (from ploytec_models.h, shared with macOS).
  */
-static const unsigned int ploytec_db2_rates[] = { 48000 };
+static void ploytec_apply_model(struct ozzy_chip *chip, struct ploytec_private *priv)
+{
+	const struct ploytec_model *model =
+		ploytec_model_for_pid(le16_to_cpu(chip->dev->descriptor.idProduct));
+	unsigned int i;
+
+	priv->base_info = chip->info;
+	priv->info = *chip->info;
+	priv->info.capture_channels = model->in_channels;
+	priv->info.playback_channels = model->out_channels;
+	priv->info.rates = model->rates;
+	priv->info.num_rates = model->num_rates;
+	priv->info.rates_mask = 0;
+	for (i = 0; i < model->num_rates; i++)
+		priv->info.rates_mask |= snd_pcm_rate_to_rate_bit(model->rates[i]);
+	priv->info.rate_min = model->rates[0];
+	priv->info.rate_max = model->rates[model->num_rates - 1];
+
+	chip->info = &priv->info;
+	chip->requested_rate = model->num_rates - 1;
+
+	ploytec_log(&chip->dev->dev, "model: %s, %u in / %u out\n",
+		    model->name, model->in_channels, model->out_channels);
+}
 
 /*
  * ploytec_out_layout - Output packet layout for this device (follows the PCM OUT
@@ -137,26 +156,28 @@ static const struct ploytec_host_ops ploytec_host_ops = {
  * ======================================================================== */
 
 /*
- * ploytec_init - Perform the Ploytec vendor handshake after USB probe.
- * Allocates private data, then runs the shared handshake at the requested rate.
+ * ploytec_init - Perform the Ploytec vendor handshake after USB probe or reset.
+ * On the first call, allocates private data and applies the model. Then runs the
+ * shared handshake at the requested rate. Private data is kept on failure because
+ * chip->info points into it; ploytec_free() releases it.
  */
 static int ploytec_init(struct ozzy_chip *chip)
 {
-	struct ploytec_private *priv;
+	struct ploytec_private *priv = chip->private_data;
 	int ret;
 
-	priv = kzalloc(sizeof(*priv), GFP_KERNEL);
-	if (!priv)
-		return -ENOMEM;
-	chip->private_data = priv;
+	if (!priv) {
+		priv = kzalloc(sizeof(*priv), GFP_KERNEL);
+		if (!priv)
+			return -ENOMEM;
+		chip->private_data = priv;
+		ploytec_apply_model(chip, priv);
+	}
 
 	ret = ploytec_handshake(&ploytec_host_ops, chip,
 				chip->info->rates[chip->requested_rate], NULL);
-	if (ret < 0) {
-		kfree(priv);
-		chip->private_data = NULL;
+	if (ret < 0)
 		return ret;
-	}
 
 	chip->current_rate = chip->requested_rate;
 	return 0;
@@ -167,7 +188,12 @@ static int ploytec_init(struct ozzy_chip *chip)
  */
 static void ploytec_free(struct ozzy_chip *chip)
 {
-	kfree(chip->private_data);
+	struct ploytec_private *priv = chip->private_data;
+
+	if (!priv)
+		return;
+	chip->info = priv->base_info;
+	kfree(priv);
 	chip->private_data = NULL;
 }
 
@@ -197,18 +223,20 @@ static unsigned int ploytec_process_out_packet(struct ozzy_chip *chip,
 					       unsigned int pcm_buffer_size)
 {
 	enum ploytec_out_layout layout = ploytec_out_layout(chip);
+	unsigned int channels = chip->info->playback_channels;
+	unsigned int frame_bytes = channels * ALSA_BYTES_PER_SAMPLE;
 	unsigned int f, src_off;
 
 	for (f = 0; f < PLOYTEC_FRAMES_PER_PKT; f++) {
-		src_off = dma_off + f * ALSA_FRAME_SIZE;
+		src_off = dma_off + f * frame_bytes;
 		if (src_off >= pcm_buffer_size)
 			src_off -= pcm_buffer_size;
 
 		ploytec_encode_frame(urb_buf + ploytec_out_frame_offset(layout, f),
-				     dma_area + src_off);
+				     dma_area + src_off, channels);
 	}
 
-	return ALSA_OUT_PKT_SIZE;
+	return PLOYTEC_FRAMES_PER_PKT * frame_bytes;
 }
 
 /*
@@ -221,19 +249,21 @@ static unsigned int ploytec_process_in_packet(struct ozzy_chip *chip,
 					      unsigned int dma_off,
 					      unsigned int pcm_buffer_size)
 {
+	unsigned int channels = chip->info->capture_channels;
+	unsigned int frame_bytes = channels * ALSA_BYTES_PER_SAMPLE;
 	unsigned int f;
 	unsigned int dst_off;
 
 	for (f = 0; f < PLOYTEC_FRAMES_PER_PKT; f++) {
-		dst_off = dma_off + f * ALSA_FRAME_SIZE;
+		dst_off = dma_off + f * frame_bytes;
 		if (dst_off >= pcm_buffer_size)
 			dst_off -= pcm_buffer_size;
 
 		ploytec_decode_frame(dma_area + dst_off,
-				     urb_buf + f * PLOYTEC_IN_FRAME_SIZE);
+				     urb_buf + f * PLOYTEC_IN_FRAME_SIZE, channels);
 	}
 
-	return ALSA_IN_PKT_SIZE;
+	return PLOYTEC_FRAMES_PER_PKT * frame_bytes;
 }
 
 /* ========================================================================
@@ -278,8 +308,8 @@ static unsigned int ploytec_get_out_packet_size(struct ozzy_chip *chip, bool is_
 
 const struct ozzy_device_info ploytec_info = {
 	.name                  = "Ploytec Xone",
-	.playback_channels     = PLOYTEC_CHANNELS,
-	.capture_channels      = PLOYTEC_CHANNELS,
+	.playback_channels     = PLOYTEC_MAX_OUT_CHANNELS,   /* per model, see ploytec_apply_model() */
+	.capture_channels      = PLOYTEC_MAX_OUT_CHANNELS,
 	.out_packet_size       = PLOYTEC_BULK_OUT_PKT_SIZE,
 	.in_packet_size        = PLOYTEC_IN_PKT_SIZE,
 	.frames_per_out_packet = PLOYTEC_FRAMES_PER_PKT,
@@ -297,30 +327,6 @@ const struct ozzy_device_info ploytec_info = {
 	.rates_mask            = SNDRV_PCM_RATE_44100 | SNDRV_PCM_RATE_48000 | SNDRV_PCM_RATE_88200 | SNDRV_PCM_RATE_96000,
 	.rate_min              = 44100,
 	.rate_max              = 96000,
-};
-
-/* Xone:DB2: identical to ploytec_info except for the 48 kHz-only rate table */
-const struct ozzy_device_info ploytec_db2_info = {
-	.name                  = "Ploytec Xone",
-	.playback_channels     = PLOYTEC_CHANNELS,
-	.capture_channels      = PLOYTEC_CHANNELS,
-	.out_packet_size       = PLOYTEC_BULK_OUT_PKT_SIZE,
-	.in_packet_size        = PLOYTEC_IN_PKT_SIZE,
-	.frames_per_out_packet = PLOYTEC_FRAMES_PER_PKT,
-	.frames_per_in_packet  = PLOYTEC_FRAMES_PER_PKT,
-	.out_ep                = PLOYTEC_EP_PCM_OUT,
-	.in_ep                 = PLOYTEC_EP_PCM_IN,
-	.alsa_format           = SNDRV_PCM_FMTBIT_S24_3LE,
-	.bytes_per_sample      = 3,
-	.midi_in_ep            = PLOYTEC_EP_MIDI_IN,
-	.midi_out_embedded     = true,
-	.num_interfaces        = PLOYTEC_NUM_INTERFACES,
-	.alt_setting           = PLOYTEC_ALT_SETTING,
-	.rates                 = ploytec_db2_rates,
-	.num_rates             = ARRAY_SIZE(ploytec_db2_rates),
-	.rates_mask            = SNDRV_PCM_RATE_48000,
-	.rate_min              = 48000,
-	.rate_max              = 48000,
 };
 
 const struct ozzy_device_ops ploytec_ops = {

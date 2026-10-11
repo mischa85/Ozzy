@@ -4,11 +4,13 @@
 #include "../../OzzyCore/OzzyEngine.h"
 #include "../../Shared/OzzySharedData.h"
 #include "PloytecProtocol.h"
+#include "../../../common/devices/ploytec/ploytec_models.h"
 
 class PloytecEngine : public OzzyEngine {
     uint64_t mHwSampleTime = 0;
     enum ploytec_out_layout mOutLayout = PLOYTEC_OUT_LAYOUT_INT;
     uint32_t mSampleRate = 96000;
+    const struct ploytec_model* mModel = nullptr;
     uint32_t mPacketSizeOut = 0;
     
     // Storage for the profile

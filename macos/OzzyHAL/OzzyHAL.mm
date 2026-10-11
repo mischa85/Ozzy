@@ -73,10 +73,10 @@ void OzzyHAL::Init(AudioServerPlugInHostRef host) {
     mCurrentStreamFormat.mSampleRate = 96000.0;
     mCurrentStreamFormat.mFormatID = kAudioFormatLinearPCM;
     mCurrentStreamFormat.mFormatFlags = kAudioFormatFlagIsFloat;
-    mCurrentStreamFormat.mBytesPerPacket = 32;
+    mCurrentStreamFormat.mBytesPerPacket = 4;     // per channel; GetStreamFormat() scales by channel count
     mCurrentStreamFormat.mFramesPerPacket = 1;
-    mCurrentStreamFormat.mBytesPerFrame = 32;
-    mCurrentStreamFormat.mChannelsPerFrame = 8;
+    mCurrentStreamFormat.mBytesPerFrame = 4;
+    mCurrentStreamFormat.mChannelsPerFrame = 1;
     mCurrentStreamFormat.mBitsPerChannel = 32;
 
     mAvailableSampleRates.mMinimum = 96000.0; 
@@ -106,16 +106,15 @@ void OzzyHAL::ClearOutputBuffer() {
 
 void OzzyHAL::RebuildStreamConfigs() {
     const uint32_t kDefaultIOFrames = 512;
-    const uint32_t kBytesPerFrame = mCurrentStreamFormat.mBytesPerFrame;
 
     mInputConfig.mNumberBuffers = 1;
-    mInputConfig.mBuffers[0].mNumberChannels = 8;
-    mInputConfig.mBuffers[0].mDataByteSize = kDefaultIOFrames * kBytesPerFrame;
+    mInputConfig.mBuffers[0].mNumberChannels = mInputChannels;
+    mInputConfig.mBuffers[0].mDataByteSize = kDefaultIOFrames * GetStreamFormat(false).mBytesPerFrame;
     mInputConfig.mBuffers[0].mData = nullptr;
 
     mOutputConfig.mNumberBuffers = 1;
-    mOutputConfig.mBuffers[0].mNumberChannels = 8;
-    mOutputConfig.mBuffers[0].mDataByteSize = kDefaultIOFrames * kBytesPerFrame;
+    mOutputConfig.mBuffers[0].mNumberChannels = mOutputChannels;
+    mOutputConfig.mBuffers[0].mDataByteSize = kDefaultIOFrames * GetStreamFormat(true).mBytesPerFrame;
     mOutputConfig.mBuffers[0].mData = nullptr;
 }
 
@@ -182,6 +181,13 @@ void OzzyHAL::MapSharedMemory() {
             return;
         }
 
+        if (mSHM->version != kOzzySharedVersion) {
+            LogOzzyHALError("SHM version %{public}u, expected %{public}u: reinstall the kext and HAL together",
+                            mSHM->version, kOzzySharedVersion);
+            UnmapSharedMemory();
+            return;
+        }
+
         if (mSHM->vendorID == 0) {
             UnmapSharedMemory();
             return;
@@ -211,22 +217,25 @@ void OzzyHAL::ApplyDeviceConfig() {
     // Bit 0: 512-byte "bulk" output layout (follows wMaxPacketSize, not transfer type)
     bool isBulk = (mSHM->audio.deviceFlags & 1);
     if (mSHM->vendorID == PLOYTEC_VENDOR_ID) {
-        mEncode = PloytecEncodePCM;
-        mDecode = PloytecDecodePCM;
         mWriteOutput = isBulk ? PloytecWriteOutputBulk : PloytecWriteOutputInterrupt;
         mReadInput = PloytecReadInput;
         mClearOutput = isBulk ? PloytecClearOutputBulk : PloytecClearOutputInterrupt;
         LogOzzyHAL("using Ploytec codec (%{public}s layout) for VID:0x%{public}04X",
                    isBulk ? "bulk" : "interrupt", mSHM->vendorID);
     } else {
-        mEncode = PloytecEncodePCM;
-        mDecode = PloytecDecodePCM;
         mWriteOutput = isBulk ? PloytecWriteOutputBulk : PloytecWriteOutputInterrupt;
         mReadInput = PloytecReadInput;
         mClearOutput = isBulk ? PloytecClearOutputBulk : PloytecClearOutputInterrupt;
         LogOzzyHAL("using default codec (%{public}s layout) for VID:0x%{public}04X",
                    isBulk ? "bulk" : "interrupt", mSHM->vendorID);
     }
+
+    // Channel counts per direction (kept at 8 if the engine published nothing sensible)
+    uint32_t in = mSHM->audio.inputChannels, out = mSHM->audio.outputChannels;
+    mInputChannels = (in >= 1 && in <= PLOYTEC_MAX_IN_CHANNELS) ? in : 8;
+    mOutputChannels = (out >= 1 && out <= PLOYTEC_MAX_OUT_CHANNELS) ? out : 8;
+    RebuildStreamConfigs();
+    LogOzzyHAL("channels: %{public}u in / %{public}u out", mInputChannels, mOutputChannels);
 
     uint32_t rate = mSHM->audio.sampleRate.load();
     if (rate == 0) rate = 96000;
@@ -396,6 +405,16 @@ void OzzyHAL::MonitorLoop() {
                     mHost->PropertiesChanged(mHost, kOzzyDeviceID, 1, &devAddr);
                     devAddr.mSelector = kAudioDevicePropertyAvailableNominalSampleRates;
                     mHost->PropertiesChanged(mHost, kOzzyDeviceID, 1, &devAddr);
+                    // Channel counts follow the model (e.g. WZ4: 16 in / 2 out)
+                    AudioObjectPropertyAddress cfgAddr[2] = {
+                        { kAudioDevicePropertyStreamConfiguration, kAudioObjectPropertyScopeInput, kAudioObjectPropertyElementMain },
+                        { kAudioDevicePropertyStreamConfiguration, kAudioObjectPropertyScopeOutput, kAudioObjectPropertyElementMain } };
+                    mHost->PropertiesChanged(mHost, kOzzyDeviceID, 2, cfgAddr);
+                    AudioObjectPropertyAddress fmtAddr[2] = {
+                        { kAudioStreamPropertyVirtualFormat, kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMain },
+                        { kAudioStreamPropertyPhysicalFormat, kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMain } };
+                    mHost->PropertiesChanged(mHost, kOzzyInputStreamID, 2, fmtAddr);
+                    mHost->PropertiesChanged(mHost, kOzzyOutputStreamID, 2, fmtAddr);
                     
                     AudioObjectPropertyAddress listAddr = { kAudioPlugInPropertyDeviceList, kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMain };
                     mHost->PropertiesChanged(mHost, kAudioObjectPlugInObject, 1, &listAddr);
@@ -467,14 +486,14 @@ OSStatus OzzyHAL::ioOperation(AudioServerPlugInDriverRef inDriver, AudioObjectID
     if (inOperationID == kAudioServerPlugInIOOperationWriteMix) {
         if (mWriteOutput) {
             uint64_t sampleTime = (uint64_t)inIOCycleInfo->mOutputTime.mSampleTime;
-            mWriteOutput(mOutputBufferAddr, (const float*)ioMainBuffer, sampleTime, inIOBufferFrameSize, mRingSize, mOutputBytesPerFrame);
+            mWriteOutput(mOutputBufferAddr, (const float*)ioMainBuffer, sampleTime, inIOBufferFrameSize, mRingSize, mOutputBytesPerFrame, mOutputChannels);
             mSHM->audio.halWritePosition.store(sampleTime + inIOBufferFrameSize, std::memory_order_release);
         }
     }
     else if (inOperationID == kAudioServerPlugInIOOperationReadInput) {
         if (mReadInput) {
             uint64_t sampleTime = (uint64_t)inIOCycleInfo->mInputTime.mSampleTime;
-            mReadInput((float*)ioMainBuffer, mInputBufferAddr, sampleTime, inIOBufferFrameSize, mRingSize, mInputBytesPerFrame);
+            mReadInput((float*)ioMainBuffer, mInputBufferAddr, sampleTime, inIOBufferFrameSize, mRingSize, mInputBytesPerFrame, mInputChannels);
         }
     }
     return kAudioHardwareNoError;
@@ -492,9 +511,15 @@ AudioBufferList* OzzyHAL::GetInputStreamConfiguration() const { return const_cas
 AudioBufferList* OzzyHAL::GetOutputStreamConfiguration() const { return const_cast<AudioBufferList*>(&mOutputConfig); }
 AudioObjectID OzzyHAL::GetInputStreamID() const { return kOzzyInputStreamID; }
 AudioObjectID OzzyHAL::GetOutputStreamID() const { return kOzzyOutputStreamID; }
-AudioStreamBasicDescription OzzyHAL::GetStreamFormat() const { return mCurrentStreamFormat; }
-AudioStreamRangedDescription OzzyHAL::GetStreamRangedDescription() const {
-    AudioStreamRangedDescription outDesc; outDesc.mFormat = GetStreamFormat();
+AudioStreamBasicDescription OzzyHAL::GetStreamFormat(bool isOutput) const {
+    AudioStreamBasicDescription format = mCurrentStreamFormat;
+    format.mChannelsPerFrame = isOutput ? mOutputChannels : mInputChannels;
+    format.mBytesPerFrame = format.mChannelsPerFrame * (format.mBitsPerChannel / 8);
+    format.mBytesPerPacket = format.mBytesPerFrame;
+    return format;
+}
+AudioStreamRangedDescription OzzyHAL::GetStreamRangedDescription(bool isOutput) const {
+    AudioStreamRangedDescription outDesc; outDesc.mFormat = GetStreamFormat(isOutput);
     outDesc.mSampleRateRange = mAvailableSampleRates;
     return outDesc;
 }
@@ -503,8 +528,9 @@ AudioChannelLayout* OzzyHAL::GetPreferredChannelLayout(AudioObjectPropertyScope 
     AudioChannelLayout* layout = (AudioChannelLayout*)mChannelLayoutBuffer;
     layout->mChannelLayoutTag = kAudioChannelLayoutTag_UseChannelDescriptions;
     layout->mChannelBitmap = 0;
-    layout->mNumberChannelDescriptions = 8;
-    for (UInt32 i = 0; i < 8; ++i) {
+    UInt32 channels = IsOutputScope(inScope) ? mOutputChannels : mInputChannels;
+    layout->mNumberChannelDescriptions = channels;
+    for (UInt32 i = 0; i < channels; ++i) {
         layout->mChannelDescriptions[i].mChannelLabel = kAudioChannelLabel_Unknown;
         layout->mChannelDescriptions[i].mChannelFlags = kAudioChannelFlags_AllOff;
     }
@@ -512,7 +538,8 @@ AudioChannelLayout* OzzyHAL::GetPreferredChannelLayout(AudioObjectPropertyScope 
 }
 
 UInt32 OzzyHAL::GetPreferredChannelLayoutSize(AudioObjectPropertyScope inScope) const {
-    return offsetof(AudioChannelLayout, mChannelDescriptions) + (8 * sizeof(AudioChannelDescription));
+    UInt32 channels = IsOutputScope(inScope) ? mOutputChannels : mInputChannels;
+    return offsetof(AudioChannelLayout, mChannelDescriptions) + (channels * sizeof(AudioChannelDescription));
 }
 
 extern "C" HRESULT OzzyInitialize(AudioServerPlugInDriverRef, AudioServerPlugInHostRef inHost) {
@@ -697,11 +724,11 @@ extern "C" HRESULT OzzyGetPropertyData(AudioServerPlugInDriverRef, AudioObjectID
             case kAudioStreamPropertyLatency: return WriteUInt32(inMax, outSize, outData, OzzyHAL::Get().GetLatency());
             case kAudioStreamPropertyVirtualFormat: case kAudioStreamPropertyPhysicalFormat:
                 if (outData && inMax < sizeof(AudioStreamBasicDescription)) return kAudioHardwareBadPropertySizeError;
-                if (outData) *(AudioStreamBasicDescription*)outData = OzzyHAL::Get().GetStreamFormat();
+                if (outData) *(AudioStreamBasicDescription*)outData = OzzyHAL::Get().GetStreamFormat(inObjectID == kOzzyOutputStreamID);
                 if (outSize) *outSize = sizeof(AudioStreamBasicDescription); return kAudioHardwareNoError;
             case kAudioStreamPropertyAvailableVirtualFormats: case kAudioStreamPropertyAvailablePhysicalFormats:
                 if (outData && inMax < sizeof(AudioStreamRangedDescription)) return kAudioHardwareBadPropertySizeError;
-                if (outData) *(AudioStreamRangedDescription*)outData = OzzyHAL::Get().GetStreamRangedDescription();
+                if (outData) *(AudioStreamRangedDescription*)outData = OzzyHAL::Get().GetStreamRangedDescription(inObjectID == kOzzyOutputStreamID);
                 if (outSize) *outSize = sizeof(AudioStreamRangedDescription); return kAudioHardwareNoError;
             default: return kAudioHardwareUnknownPropertyError;
         }

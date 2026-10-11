@@ -253,8 +253,10 @@ static int ozzy_pcm_open(struct snd_pcm_substream *alsa_sub)
 	const struct ozzy_device_info *info = chip->info;
 	struct pcm_substream *sub;
 	struct snd_pcm_runtime *alsa_rt = alsa_sub->runtime;
-	unsigned int alsa_frame_bytes = info->playback_channels * info->bytes_per_sample;
-	unsigned int alsa_pkt_bytes = info->frames_per_out_packet * alsa_frame_bytes;
+	bool playback = alsa_sub->stream == SNDRV_PCM_STREAM_PLAYBACK;
+	unsigned int channels = playback ? info->playback_channels : info->capture_channels;
+	unsigned int frames_per_packet = playback ? info->frames_per_out_packet : info->frames_per_in_packet;
+	unsigned int alsa_pkt_bytes = frames_per_packet * channels * info->bytes_per_sample;
 
 	if (rt->panic)
 		return -EPIPE;
@@ -271,8 +273,8 @@ static int ozzy_pcm_open(struct snd_pcm_substream *alsa_sub)
 	alsa_rt->hw.rates = info->rates_mask;
 	alsa_rt->hw.rate_min = info->rate_min;
 	alsa_rt->hw.rate_max = info->rate_max;
-	alsa_rt->hw.channels_min = info->playback_channels;
-	alsa_rt->hw.channels_max = info->playback_channels;
+	alsa_rt->hw.channels_min = channels;
+	alsa_rt->hw.channels_max = channels;
 	alsa_rt->hw.buffer_bytes_max = 2000 * alsa_pkt_bytes;
 	alsa_rt->hw.period_bytes_min = 2 * alsa_pkt_bytes;
 	alsa_rt->hw.period_bytes_max = 2000 * alsa_pkt_bytes;

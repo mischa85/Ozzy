@@ -12,9 +12,10 @@
 #endif
 
 #include "ploytec_codec.h"
+#include "ploytec_defs.h"
 
 /*
- * ploytec_encode_frame - Convert one S24_3LE frame to Ploytec device format.
+ * encode_frame_8ch - ploytec_encode_frame() for 8 channels, unrolled.
  *
  * Input:  24 bytes (8 channels x 3 bytes S24_3LE)
  * Output: 48 bytes (Ploytec bit-interleaved format)
@@ -26,7 +27,7 @@
  * Each output byte contains one bit from each of 4 channels,
  * with bits ordered MSB-first from the source samples.
  */
-void ploytec_encode_frame(uint8_t *dest, const uint8_t *src)
+static void encode_frame_8ch(uint8_t *dest, const uint8_t *src)
 {
 	//           ========= channel 1 ========   ========= channel 3 ========   ========= channel 5 ========   ========= channel 7 ========
 	dest[0x00] = ((src[0x02] & 0x80) >> 0x07) | ((src[0x08] & 0x80) >> 0x06) | ((src[0x0E] & 0x80) >> 0x05) | ((src[0x14] & 0x80) >> 0x04);
@@ -81,7 +82,7 @@ void ploytec_encode_frame(uint8_t *dest, const uint8_t *src)
 }
 
 /*
- * ploytec_decode_frame - Convert one Ploytec device frame to S24_3LE.
+ * decode_frame_8ch - ploytec_decode_frame() for 8 channels, unrolled.
  *
  * Input:  64 bytes (Ploytec capture format, bit-per-byte layout)
  * Output: 24 bytes (8 channels x 3 bytes S24_3LE)
@@ -91,7 +92,7 @@ void ploytec_encode_frame(uint8_t *dest, const uint8_t *src)
  * even channels (2,4,6,8) in bits 0-3. Each channel's 24-bit sample
  * is reconstructed by gathering one bit from each of 24 consecutive bytes.
  */
-void ploytec_decode_frame(uint8_t *dest, const uint8_t *src)
+static void decode_frame_8ch(uint8_t *dest, const uint8_t *src)
 {
 	//           ===================================================================================================================== channel 1 =====================================================================================================================
 	dest[0x00] = ((src[0x17] & 0x01) << 0x00) | ((src[0x16] & 0x01) << 0x01) | ((src[0x15] & 0x01) << 0x02) | ((src[0x14] & 0x01) << 0x03) | ((src[0x13] & 0x01) << 0x04) | ((src[0x12] & 0x01) << 0x05) | ((src[0x11] & 0x01) << 0x06) | ((src[0x10] & 0x01) << 0x07);
@@ -125,4 +126,209 @@ void ploytec_decode_frame(uint8_t *dest, const uint8_t *src)
 	dest[0x15] = ((src[0x37] & 0x08) >> 0x03) | ((src[0x36] & 0x08) >> 0x02) | ((src[0x35] & 0x08) >> 0x01) | ((src[0x34] & 0x08) << 0x00) | ((src[0x33] & 0x08) << 0x01) | ((src[0x32] & 0x08) << 0x02) | ((src[0x31] & 0x08) << 0x03) | ((src[0x30] & 0x08) << 0x04);
 	dest[0x16] = ((src[0x2F] & 0x08) >> 0x03) | ((src[0x2E] & 0x08) >> 0x02) | ((src[0x2D] & 0x08) >> 0x01) | ((src[0x2C] & 0x08) << 0x00) | ((src[0x2B] & 0x08) << 0x01) | ((src[0x2A] & 0x08) << 0x02) | ((src[0x29] & 0x08) << 0x03) | ((src[0x28] & 0x08) << 0x04);
 	dest[0x17] = ((src[0x27] & 0x08) >> 0x03) | ((src[0x26] & 0x08) >> 0x02) | ((src[0x25] & 0x08) >> 0x01) | ((src[0x24] & 0x08) << 0x00) | ((src[0x23] & 0x08) << 0x01) | ((src[0x22] & 0x08) << 0x02) | ((src[0x21] & 0x08) << 0x03) | ((src[0x20] & 0x08) << 0x04);
+}
+
+/*
+ * encode_frame_2ch - ploytec_encode_frame() for 2 channels, unrolled (official dmaEncode02).
+ * Only bit 0 of each byte carries audio; the other lanes are silent.
+ * Generated; checked against encode_frame_lanes() by tools/ploytec_lanes_test.c.
+ */
+static void encode_frame_2ch(uint8_t *dest, const uint8_t *src)
+{
+	/* channel 1 */
+	dest[0x00] = (src[0x02] >> 7) & 1;
+	dest[0x01] = (src[0x02] >> 6) & 1;
+	dest[0x02] = (src[0x02] >> 5) & 1;
+	dest[0x03] = (src[0x02] >> 4) & 1;
+	dest[0x04] = (src[0x02] >> 3) & 1;
+	dest[0x05] = (src[0x02] >> 2) & 1;
+	dest[0x06] = (src[0x02] >> 1) & 1;
+	dest[0x07] = (src[0x02] >> 0) & 1;
+	dest[0x08] = (src[0x01] >> 7) & 1;
+	dest[0x09] = (src[0x01] >> 6) & 1;
+	dest[0x0A] = (src[0x01] >> 5) & 1;
+	dest[0x0B] = (src[0x01] >> 4) & 1;
+	dest[0x0C] = (src[0x01] >> 3) & 1;
+	dest[0x0D] = (src[0x01] >> 2) & 1;
+	dest[0x0E] = (src[0x01] >> 1) & 1;
+	dest[0x0F] = (src[0x01] >> 0) & 1;
+	dest[0x10] = (src[0x00] >> 7) & 1;
+	dest[0x11] = (src[0x00] >> 6) & 1;
+	dest[0x12] = (src[0x00] >> 5) & 1;
+	dest[0x13] = (src[0x00] >> 4) & 1;
+	dest[0x14] = (src[0x00] >> 3) & 1;
+	dest[0x15] = (src[0x00] >> 2) & 1;
+	dest[0x16] = (src[0x00] >> 1) & 1;
+	dest[0x17] = (src[0x00] >> 0) & 1;
+	/* channel 2 */
+	dest[0x18] = (src[0x05] >> 7) & 1;
+	dest[0x19] = (src[0x05] >> 6) & 1;
+	dest[0x1A] = (src[0x05] >> 5) & 1;
+	dest[0x1B] = (src[0x05] >> 4) & 1;
+	dest[0x1C] = (src[0x05] >> 3) & 1;
+	dest[0x1D] = (src[0x05] >> 2) & 1;
+	dest[0x1E] = (src[0x05] >> 1) & 1;
+	dest[0x1F] = (src[0x05] >> 0) & 1;
+	dest[0x20] = (src[0x04] >> 7) & 1;
+	dest[0x21] = (src[0x04] >> 6) & 1;
+	dest[0x22] = (src[0x04] >> 5) & 1;
+	dest[0x23] = (src[0x04] >> 4) & 1;
+	dest[0x24] = (src[0x04] >> 3) & 1;
+	dest[0x25] = (src[0x04] >> 2) & 1;
+	dest[0x26] = (src[0x04] >> 1) & 1;
+	dest[0x27] = (src[0x04] >> 0) & 1;
+	dest[0x28] = (src[0x03] >> 7) & 1;
+	dest[0x29] = (src[0x03] >> 6) & 1;
+	dest[0x2A] = (src[0x03] >> 5) & 1;
+	dest[0x2B] = (src[0x03] >> 4) & 1;
+	dest[0x2C] = (src[0x03] >> 3) & 1;
+	dest[0x2D] = (src[0x03] >> 2) & 1;
+	dest[0x2E] = (src[0x03] >> 1) & 1;
+	dest[0x2F] = (src[0x03] >> 0) & 1;
+}
+
+/*
+ * decode_frame_16ch - ploytec_decode_frame() for 16 channels, unrolled (official
+ * dmaDecode16To16). Generated; checked against decode_frame_lanes() by
+ * tools/ploytec_lanes_test.c.
+ */
+static void decode_frame_16ch(uint8_t *dest, const uint8_t *src)
+{
+	/* channel 1 */
+	dest[0x00] = (((src[0x17] >> 0) & 1) << 0) | (((src[0x16] >> 0) & 1) << 1) | (((src[0x15] >> 0) & 1) << 2) | (((src[0x14] >> 0) & 1) << 3) | (((src[0x13] >> 0) & 1) << 4) | (((src[0x12] >> 0) & 1) << 5) | (((src[0x11] >> 0) & 1) << 6) | (((src[0x10] >> 0) & 1) << 7);
+	dest[0x01] = (((src[0x0F] >> 0) & 1) << 0) | (((src[0x0E] >> 0) & 1) << 1) | (((src[0x0D] >> 0) & 1) << 2) | (((src[0x0C] >> 0) & 1) << 3) | (((src[0x0B] >> 0) & 1) << 4) | (((src[0x0A] >> 0) & 1) << 5) | (((src[0x09] >> 0) & 1) << 6) | (((src[0x08] >> 0) & 1) << 7);
+	dest[0x02] = (((src[0x07] >> 0) & 1) << 0) | (((src[0x06] >> 0) & 1) << 1) | (((src[0x05] >> 0) & 1) << 2) | (((src[0x04] >> 0) & 1) << 3) | (((src[0x03] >> 0) & 1) << 4) | (((src[0x02] >> 0) & 1) << 5) | (((src[0x01] >> 0) & 1) << 6) | (((src[0x00] >> 0) & 1) << 7);
+	/* channel 2 */
+	dest[0x03] = (((src[0x37] >> 0) & 1) << 0) | (((src[0x36] >> 0) & 1) << 1) | (((src[0x35] >> 0) & 1) << 2) | (((src[0x34] >> 0) & 1) << 3) | (((src[0x33] >> 0) & 1) << 4) | (((src[0x32] >> 0) & 1) << 5) | (((src[0x31] >> 0) & 1) << 6) | (((src[0x30] >> 0) & 1) << 7);
+	dest[0x04] = (((src[0x2F] >> 0) & 1) << 0) | (((src[0x2E] >> 0) & 1) << 1) | (((src[0x2D] >> 0) & 1) << 2) | (((src[0x2C] >> 0) & 1) << 3) | (((src[0x2B] >> 0) & 1) << 4) | (((src[0x2A] >> 0) & 1) << 5) | (((src[0x29] >> 0) & 1) << 6) | (((src[0x28] >> 0) & 1) << 7);
+	dest[0x05] = (((src[0x27] >> 0) & 1) << 0) | (((src[0x26] >> 0) & 1) << 1) | (((src[0x25] >> 0) & 1) << 2) | (((src[0x24] >> 0) & 1) << 3) | (((src[0x23] >> 0) & 1) << 4) | (((src[0x22] >> 0) & 1) << 5) | (((src[0x21] >> 0) & 1) << 6) | (((src[0x20] >> 0) & 1) << 7);
+	/* channel 3 */
+	dest[0x06] = (((src[0x17] >> 1) & 1) << 0) | (((src[0x16] >> 1) & 1) << 1) | (((src[0x15] >> 1) & 1) << 2) | (((src[0x14] >> 1) & 1) << 3) | (((src[0x13] >> 1) & 1) << 4) | (((src[0x12] >> 1) & 1) << 5) | (((src[0x11] >> 1) & 1) << 6) | (((src[0x10] >> 1) & 1) << 7);
+	dest[0x07] = (((src[0x0F] >> 1) & 1) << 0) | (((src[0x0E] >> 1) & 1) << 1) | (((src[0x0D] >> 1) & 1) << 2) | (((src[0x0C] >> 1) & 1) << 3) | (((src[0x0B] >> 1) & 1) << 4) | (((src[0x0A] >> 1) & 1) << 5) | (((src[0x09] >> 1) & 1) << 6) | (((src[0x08] >> 1) & 1) << 7);
+	dest[0x08] = (((src[0x07] >> 1) & 1) << 0) | (((src[0x06] >> 1) & 1) << 1) | (((src[0x05] >> 1) & 1) << 2) | (((src[0x04] >> 1) & 1) << 3) | (((src[0x03] >> 1) & 1) << 4) | (((src[0x02] >> 1) & 1) << 5) | (((src[0x01] >> 1) & 1) << 6) | (((src[0x00] >> 1) & 1) << 7);
+	/* channel 4 */
+	dest[0x09] = (((src[0x37] >> 1) & 1) << 0) | (((src[0x36] >> 1) & 1) << 1) | (((src[0x35] >> 1) & 1) << 2) | (((src[0x34] >> 1) & 1) << 3) | (((src[0x33] >> 1) & 1) << 4) | (((src[0x32] >> 1) & 1) << 5) | (((src[0x31] >> 1) & 1) << 6) | (((src[0x30] >> 1) & 1) << 7);
+	dest[0x0A] = (((src[0x2F] >> 1) & 1) << 0) | (((src[0x2E] >> 1) & 1) << 1) | (((src[0x2D] >> 1) & 1) << 2) | (((src[0x2C] >> 1) & 1) << 3) | (((src[0x2B] >> 1) & 1) << 4) | (((src[0x2A] >> 1) & 1) << 5) | (((src[0x29] >> 1) & 1) << 6) | (((src[0x28] >> 1) & 1) << 7);
+	dest[0x0B] = (((src[0x27] >> 1) & 1) << 0) | (((src[0x26] >> 1) & 1) << 1) | (((src[0x25] >> 1) & 1) << 2) | (((src[0x24] >> 1) & 1) << 3) | (((src[0x23] >> 1) & 1) << 4) | (((src[0x22] >> 1) & 1) << 5) | (((src[0x21] >> 1) & 1) << 6) | (((src[0x20] >> 1) & 1) << 7);
+	/* channel 5 */
+	dest[0x0C] = (((src[0x17] >> 2) & 1) << 0) | (((src[0x16] >> 2) & 1) << 1) | (((src[0x15] >> 2) & 1) << 2) | (((src[0x14] >> 2) & 1) << 3) | (((src[0x13] >> 2) & 1) << 4) | (((src[0x12] >> 2) & 1) << 5) | (((src[0x11] >> 2) & 1) << 6) | (((src[0x10] >> 2) & 1) << 7);
+	dest[0x0D] = (((src[0x0F] >> 2) & 1) << 0) | (((src[0x0E] >> 2) & 1) << 1) | (((src[0x0D] >> 2) & 1) << 2) | (((src[0x0C] >> 2) & 1) << 3) | (((src[0x0B] >> 2) & 1) << 4) | (((src[0x0A] >> 2) & 1) << 5) | (((src[0x09] >> 2) & 1) << 6) | (((src[0x08] >> 2) & 1) << 7);
+	dest[0x0E] = (((src[0x07] >> 2) & 1) << 0) | (((src[0x06] >> 2) & 1) << 1) | (((src[0x05] >> 2) & 1) << 2) | (((src[0x04] >> 2) & 1) << 3) | (((src[0x03] >> 2) & 1) << 4) | (((src[0x02] >> 2) & 1) << 5) | (((src[0x01] >> 2) & 1) << 6) | (((src[0x00] >> 2) & 1) << 7);
+	/* channel 6 */
+	dest[0x0F] = (((src[0x37] >> 2) & 1) << 0) | (((src[0x36] >> 2) & 1) << 1) | (((src[0x35] >> 2) & 1) << 2) | (((src[0x34] >> 2) & 1) << 3) | (((src[0x33] >> 2) & 1) << 4) | (((src[0x32] >> 2) & 1) << 5) | (((src[0x31] >> 2) & 1) << 6) | (((src[0x30] >> 2) & 1) << 7);
+	dest[0x10] = (((src[0x2F] >> 2) & 1) << 0) | (((src[0x2E] >> 2) & 1) << 1) | (((src[0x2D] >> 2) & 1) << 2) | (((src[0x2C] >> 2) & 1) << 3) | (((src[0x2B] >> 2) & 1) << 4) | (((src[0x2A] >> 2) & 1) << 5) | (((src[0x29] >> 2) & 1) << 6) | (((src[0x28] >> 2) & 1) << 7);
+	dest[0x11] = (((src[0x27] >> 2) & 1) << 0) | (((src[0x26] >> 2) & 1) << 1) | (((src[0x25] >> 2) & 1) << 2) | (((src[0x24] >> 2) & 1) << 3) | (((src[0x23] >> 2) & 1) << 4) | (((src[0x22] >> 2) & 1) << 5) | (((src[0x21] >> 2) & 1) << 6) | (((src[0x20] >> 2) & 1) << 7);
+	/* channel 7 */
+	dest[0x12] = (((src[0x17] >> 3) & 1) << 0) | (((src[0x16] >> 3) & 1) << 1) | (((src[0x15] >> 3) & 1) << 2) | (((src[0x14] >> 3) & 1) << 3) | (((src[0x13] >> 3) & 1) << 4) | (((src[0x12] >> 3) & 1) << 5) | (((src[0x11] >> 3) & 1) << 6) | (((src[0x10] >> 3) & 1) << 7);
+	dest[0x13] = (((src[0x0F] >> 3) & 1) << 0) | (((src[0x0E] >> 3) & 1) << 1) | (((src[0x0D] >> 3) & 1) << 2) | (((src[0x0C] >> 3) & 1) << 3) | (((src[0x0B] >> 3) & 1) << 4) | (((src[0x0A] >> 3) & 1) << 5) | (((src[0x09] >> 3) & 1) << 6) | (((src[0x08] >> 3) & 1) << 7);
+	dest[0x14] = (((src[0x07] >> 3) & 1) << 0) | (((src[0x06] >> 3) & 1) << 1) | (((src[0x05] >> 3) & 1) << 2) | (((src[0x04] >> 3) & 1) << 3) | (((src[0x03] >> 3) & 1) << 4) | (((src[0x02] >> 3) & 1) << 5) | (((src[0x01] >> 3) & 1) << 6) | (((src[0x00] >> 3) & 1) << 7);
+	/* channel 8 */
+	dest[0x15] = (((src[0x37] >> 3) & 1) << 0) | (((src[0x36] >> 3) & 1) << 1) | (((src[0x35] >> 3) & 1) << 2) | (((src[0x34] >> 3) & 1) << 3) | (((src[0x33] >> 3) & 1) << 4) | (((src[0x32] >> 3) & 1) << 5) | (((src[0x31] >> 3) & 1) << 6) | (((src[0x30] >> 3) & 1) << 7);
+	dest[0x16] = (((src[0x2F] >> 3) & 1) << 0) | (((src[0x2E] >> 3) & 1) << 1) | (((src[0x2D] >> 3) & 1) << 2) | (((src[0x2C] >> 3) & 1) << 3) | (((src[0x2B] >> 3) & 1) << 4) | (((src[0x2A] >> 3) & 1) << 5) | (((src[0x29] >> 3) & 1) << 6) | (((src[0x28] >> 3) & 1) << 7);
+	dest[0x17] = (((src[0x27] >> 3) & 1) << 0) | (((src[0x26] >> 3) & 1) << 1) | (((src[0x25] >> 3) & 1) << 2) | (((src[0x24] >> 3) & 1) << 3) | (((src[0x23] >> 3) & 1) << 4) | (((src[0x22] >> 3) & 1) << 5) | (((src[0x21] >> 3) & 1) << 6) | (((src[0x20] >> 3) & 1) << 7);
+	/* channel 9 */
+	dest[0x18] = (((src[0x17] >> 4) & 1) << 0) | (((src[0x16] >> 4) & 1) << 1) | (((src[0x15] >> 4) & 1) << 2) | (((src[0x14] >> 4) & 1) << 3) | (((src[0x13] >> 4) & 1) << 4) | (((src[0x12] >> 4) & 1) << 5) | (((src[0x11] >> 4) & 1) << 6) | (((src[0x10] >> 4) & 1) << 7);
+	dest[0x19] = (((src[0x0F] >> 4) & 1) << 0) | (((src[0x0E] >> 4) & 1) << 1) | (((src[0x0D] >> 4) & 1) << 2) | (((src[0x0C] >> 4) & 1) << 3) | (((src[0x0B] >> 4) & 1) << 4) | (((src[0x0A] >> 4) & 1) << 5) | (((src[0x09] >> 4) & 1) << 6) | (((src[0x08] >> 4) & 1) << 7);
+	dest[0x1A] = (((src[0x07] >> 4) & 1) << 0) | (((src[0x06] >> 4) & 1) << 1) | (((src[0x05] >> 4) & 1) << 2) | (((src[0x04] >> 4) & 1) << 3) | (((src[0x03] >> 4) & 1) << 4) | (((src[0x02] >> 4) & 1) << 5) | (((src[0x01] >> 4) & 1) << 6) | (((src[0x00] >> 4) & 1) << 7);
+	/* channel 10 */
+	dest[0x1B] = (((src[0x37] >> 4) & 1) << 0) | (((src[0x36] >> 4) & 1) << 1) | (((src[0x35] >> 4) & 1) << 2) | (((src[0x34] >> 4) & 1) << 3) | (((src[0x33] >> 4) & 1) << 4) | (((src[0x32] >> 4) & 1) << 5) | (((src[0x31] >> 4) & 1) << 6) | (((src[0x30] >> 4) & 1) << 7);
+	dest[0x1C] = (((src[0x2F] >> 4) & 1) << 0) | (((src[0x2E] >> 4) & 1) << 1) | (((src[0x2D] >> 4) & 1) << 2) | (((src[0x2C] >> 4) & 1) << 3) | (((src[0x2B] >> 4) & 1) << 4) | (((src[0x2A] >> 4) & 1) << 5) | (((src[0x29] >> 4) & 1) << 6) | (((src[0x28] >> 4) & 1) << 7);
+	dest[0x1D] = (((src[0x27] >> 4) & 1) << 0) | (((src[0x26] >> 4) & 1) << 1) | (((src[0x25] >> 4) & 1) << 2) | (((src[0x24] >> 4) & 1) << 3) | (((src[0x23] >> 4) & 1) << 4) | (((src[0x22] >> 4) & 1) << 5) | (((src[0x21] >> 4) & 1) << 6) | (((src[0x20] >> 4) & 1) << 7);
+	/* channel 11 */
+	dest[0x1E] = (((src[0x17] >> 5) & 1) << 0) | (((src[0x16] >> 5) & 1) << 1) | (((src[0x15] >> 5) & 1) << 2) | (((src[0x14] >> 5) & 1) << 3) | (((src[0x13] >> 5) & 1) << 4) | (((src[0x12] >> 5) & 1) << 5) | (((src[0x11] >> 5) & 1) << 6) | (((src[0x10] >> 5) & 1) << 7);
+	dest[0x1F] = (((src[0x0F] >> 5) & 1) << 0) | (((src[0x0E] >> 5) & 1) << 1) | (((src[0x0D] >> 5) & 1) << 2) | (((src[0x0C] >> 5) & 1) << 3) | (((src[0x0B] >> 5) & 1) << 4) | (((src[0x0A] >> 5) & 1) << 5) | (((src[0x09] >> 5) & 1) << 6) | (((src[0x08] >> 5) & 1) << 7);
+	dest[0x20] = (((src[0x07] >> 5) & 1) << 0) | (((src[0x06] >> 5) & 1) << 1) | (((src[0x05] >> 5) & 1) << 2) | (((src[0x04] >> 5) & 1) << 3) | (((src[0x03] >> 5) & 1) << 4) | (((src[0x02] >> 5) & 1) << 5) | (((src[0x01] >> 5) & 1) << 6) | (((src[0x00] >> 5) & 1) << 7);
+	/* channel 12 */
+	dest[0x21] = (((src[0x37] >> 5) & 1) << 0) | (((src[0x36] >> 5) & 1) << 1) | (((src[0x35] >> 5) & 1) << 2) | (((src[0x34] >> 5) & 1) << 3) | (((src[0x33] >> 5) & 1) << 4) | (((src[0x32] >> 5) & 1) << 5) | (((src[0x31] >> 5) & 1) << 6) | (((src[0x30] >> 5) & 1) << 7);
+	dest[0x22] = (((src[0x2F] >> 5) & 1) << 0) | (((src[0x2E] >> 5) & 1) << 1) | (((src[0x2D] >> 5) & 1) << 2) | (((src[0x2C] >> 5) & 1) << 3) | (((src[0x2B] >> 5) & 1) << 4) | (((src[0x2A] >> 5) & 1) << 5) | (((src[0x29] >> 5) & 1) << 6) | (((src[0x28] >> 5) & 1) << 7);
+	dest[0x23] = (((src[0x27] >> 5) & 1) << 0) | (((src[0x26] >> 5) & 1) << 1) | (((src[0x25] >> 5) & 1) << 2) | (((src[0x24] >> 5) & 1) << 3) | (((src[0x23] >> 5) & 1) << 4) | (((src[0x22] >> 5) & 1) << 5) | (((src[0x21] >> 5) & 1) << 6) | (((src[0x20] >> 5) & 1) << 7);
+	/* channel 13 */
+	dest[0x24] = (((src[0x17] >> 6) & 1) << 0) | (((src[0x16] >> 6) & 1) << 1) | (((src[0x15] >> 6) & 1) << 2) | (((src[0x14] >> 6) & 1) << 3) | (((src[0x13] >> 6) & 1) << 4) | (((src[0x12] >> 6) & 1) << 5) | (((src[0x11] >> 6) & 1) << 6) | (((src[0x10] >> 6) & 1) << 7);
+	dest[0x25] = (((src[0x0F] >> 6) & 1) << 0) | (((src[0x0E] >> 6) & 1) << 1) | (((src[0x0D] >> 6) & 1) << 2) | (((src[0x0C] >> 6) & 1) << 3) | (((src[0x0B] >> 6) & 1) << 4) | (((src[0x0A] >> 6) & 1) << 5) | (((src[0x09] >> 6) & 1) << 6) | (((src[0x08] >> 6) & 1) << 7);
+	dest[0x26] = (((src[0x07] >> 6) & 1) << 0) | (((src[0x06] >> 6) & 1) << 1) | (((src[0x05] >> 6) & 1) << 2) | (((src[0x04] >> 6) & 1) << 3) | (((src[0x03] >> 6) & 1) << 4) | (((src[0x02] >> 6) & 1) << 5) | (((src[0x01] >> 6) & 1) << 6) | (((src[0x00] >> 6) & 1) << 7);
+	/* channel 14 */
+	dest[0x27] = (((src[0x37] >> 6) & 1) << 0) | (((src[0x36] >> 6) & 1) << 1) | (((src[0x35] >> 6) & 1) << 2) | (((src[0x34] >> 6) & 1) << 3) | (((src[0x33] >> 6) & 1) << 4) | (((src[0x32] >> 6) & 1) << 5) | (((src[0x31] >> 6) & 1) << 6) | (((src[0x30] >> 6) & 1) << 7);
+	dest[0x28] = (((src[0x2F] >> 6) & 1) << 0) | (((src[0x2E] >> 6) & 1) << 1) | (((src[0x2D] >> 6) & 1) << 2) | (((src[0x2C] >> 6) & 1) << 3) | (((src[0x2B] >> 6) & 1) << 4) | (((src[0x2A] >> 6) & 1) << 5) | (((src[0x29] >> 6) & 1) << 6) | (((src[0x28] >> 6) & 1) << 7);
+	dest[0x29] = (((src[0x27] >> 6) & 1) << 0) | (((src[0x26] >> 6) & 1) << 1) | (((src[0x25] >> 6) & 1) << 2) | (((src[0x24] >> 6) & 1) << 3) | (((src[0x23] >> 6) & 1) << 4) | (((src[0x22] >> 6) & 1) << 5) | (((src[0x21] >> 6) & 1) << 6) | (((src[0x20] >> 6) & 1) << 7);
+	/* channel 15 */
+	dest[0x2A] = (((src[0x17] >> 7) & 1) << 0) | (((src[0x16] >> 7) & 1) << 1) | (((src[0x15] >> 7) & 1) << 2) | (((src[0x14] >> 7) & 1) << 3) | (((src[0x13] >> 7) & 1) << 4) | (((src[0x12] >> 7) & 1) << 5) | (((src[0x11] >> 7) & 1) << 6) | (((src[0x10] >> 7) & 1) << 7);
+	dest[0x2B] = (((src[0x0F] >> 7) & 1) << 0) | (((src[0x0E] >> 7) & 1) << 1) | (((src[0x0D] >> 7) & 1) << 2) | (((src[0x0C] >> 7) & 1) << 3) | (((src[0x0B] >> 7) & 1) << 4) | (((src[0x0A] >> 7) & 1) << 5) | (((src[0x09] >> 7) & 1) << 6) | (((src[0x08] >> 7) & 1) << 7);
+	dest[0x2C] = (((src[0x07] >> 7) & 1) << 0) | (((src[0x06] >> 7) & 1) << 1) | (((src[0x05] >> 7) & 1) << 2) | (((src[0x04] >> 7) & 1) << 3) | (((src[0x03] >> 7) & 1) << 4) | (((src[0x02] >> 7) & 1) << 5) | (((src[0x01] >> 7) & 1) << 6) | (((src[0x00] >> 7) & 1) << 7);
+	/* channel 16 */
+	dest[0x2D] = (((src[0x37] >> 7) & 1) << 0) | (((src[0x36] >> 7) & 1) << 1) | (((src[0x35] >> 7) & 1) << 2) | (((src[0x34] >> 7) & 1) << 3) | (((src[0x33] >> 7) & 1) << 4) | (((src[0x32] >> 7) & 1) << 5) | (((src[0x31] >> 7) & 1) << 6) | (((src[0x30] >> 7) & 1) << 7);
+	dest[0x2E] = (((src[0x2F] >> 7) & 1) << 0) | (((src[0x2E] >> 7) & 1) << 1) | (((src[0x2D] >> 7) & 1) << 2) | (((src[0x2C] >> 7) & 1) << 3) | (((src[0x2B] >> 7) & 1) << 4) | (((src[0x2A] >> 7) & 1) << 5) | (((src[0x29] >> 7) & 1) << 6) | (((src[0x28] >> 7) & 1) << 7);
+	dest[0x2F] = (((src[0x27] >> 7) & 1) << 0) | (((src[0x26] >> 7) & 1) << 1) | (((src[0x25] >> 7) & 1) << 2) | (((src[0x24] >> 7) & 1) << 3) | (((src[0x23] >> 7) & 1) << 4) | (((src[0x22] >> 7) & 1) << 5) | (((src[0x21] >> 7) & 1) << 6) | (((src[0x20] >> 7) & 1) << 7);
+}
+
+/*
+ * encode_frame_lanes - ploytec_encode_frame() for any channel count.
+ * Channel c (0-based) goes to bit c/2 of half c%2 of the frame.
+ */
+static void encode_frame_lanes(uint8_t *dest, const uint8_t *src, unsigned int channels)
+{
+	unsigned int c, i;
+
+	for (i = 0; i < PLOYTEC_OUT_FRAME_SIZE; i++)
+		dest[i] = 0;
+
+	for (c = 0; c < channels; c++) {
+		uint32_t sample = src[c * 3] | (src[c * 3 + 1] << 8) | ((uint32_t)src[c * 3 + 2] << 16);
+		uint8_t *half = dest + (c & 1) * (PLOYTEC_OUT_FRAME_SIZE / 2);
+		unsigned int lane = c >> 1;
+
+		for (i = 0; i < 24; i++)
+			half[i] |= ((sample >> (23 - i)) & 1) << lane;
+	}
+}
+
+/*
+ * decode_frame_lanes - ploytec_decode_frame() for any channel count.
+ * Channel c (0-based) comes from bit c/2 of half c%2 of the frame.
+ */
+static void decode_frame_lanes(uint8_t *dest, const uint8_t *src, unsigned int channels)
+{
+	unsigned int c, i;
+
+	for (c = 0; c < channels; c++) {
+		const uint8_t *half = src + (c & 1) * (PLOYTEC_IN_FRAME_SIZE / 2);
+		unsigned int lane = c >> 1;
+		uint32_t sample = 0;
+
+		for (i = 0; i < 24; i++)
+			sample = (sample << 1) | ((half[i] >> lane) & 1);
+
+		dest[c * 3]     = sample & 0xFF;
+		dest[c * 3 + 1] = (sample >> 8) & 0xFF;
+		dest[c * 3 + 2] = (sample >> 16) & 0xFF;
+	}
+}
+
+void ploytec_encode_frame(uint8_t *dest, const uint8_t *src, unsigned int channels)
+{
+	switch (channels) {
+	case 8:
+		encode_frame_8ch(dest, src);
+		break;
+	case 2:
+		encode_frame_2ch(dest, src);
+		break;
+	default:
+		encode_frame_lanes(dest, src, channels);
+		break;
+	}
+}
+
+void ploytec_decode_frame(uint8_t *dest, const uint8_t *src, unsigned int channels)
+{
+	switch (channels) {
+	case 8:
+		decode_frame_8ch(dest, src);
+		break;
+	case 16:
+		decode_frame_16ch(dest, src);
+		break;
+	default:
+		decode_frame_lanes(dest, src, channels);
+		break;
+	}
 }

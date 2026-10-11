@@ -22,6 +22,7 @@ extern "C" {
 #define PLOYTEC_PID_XONE_DX        0xFFDD
 #define PLOYTEC_PID_XONE_4D        0xFF4D
 #define PLOYTEC_PID_WIZARD_4       0xFFAD
+#define PLOYTEC_PID_XONE_2D        0xFF01
 
 /* USB endpoint addresses (low nibble) */
 #define PLOYTEC_EP_PCM_OUT          0x05
@@ -29,7 +30,8 @@ extern "C" {
 #define PLOYTEC_EP_MIDI_IN          0x03
 
 /* PCM topology */
-#define PLOYTEC_CHANNELS            8
+#define PLOYTEC_MAX_OUT_CHANNELS    8   /* audio lanes in an output frame */
+#define PLOYTEC_MAX_IN_CHANNELS     16  /* audio lanes in an input frame */
 #define PLOYTEC_OUT_FRAME_SIZE      48  /* bytes per device output frame */
 #define PLOYTEC_IN_FRAME_SIZE       64  /* bytes per device input frame */
 #define PLOYTEC_FRAMES_PER_PKT      80  /* audio frames per USB packet (in and out) */

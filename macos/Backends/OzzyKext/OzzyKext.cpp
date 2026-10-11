@@ -304,7 +304,7 @@ bool OzzyKext::MapSharedMemory() {
     mSHM = (OzzySharedMemory*)mShmMap->getVirtualAddress();
     memset(mSHM, 0, sizeof(OzzySharedMemory));
     mSHM->magic = kOzzyMagic;
-    mSHM->version = 1;
+    mSHM->version = kOzzySharedVersion;
     
     // Generate random session ID using current time and address
     uint32_t random = (uint32_t)((uintptr_t)mSHM ^ mach_absolute_time());

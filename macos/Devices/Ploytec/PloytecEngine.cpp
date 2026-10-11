@@ -1,6 +1,7 @@
 #include "PloytecEngine.h"
 #include "PloytecProtocol.h"
 #include "../../../common/devices/ploytec/ploytec_handshake.h"
+#include "../../../common/devices/ploytec/ploytec_models.h"
 #include "../../Shared/OzzyLog.h"
 #include <libkern/libkern.h>
 #include <sys/errno.h>
@@ -32,9 +33,10 @@ static const struct ploytec_host_ops kHostOps = { HostControl, nullptr, HostSlee
 
 PloytecEngine::PloytecEngine(uint16_t pid) {
 
-    // Xone:DB2 is 48 kHz only (official driver's per-device format table, XONE_DB2.kext plist).
-    // Other devices keep running at 96 kHz.
-    mSampleRate = (pid == PLOYTEC_PID_XONE_DB2) ? 48000 : 96000;
+    // Channel counts and rates per model (ploytec_models.h, shared with Linux); run at the
+    // highest rate the model supports (the DB2 is 48 kHz only)
+    mModel = ploytec_model_for_pid(pid);
+    mSampleRate = mModel->rates[mModel->num_rates - 1];
 
     // --- Define Hardware Topology ---
     // The Xone:DB4 presents two interfaces:
@@ -80,6 +82,9 @@ bool PloytecEngine::Start() {
     shm->audio.samplesPerPacket = 10;  // 10 samples per USB sub-packet
     shm->audio.outputBytesPerFrame = PLOYTEC_OUT_FRAME_SIZE;
     shm->audio.inputBytesPerFrame = PLOYTEC_IN_FRAME_SIZE;
+    shm->audio.inputChannels = mModel->in_channels;
+    shm->audio.outputChannels = mModel->out_channels;
+    LogPloytec("model: %s, %u in / %u out", mModel->name, mModel->in_channels, mModel->out_channels);
     
     // 2. Hardware Handshake Sequence
     if (ploytec_handshake(&kHostOps, mBus, mSampleRate, nullptr) < 0)

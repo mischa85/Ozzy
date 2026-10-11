@@ -15,10 +15,8 @@
 #include "../Shared/OzzySharedData.h"
 
 // Codec function pointer types for device-agnostic encoding/decoding
-typedef void (*PCMEncoderFunc)(uint8_t* dst, const float* src);
-typedef void (*PCMDecoderFunc)(float* dst, const uint8_t* src);
-typedef void (*WriteOutputFunc)(uint8_t* ringBuffer, const float* srcFrames, uint64_t sampleTime, uint32_t frameCount, uint32_t ringSize, uint32_t bytesPerFrame);
-typedef void (*ReadInputFunc)(float* dstFrames, const uint8_t* ringBuffer, uint64_t sampleTime, uint32_t frameCount, uint32_t ringSize, uint32_t bytesPerFrame);
+typedef void (*WriteOutputFunc)(uint8_t* ringBuffer, const float* srcFrames, uint64_t sampleTime, uint32_t frameCount, uint32_t ringSize, uint32_t bytesPerFrame, uint32_t channels);
+typedef void (*ReadInputFunc)(float* dstFrames, const uint8_t* ringBuffer, uint64_t sampleTime, uint32_t frameCount, uint32_t ringSize, uint32_t bytesPerFrame, uint32_t channels);
 typedef void (*ClearOutputFunc)(uint8_t* outputBuffer, uint32_t bufferSize);
 
 #define kOzzyDeviceID 100
@@ -52,8 +50,8 @@ public:
     UInt32 GetClockDomain() const;
     AudioObjectID GetInputStreamID() const;
     AudioObjectID GetOutputStreamID() const;
-    AudioStreamBasicDescription GetStreamFormat() const;
-    AudioStreamRangedDescription GetStreamRangedDescription() const;
+    AudioStreamBasicDescription GetStreamFormat(bool isOutput) const;
+    AudioStreamRangedDescription GetStreamRangedDescription(bool isOutput) const;
     
     UInt32 GetLatency() const { return 0; }
     UInt32 GetSafetyOffset() const { return 2 * mFramesPerPacket; }  // 2 URBs worth of frames
@@ -80,10 +78,10 @@ private:
     uint32_t mRingSize = 10240; // kOzzyNumPackets * mFramesPerPacket
     uint32_t mOutputBytesPerFrame = 48;
     uint32_t mInputBytesPerFrame = 64;
+    uint32_t mInputChannels = 8;    // published by the kext per model (16 for the WZ4)
+    uint32_t mOutputChannels = 8;   // (2 for the WZ4)
     
     // Codec function pointers (set based on device vendor/product ID)
-    PCMEncoderFunc mEncode = nullptr;
-    PCMDecoderFunc mDecode = nullptr;
     WriteOutputFunc mWriteOutput = nullptr;
     ReadInputFunc mReadInput = nullptr;
     ClearOutputFunc mClearOutput = nullptr;

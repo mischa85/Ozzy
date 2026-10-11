@@ -76,11 +76,11 @@ IOReturn OzzyKext::newUserClient(task_t owningTask, void* securityID,
     return kIOReturnSuccess;
 }
 
-PloytecEngine* CreateEngine(uint16_t pid) {
+PloytecEngine* CreateEngine(uint16_t vid, uint16_t pid) {
     void* raw = IOMalloc(sizeof(PloytecEngine));
     if (!raw) return nullptr;
     memset(raw, 0, sizeof(PloytecEngine));
-    return new(raw) PloytecEngine(pid); 
+    return new(raw) PloytecEngine(vid, pid); 
 }
 
 KextBus* CreateBus(IOUSBHostDevice* dev, IOService* driver) {
@@ -156,9 +156,10 @@ bool OzzyKext::start(IOService* provider) {
             mHostDevice->getSpeed() == kUSBHostConnectionSpeedFull ? "full" : "unknown");
     }
     
+    uint16_t vid = desc ? desc->idVendor : 0;
     uint16_t pid = desc ? desc->idProduct : 0;
     
-    mEngine = CreateEngine(pid);
+    mEngine = CreateEngine(vid, pid);
     mBus = CreateBus(mHostDevice, this);
 
     if (!mEngine || !mBus) return false;

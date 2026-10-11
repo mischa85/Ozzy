@@ -31,11 +31,11 @@ static void HostLog(void* ctx, bool error, const char* fmt, va_list args) {
 // (only the Windows driver does, see ploytec_handshake.c).
 static const struct ploytec_host_ops kHostOps = { HostControl, nullptr, HostSleep, HostLog };
 
-PloytecEngine::PloytecEngine(uint16_t pid) {
+PloytecEngine::PloytecEngine(uint16_t vid, uint16_t pid) {
 
     // Channel counts and rates per model (ploytec_models.h, shared with Linux); run at the
     // highest rate the model supports (the DB2 is 48 kHz only)
-    mModel = ploytec_model_for_pid(pid);
+    mModel = ploytec_model_for_ids(vid, pid);
     mSampleRate = mModel->rates[mModel->num_rates - 1];
 
     // --- Define Hardware Topology ---

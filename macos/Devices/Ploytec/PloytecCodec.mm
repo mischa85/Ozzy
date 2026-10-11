@@ -83,6 +83,8 @@ WriteOutputFunc PloytecOutputWriter(bool bulkLayout, uint32_t channels) {
     switch (channels) {
     case 8: return bulkLayout ? WriteOutput<PLOYTEC_OUT_LAYOUT_BULK, 8, ploytec_encode_frame_8ch>
                               : WriteOutput<PLOYTEC_OUT_LAYOUT_INT, 8, ploytec_encode_frame_8ch>;
+    case 4: return bulkLayout ? WriteOutput<PLOYTEC_OUT_LAYOUT_BULK, 4, ploytec_encode_frame_4ch>
+                              : WriteOutput<PLOYTEC_OUT_LAYOUT_INT, 4, ploytec_encode_frame_4ch>;
     case 2: return bulkLayout ? WriteOutput<PLOYTEC_OUT_LAYOUT_BULK, 2, ploytec_encode_frame_2ch>
                               : WriteOutput<PLOYTEC_OUT_LAYOUT_INT, 2, ploytec_encode_frame_2ch>;
     default: return nullptr;
@@ -91,6 +93,7 @@ WriteOutputFunc PloytecOutputWriter(bool bulkLayout, uint32_t channels) {
 
 ReadInputFunc PloytecInputReader(uint32_t channels) {
     switch (channels) {
+    case 6: return ReadInput<6, ploytec_decode_frame_6ch>;
     case 8: return ReadInput<8, ploytec_decode_frame_8ch>;
     case 16: return ReadInput<16, ploytec_decode_frame_16ch>;
     default: return nullptr;

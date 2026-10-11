@@ -54,7 +54,8 @@ static const unsigned int ploytec_rates[] = { 44100, 48000, 88200, 96000 };
 static void ploytec_apply_model(struct ozzy_chip *chip, struct ploytec_private *priv)
 {
 	const struct ploytec_model *model =
-		ploytec_model_for_pid(le16_to_cpu(chip->dev->descriptor.idProduct));
+		ploytec_model_for_ids(le16_to_cpu(chip->dev->descriptor.idVendor),
+				      le16_to_cpu(chip->dev->descriptor.idProduct));
 	unsigned int i;
 
 	priv->base_info = chip->info;

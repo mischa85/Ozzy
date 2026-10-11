@@ -30,6 +30,7 @@ extern "C" {
 #define PLOYTEC_MAX_RATES 4
 
 struct ploytec_model {
+	uint16_t vid;
 	uint16_t pid;
 	const char *name;
 	uint8_t in_channels;     /* lanes used in the 64-byte input frame */
@@ -39,28 +40,28 @@ struct ploytec_model {
 };
 
 /*
- * ploytec_model_for_pid - Topology and rates for a Ploytec product ID.
+ * ploytec_model_for_ids - Topology and rates for a Ploytec-based device.
  * Unknown IDs get the Xone 8x8 defaults.
  */
-static inline const struct ploytec_model *ploytec_model_for_pid(uint16_t pid)
+static inline const struct ploytec_model *ploytec_model_for_ids(uint16_t vid, uint16_t pid)
 {
 	static const struct ploytec_model models[] = {
 		/* XONE_DB4.kext 3.4.9 */
-		{ PLOYTEC_PID_XONE_DB4, "Xone:DB4",  8, 8, 4, { 44100, 48000, 88200, 96000 } },
+		{ PLOYTEC_VENDOR_ID, PLOYTEC_PID_XONE_DB4, "Xone:DB4",  8, 8, 4, { 44100, 48000, 88200, 96000 } },
 		/* XONE_DB2.kext 3.4.9: 48 kHz only */
-		{ PLOYTEC_PID_XONE_DB2, "Xone:DB2",  8, 8, 1, { 48000 } },
+		{ PLOYTEC_VENDOR_ID, PLOYTEC_PID_XONE_DB2, "Xone:DB2",  8, 8, 1, { 48000 } },
 		/* no official table yet: same as DB4 */
-		{ PLOYTEC_PID_XONE_DX,  "Xone:DX",   8, 8, 4, { 44100, 48000, 88200, 96000 } },
-		{ PLOYTEC_PID_XONE_4D,  "Xone:4D",   8, 8, 4, { 44100, 48000, 88200, 96000 } },
+		{ PLOYTEC_VENDOR_ID, PLOYTEC_PID_XONE_DX,  "Xone:DX",   8, 8, 4, { 44100, 48000, 88200, 96000 } },
+		{ PLOYTEC_VENDOR_ID, PLOYTEC_PID_XONE_4D,  "Xone:4D",   8, 8, 4, { 44100, 48000, 88200, 96000 } },
 		/* experimental: 6 analog inputs on 8 lanes (#77), no official table */
-		{ PLOYTEC_PID_XONE_2D,  "Xone:2D",   8, 8, 4, { 44100, 48000, 88200, 96000 } },
+		{ PLOYTEC_VENDOR_ID, PLOYTEC_PID_XONE_2D,  "Xone:2D",   8, 8, 4, { 44100, 48000, 88200, 96000 } },
 		/* WIZARD_4.kext 3.3.11: 16 in / 2 out */
-		{ PLOYTEC_PID_WIZARD_4, "MixWizard WZ4 USB", 16, 2, 4, { 44100, 48000, 88200, 96000 } },
+		{ PLOYTEC_VENDOR_ID, PLOYTEC_PID_WIZARD_4, "MixWizard WZ4 USB", 16, 2, 4, { 44100, 48000, 88200, 96000 } },
 	};
 	unsigned int i;
 
 	for (i = 0; i < sizeof(models) / sizeof(models[0]); i++) {
-		if (models[i].pid == pid)
+		if (models[i].vid == vid && models[i].pid == pid)
 			return &models[i];
 	}
 	return &models[0];

@@ -20,7 +20,7 @@ class PloytecEngine : public OzzyEngine {
     volatile OzzySharedMemory* GetSHM() { return (volatile OzzySharedMemory*)mSharedMemory; }
 
 public:
-    PloytecEngine(uint16_t pid);
+    PloytecEngine(uint16_t vid, uint16_t pid);
     
     virtual const OzzyDeviceProfile& GetProfile() const override { return mProfile; }
     virtual void SetOutEndpoint(bool isBulk, uint16_t maxPacketSize) override;

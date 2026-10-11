@@ -9,7 +9,7 @@ public:
     static OzzyEngine* CreateEngine(uint16_t vendorID, uint16_t productID) {
         // Ploytec Devices
         if (vendorID == PLOYTEC_VENDOR_ID) {
-            return new PloytecEngine(productID);
+            return new PloytecEngine(vendorID, productID);
         }
         
         // Future: Denon, Pioneer, etc.

@@ -89,6 +89,18 @@ related to level metering or some control protocol. Has its own pipe assignment 
   status byte was restored on every message. Ozzy passes MIDI out bytes through unchanged. If the
   Xone firmware behaves the same, it could explain MIDI out reports (#19 Xone:4D, #88 Xone:DB2).
   Not verified on any Xone device.
+  - **The official driver never sends running status** (XONE_DB2 3.4.9 MIDI plugin, Ghidra,
+    `DB2_decompile/XONE_DB2_midi_all.c`): `MidiDevice::Send` → `sendInternal` copies the CoreMIDI
+    packet bytes unchanged into a 64 KB queue in shared memory (`MidiSM`, IOConnectMapMemory type 3)
+    and kicks the kext (`callDriver(0x15)`); the kext's `MidiQueue` is a plain byte ring. No status
+    handling anywhere, but CoreMIDI packets never contain running status, so the device never sees it.
+    (`prepareOutput` builds 4-byte USB-MIDI class packets, used for class-compliant ports only.)
+  - **Linux does send running status**: `sound/core/seq/seq_midi.c` converts sequencer events with
+    `snd_midi_event_decode()` and never calls `snd_midi_event_no_status()`, so a status byte equal to
+    the previous one is dropped. Every app using the ALSA sequencer (Mixxx, DAWs) therefore sends
+    running status to Ozzy's rawmidi device; Ozzy on macOS (CoreMIDI) gets full messages.
+  - `getMaxSysexSpeed()` returns 32500 only for VID 0x1935 (Elektron), so A&H devices get CoreMIDI's
+    default SysEx speed (3125 bytes/s). Relevant for #20.
 - **Kext log lines mostly never reach the macOS unified log** (macOS 26.2, Apple Silicon, tested
   2026-10-11). `IOLog` and `os_log(OS_LOG_DEFAULT, …)` from OzzyKext both fail the same way: the
   kernel tags the lines with no sender image (`<compose failure [missing precomposed log]>`) or with

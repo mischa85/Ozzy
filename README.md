@@ -35,7 +35,7 @@ Ozzy reverses the protocol and provides modern drivers—so your equipment keeps
 | Device | Channels | Sample Rates | Status |
 | :--- | :--- | :--- | :--- |
 | **Allen & Heath Xone:DB4** | 8×8 | 44.1/48/88.2/96 kHz | ✅ Perfect |
-| **Allen & Heath Xone:DB2** | 8×8 | 44.1/48/88.2/96 kHz | ✅ Perfect |
+| **Allen & Heath Xone:DB2** | 8×8 | 48 kHz | ✅ Perfect |
 | **Allen & Heath Xone:DX** | 8×8 | 44.1/48/88.2/96 kHz | ✅ Perfect |
 | **Allen & Heath Xone:4D** | 8×8 | 44.1/48/88.2/96 kHz | ✅ Perfect |
 | **Allen & Heath Xone:2D** | 6×8 | 44.1/48/88.2/96 kHz | 🧪 Experimental, needs testers |

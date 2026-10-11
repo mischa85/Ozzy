@@ -32,6 +32,7 @@ private:
     bool MapSharedMemory();
     void UnmapSharedMemory();
     bool ConfigureHardware();
+    void CloseProviders();
 
     IOUSBHostDevice* mHostDevice = nullptr;
     KextBus* mBus = nullptr;

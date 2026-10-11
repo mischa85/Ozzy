@@ -206,16 +206,31 @@ IOReturn OzzyKext::message(UInt32 type, IOService* provider, void* argument) {
             mEngine->Stop();
         }
         
-        // Abort all USB pipes immediately (don't wait for stop())
-        for (int i = 0; i < kMaxPipes; i++) {
-            if (mPipes[i]) {
-                mPipes[i]->abort();
-            }
-        }
+        // Close the device and interfaces now: IOKit only calls stop() once we have closed
+        // our provider, so closing them in stop() leaves the device and both interfaces busy
+        // forever. After a sleep/wake that becomes a 60 s registry busy timeout panic (#52).
+        CloseProviders();
     }
     
     // MUST call super - failure to do so causes termination timeout and kernel panic
     return IOService::message(type, provider, argument);
+}
+
+/* Abort all transfers, then close the interfaces and the device. Safe to call twice. */
+void OzzyKext::CloseProviders() {
+    for (int i = 0; i < kMaxPipes; i++) {
+        if (mPipes[i]) {
+            mPipes[i]->abort();
+        }
+    }
+    for (int i = 0; i < kMaxInterfaces; i++) {
+        if (mInterfaces[i] && mInterfaces[i]->isOpen(this)) {
+            mInterfaces[i]->close(this);
+        }
+    }
+    if (mHostDevice && mHostDevice->isOpen(this)) {
+        mHostDevice->close(this);
+    }
 }
 
 void OzzyKext::stop(IOService* provider) {
@@ -231,12 +246,8 @@ void OzzyKext::stop(IOService* provider) {
         mEngine->Stop();
     }
     
-    // 2. Abort all pending USB transfers
-    for (int i = 0; i < kMaxPipes; i++) {
-        if (mPipes[i]) { 
-            mPipes[i]->abort();
-        }
-    }
+    // 2. Abort all pending USB transfers and close interfaces and device (if not done on termination)
+    CloseProviders();
     
     // 3. Give USB stack time to complete callbacks
     IOSleep(100);
@@ -249,10 +260,9 @@ void OzzyKext::stop(IOService* provider) {
         }
     }
     
-    // 5. Close and release interfaces
+    // 5. Release interfaces (closed in CloseProviders)
     for (int i = 0; i < kMaxInterfaces; i++) {
         if (mInterfaces[i]) { 
-            mInterfaces[i]->close(this); 
             mInterfaces[i]->release(); 
             mInterfaces[i] = nullptr; 
         }
@@ -271,11 +281,8 @@ void OzzyKext::stop(IOService* provider) {
     // 7. Unmap shared memory
     UnmapSharedMemory();
     
-    // 8. Close USB device (don't release - it's the provider, managed by IOKit)
-    if (mHostDevice) { 
-        mHostDevice->close(this);
-        mHostDevice = nullptr; 
-    }
+    // 8. Forget the USB device (closed in CloseProviders; don't release - it's the provider)
+    mHostDevice = nullptr;
     
     IOService::stop(provider);
 }

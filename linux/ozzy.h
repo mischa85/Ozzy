@@ -83,14 +83,6 @@ struct ozzy_device_ops {
 	void (*free)(struct ozzy_chip *chip);
 
 	/*
-	 * set_rate - Set the hardware sample rate.
-	 * @rate_index: index into the device's rate table (info->rates[]).
-	 * Sends the appropriate vendor requests to change the device's clock.
-	 * Returns 0 on success, negative errno on failure.
-	 */
-	int (*set_rate)(struct ozzy_chip *chip, unsigned int rate_index);
-
-	/*
 	 * reset - Perform a USB device reset (e.g. for sample rate changes).
 	 * Called when the rate change requires a full device reset.
 	 * The core's pre_reset/post_reset callbacks handle URB teardown/reinit.

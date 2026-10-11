@@ -339,10 +339,11 @@ static int ozzy_pcm_set_rate(struct pcm_runtime *rt)
 			   chip->info->rates[chip->current_rate],
 			   chip->info->rates[chip->requested_rate]);
 
-		/* Set the new rate via device ops */
-		chip->ops->set_rate(chip, chip->requested_rate);
-
-		/* Reset the device -- pre_reset/post_reset handle URB lifecycle */
+		/*
+		 * Reset the device -- pre_reset/post_reset handle URB lifecycle.
+		 * The post-reset handshake sets requested_rate; the device does not
+		 * answer SET_CUR while streaming, so it is not sent here.
+		 */
 		mutex_unlock(&rt->stream_mutex);
 		chip->ops->reset(chip);
 		mutex_lock(&rt->stream_mutex);

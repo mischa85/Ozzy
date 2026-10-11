@@ -501,7 +501,6 @@ const struct ozzy_device_info ploytec_db2_info = {
 const struct ozzy_device_ops ploytec_ops = {
 	.init                = ploytec_init,
 	.free                = ploytec_free,
-	.set_rate            = ploytec_set_rate,
 	.reset               = ploytec_reset,
 	.process_out_packet  = ploytec_process_out_packet,
 	.process_in_packet   = ploytec_process_in_packet,

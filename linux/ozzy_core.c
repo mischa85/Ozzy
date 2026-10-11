@@ -24,6 +24,7 @@
 #include "ozzy_midi.h"
 #include "devices/ploytec.h"
 #include "../common/ozzy_version.h"
+#include "../common/devices/ploytec/ploytec_defs.h"
 
 MODULE_AUTHOR("Marcel Bierling <marcel@hackerman.art>");
 MODULE_DESCRIPTION("Ozzy USB Audio Driver");
@@ -51,13 +52,13 @@ static const struct ozzy_device_desc ploytec_desc = {
 };
 
 static const struct usb_device_id ozzy_id_table[] = {
-	{ USB_DEVICE(0x0a4a, 0xffdb), .driver_info = (kernel_ulong_t)&ploytec_desc }, /* Xone:DB4 */
-	{ USB_DEVICE(0x0a4a, 0xffd2), .driver_info = (kernel_ulong_t)&ploytec_desc }, /* Xone:DB2 */
-	{ USB_DEVICE(0x0a4a, 0xffdd), .driver_info = (kernel_ulong_t)&ploytec_desc }, /* Xone:DX */
-	{ USB_DEVICE(0x0a4a, 0xff4d), .driver_info = (kernel_ulong_t)&ploytec_desc }, /* Xone:4D */
-	{ USB_DEVICE(0x0a4a, 0xff01), .driver_info = (kernel_ulong_t)&ploytec_desc }, /* Xone:2D (experimental) */
-	{ USB_DEVICE(0x0a4a, 0xffad), .driver_info = (kernel_ulong_t)&ploytec_desc }, /* MixWizard WZ4 USB (16 in / 2 out) */
-	{ USB_DEVICE(0x200c, 0x1009), .driver_info = (kernel_ulong_t)&ploytec_desc }, /* Reloop Digital Jockey 2 ME (6 in / 4 out) */
+	{ USB_DEVICE(PLOYTEC_VENDOR_ID, PLOYTEC_PID_XONE_DB4),       .driver_info = (kernel_ulong_t)&ploytec_desc },
+	{ USB_DEVICE(PLOYTEC_VENDOR_ID, PLOYTEC_PID_XONE_DB2),       .driver_info = (kernel_ulong_t)&ploytec_desc },
+	{ USB_DEVICE(PLOYTEC_VENDOR_ID, PLOYTEC_PID_XONE_DX),        .driver_info = (kernel_ulong_t)&ploytec_desc },
+	{ USB_DEVICE(PLOYTEC_VENDOR_ID, PLOYTEC_PID_XONE_4D),        .driver_info = (kernel_ulong_t)&ploytec_desc },
+	{ USB_DEVICE(PLOYTEC_VENDOR_ID, PLOYTEC_PID_XONE_2D),        .driver_info = (kernel_ulong_t)&ploytec_desc }, /* experimental */
+	{ USB_DEVICE(PLOYTEC_VENDOR_ID, PLOYTEC_PID_WIZARD_4),       .driver_info = (kernel_ulong_t)&ploytec_desc }, /* experimental */
+	{ USB_DEVICE(RELOOP_VENDOR_ID, RELOOP_PID_DIGITAL_JOCKEY_2), .driver_info = (kernel_ulong_t)&ploytec_desc }, /* experimental */
 	{}
 };
 MODULE_DEVICE_TABLE(usb, ozzy_id_table);

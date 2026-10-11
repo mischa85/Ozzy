@@ -33,13 +33,6 @@ private:
     void UpdateTimestamp();
     void ProcessMIDIOutput(uint32_t packetIdx);
     void ProcessMIDIInput(uint32_t bytesReceived);
-
-    // --- Ploytec Protocol Helpers ---
-    bool ReadFirmwareVersion();
-    bool ReadHardwareStatus();
-    bool GetHardwareFrameRate();
-    bool SetHardwareFrameRate(uint32_t rate);
-    bool WriteHardwareStatus(uint16_t value);
 };
 
 #endif

@@ -24,6 +24,7 @@
 #include "../../common/devices/ploytec/ploytec_defs.h"
 #include "../../common/devices/ploytec/ploytec_protocol.h"
 #include "../../common/devices/ploytec/ploytec_codec.h"
+#include "../../common/devices/ploytec/ploytec_handshake.h"
 
 /* ALSA frame size: 8 channels x 3 bytes (S24_3LE) */
 #define ALSA_FRAME_SIZE   (PLOYTEC_CHANNELS * 3)
@@ -41,9 +42,7 @@
  * Stack buffers cause "transfer buffer is on stack" kernel warnings/crashes.
  */
 struct ploytec_private {
-	unsigned char firmware_ver[15]; /* raw firmware version response */
-	unsigned char status[1];        /* hardware status byte */
-	unsigned char xfer_buf[16];     /* reusable DMA-safe buffer for vendor requests */
+	unsigned char xfer_buf[16];     /* DMA-safe bounce buffer for control transfers */
 };
 
 /* Supported sample rates */
@@ -56,9 +55,6 @@ static const unsigned int ploytec_rates[] = { 44100, 48000, 88200, 96000 };
  */
 static const unsigned int ploytec_db2_rates[] = { 48000 };
 
-/* Forward declarations */
-static int ploytec_set_rate(struct ozzy_chip *chip, unsigned int rate_index);
-
 /*
  * ploytec_out_layout - Output packet layout for this device (follows the PCM OUT
  * endpoint's wMaxPacketSize, see ploytec_protocol.h).
@@ -68,150 +64,73 @@ static enum ploytec_out_layout ploytec_out_layout(const struct ozzy_chip *chip)
 	return ploytec_out_layout_for_maxpacket(chip->out_maxpacket);
 }
 
-/*
- * ploytec_get_firmware - Read the Ploytec firmware version.
- * Stores the 15-byte response in priv->firmware_ver and logs the version.
- */
-static int ploytec_get_firmware(struct ozzy_chip *chip)
-{
-	struct ploytec_private *priv = chip->private_data;
-	int ret;
-
-	ret = usb_control_msg(chip->dev, usb_rcvctrlpipe(chip->dev, 0),
-			      PLOYTEC_CMD_FIRMWARE, 0xC0, 0x0000, 0,
-			      priv->firmware_ver, 15, 2000);
-	if (ret < 0)
-		return ret;
-
-	{
-		struct ploytec_firmware_version fw =
-			ploytec_parse_firmware(priv->firmware_ver);
-		ploytec_log(&chip->dev->dev,
-			    "firmware: v1.%d.%d (chip ID: 0x%02X, raw: %*ph)\n",
-			    fw.major, fw.minor, fw.chip_id,
-			    15, priv->firmware_ver);
-	}
-
-	return 0;
-}
+/* ========================================================================
+ * Host Ops for the Shared Handshake (common/devices/ploytec/ploytec_handshake.c)
+ * ======================================================================== */
 
 /*
- * ploytec_get_status - Read and decode the AJ Input Selector register.
- * See ploytec_aj_input_status for confirmed vs partially understood bits.
+ * ploytec_host_control - EP0 control transfer through the DMA-safe bounce buffer.
  */
-static int ploytec_get_status(struct ozzy_chip *chip)
+static int ploytec_host_control(void *ctx, uint8_t request_type, uint8_t request,
+				uint16_t value, uint16_t index, void *data, uint16_t length)
 {
+	struct ozzy_chip *chip = ctx;
 	struct ploytec_private *priv = chip->private_data;
-	struct ploytec_aj_input_status st;
+	bool in = request_type & USB_DIR_IN;
 	int ret;
 
-	ret = usb_control_msg(chip->dev, usb_rcvctrlpipe(chip->dev, 0),
-			      PLOYTEC_CMD_STATUS, 0xC0, 0x0000,
-			      PLOYTEC_REG_AJ_INPUT_SEL,
-			      priv->status, 1, 2000);
-	if (ret < 0)
-		return ret;
+	if (length > sizeof(priv->xfer_buf))
+		return -EINVAL;
+	if (!in && length)
+		memcpy(priv->xfer_buf, data, length);
 
-	ploytec_decode_aj_input(priv->status[0], &st);
-	ploytec_log(&chip->dev->dev,
-		    "status: 0x%02X [InputSel:%d] [DigLock:%d] "
-		    "[mode: %d%d%d%d%d%d]\n",
-		    st.raw, st.input_select, st.digital_lock,
-		    st.mode7, st.mode6, st.mode5,
-		    st.mode4, st.mode3, st.mode0);
+	ret = usb_control_msg(chip->dev,
+			      in ? usb_rcvctrlpipe(chip->dev, 0) : usb_sndctrlpipe(chip->dev, 0),
+			      request, request_type, value, index,
+			      length ? priv->xfer_buf : NULL, length, 2000);
 
-	return 0;
-}
-
-/*
- * ploytec_get_rate - Read the current hardware sample rate and update chip->current_rate.
- * Returns 0 on success, 1 if the rate is not in the device's rate table
- * (e.g. the DB2 boots at 44100 Hz), negative errno on failure.
- */
-static int ploytec_get_rate(struct ozzy_chip *chip)
-{
-	struct ploytec_private *priv = chip->private_data;
-	uint32_t rate;
-	unsigned int i;
-	int ret;
-
-	ret = usb_control_msg(chip->dev, usb_rcvctrlpipe(chip->dev, 0),
-			      PLOYTEC_CMD_GET_RATE_REQ, PLOYTEC_CMD_GET_RATE_TYPE,
-			      0x0100, 0, priv->xfer_buf, 3, 2000);
-	if (ret < 0)
-		return ret;
-
-	rate = ploytec_decode_rate(priv->xfer_buf);
-
-	ploytec_log(&chip->dev->dev, "hardware sample rate: %u Hz (raw: %02X %02X %02X)\n",
-		    rate, priv->xfer_buf[0], priv->xfer_buf[1], priv->xfer_buf[2]);
-
-	for (i = 0; i < chip->info->num_rates; i++) {
-		if (chip->info->rates[i] == rate) {
-			chip->current_rate = i;
-			return 0;
-		}
-	}
-
-	ploytec_log(&chip->dev->dev, "hardware rate %u Hz not in rate table\n", rate);
-	return 1;
-}
-
-/*
- * ploytec_confirm_status - Read-modify-write the AJ Input Selector register.
- *
- * Reads the status byte from vendor request 'I' (wIndex=0), then writes
- * it back with bit 5 set using sign-extension to compute the 16-bit wValue.
- * This completes the handshake and arms the device for streaming.
- */
-static int ploytec_confirm_status(struct ozzy_chip *chip)
-{
-	struct ploytec_private *priv = chip->private_data;
-	uint16_t wvalue;
-	int ret;
-
-	ret = usb_control_msg(chip->dev, usb_rcvctrlpipe(chip->dev, 0),
-			      PLOYTEC_CMD_STATUS, 0xC0, 0x0000,
-			      PLOYTEC_REG_AJ_INPUT_SEL,
-			      priv->status, 1, 2000);
-	if (ret < 0)
-		return ret;
-
-	wvalue = ploytec_confirm_wvalue(priv->status[0]);
-
-	ret = usb_control_msg(chip->dev, usb_sndctrlpipe(chip->dev, 0),
-			      PLOYTEC_CMD_STATUS, 0x40,
-			      wvalue, PLOYTEC_REG_AJ_INPUT_SEL,
-			      NULL, 0, 2000);
-	if (ret >= 0)
-		ploytec_log(&chip->dev->dev,
-			    "status confirmed (read=0x%02X, wrote wValue=0x%04X)\n",
-			    priv->status[0], wvalue);
-
+	if (in && ret > 0)
+		memcpy(data, priv->xfer_buf, min_t(int, ret, length));
 	return ret;
 }
 
-/*
- * ploytec_clear_pcm_halt - Reset both PCM endpoints before streaming starts.
- * The A&H Windows driver does this after the status confirm (abort + clear
- * ENDPOINT_HALT on EP 0x86, then EP 0x05), seen in captures of the Xone:DB2 and
- * Xone:4D. Without it the 4D never starts streaming on Linux (#75).
- */
-static int ploytec_clear_pcm_halt(struct ozzy_chip *chip)
+static int ploytec_host_clear_halt(void *ctx, uint8_t endpoint)
 {
-	int ret;
+	struct ozzy_chip *chip = ctx;
+	unsigned int ep = endpoint & USB_ENDPOINT_NUMBER_MASK;
 
-	msleep(500);
-	ret = usb_clear_halt(chip->dev, usb_rcvintpipe(chip->dev, chip->info->in_ep));
-	if (ret < 0) {
-		ploytec_err(&chip->dev->dev, "clear halt on PCM in failed (ret=%d)\n", ret);
-		return ret;
-	}
-	ret = usb_clear_halt(chip->dev, usb_sndintpipe(chip->dev, chip->info->out_ep));
-	if (ret < 0)
-		ploytec_err(&chip->dev->dev, "clear halt on PCM out failed (ret=%d)\n", ret);
-	return ret;
+	return usb_clear_halt(chip->dev, (endpoint & USB_DIR_IN) ?
+			      usb_rcvintpipe(chip->dev, ep) : usb_sndintpipe(chip->dev, ep));
 }
+
+static void ploytec_host_sleep_ms(void *ctx, unsigned int ms)
+{
+	msleep(ms);
+}
+
+static void ploytec_host_vlog(void *ctx, bool error, const char *fmt, va_list args)
+{
+	struct ozzy_chip *chip = ctx;
+	struct va_format vaf;
+	va_list copy;
+
+	/* va_list parameters decay to a pointer on some ABIs; %pV needs a real va_list */
+	va_copy(copy, args);
+	vaf.fmt = fmt;
+	vaf.va = &copy;
+	if (error)
+		ploytec_err(&chip->dev->dev, "%pV\n", &vaf);
+	else
+		ploytec_log(&chip->dev->dev, "%pV\n", &vaf);
+	va_end(copy);
+}
+
+static const struct ploytec_host_ops ploytec_host_ops = {
+	.control    = ploytec_host_control,
+	.clear_halt = ploytec_host_clear_halt,
+	.sleep_ms   = ploytec_host_sleep_ms,
+	.vlog       = ploytec_host_vlog,
+};
 
 /* ========================================================================
  * Device Ops Implementation
@@ -219,7 +138,7 @@ static int ploytec_clear_pcm_halt(struct ozzy_chip *chip)
 
 /*
  * ploytec_init - Perform the Ploytec vendor handshake after USB probe.
- * Allocates private data, reads firmware, sets sample rate, confirms status.
+ * Allocates private data, then runs the shared handshake at the requested rate.
  */
 static int ploytec_init(struct ozzy_chip *chip)
 {
@@ -231,59 +150,16 @@ static int ploytec_init(struct ozzy_chip *chip)
 		return -ENOMEM;
 	chip->private_data = priv;
 
-	ploytec_log(&chip->dev->dev, "--- begin handshake sequence ---\n");
+	ret = ploytec_handshake(&ploytec_host_ops, chip,
+				chip->info->rates[chip->requested_rate], NULL);
+	if (ret < 0) {
+		kfree(priv);
+		chip->private_data = NULL;
+		return ret;
+	}
 
-	ploytec_log(&chip->dev->dev, "[1/7] reading firmware version...\n");
-	ret = ploytec_get_firmware(chip);
-	if (ret < 0)
-		goto err;
-
-	ploytec_log(&chip->dev->dev, "[2/7] reading hardware status...\n");
-	ret = ploytec_get_status(chip);
-	if (ret < 0)
-		goto err;
-
-	ploytec_log(&chip->dev->dev, "[3/7] reading current sample rate...\n");
-	ret = ploytec_get_rate(chip);
-	if (ret < 0)
-		goto err;
-
-	ploytec_log(&chip->dev->dev, "[4/7] setting sample rate to %u Hz...\n",
-		    chip->info->rates[chip->requested_rate]);
-	ret = ploytec_set_rate(chip, chip->requested_rate);
-	if (ret < 0)
-		goto err;
-
-	ploytec_log(&chip->dev->dev, "[5/7] verifying sample rate...\n");
-	ret = ploytec_get_rate(chip);
-	if (ret > 0)
-		ret = -EINVAL;
-	if (ret < 0)
-		goto err;
-
-	ploytec_log(&chip->dev->dev, "[6/7] reading hardware status...\n");
-	ret = ploytec_get_status(chip);
-	if (ret < 0)
-		goto err;
-
-	ploytec_log(&chip->dev->dev, "[7/7] confirming device status...\n");
-	ret = ploytec_confirm_status(chip);
-	if (ret < 0)
-		goto err;
-
-	ret = ploytec_clear_pcm_halt(chip);
-	if (ret < 0)
-		goto err;
-
-	ploytec_log(&chip->dev->dev, "--- handshake complete, device ready ---\n");
-
+	chip->current_rate = chip->requested_rate;
 	return 0;
-
-err:
-	ploytec_err(&chip->dev->dev, "handshake failed at step (ret=%d)\n", ret);
-	kfree(priv);
-	chip->private_data = NULL;
-	return ret;
 }
 
 /*
@@ -293,42 +169,6 @@ static void ploytec_free(struct ozzy_chip *chip)
 {
 	kfree(chip->private_data);
 	chip->private_data = NULL;
-}
-
-/*
- * ploytec_set_rate - Set the hardware sample rate via vendor requests.
- * Converts the rate to 3 little-endian bytes and sends SET_CUR to both
- * the input (0x86) and output (0x05) endpoints.
- */
-static int ploytec_set_rate(struct ozzy_chip *chip, unsigned int rate_index)
-{
-	struct ploytec_private *priv = chip->private_data;
-	unsigned int rate;
-	int ret;
-
-	if (rate_index >= chip->info->num_rates)
-		return -EINVAL;
-
-	rate = chip->info->rates[rate_index];
-	ploytec_encode_rate(rate, priv->xfer_buf);
-
-	ret = usb_control_msg(chip->dev, usb_sndctrlpipe(chip->dev, 0),
-			      PLOYTEC_CMD_SET_RATE_REQ, PLOYTEC_CMD_SET_RATE_TYPE,
-			      0x0100, PLOYTEC_EP_RATE_IN, priv->xfer_buf, 3, 2000);
-	if (ret < 0) return ret;
-
-	ret = usb_control_msg(chip->dev, usb_sndctrlpipe(chip->dev, 0),
-			      PLOYTEC_CMD_SET_RATE_REQ, PLOYTEC_CMD_SET_RATE_TYPE,
-			      0x0100, PLOYTEC_EP_RATE_OUT, priv->xfer_buf, 3, 2000);
-	if (ret < 0) return ret;
-
-	chip->current_rate = rate_index;
-
-	ploytec_log(&chip->dev->dev,
-		    "sample rate set: %u Hz (raw: %02X %02X %02X)\n",
-		    rate, priv->xfer_buf[0], priv->xfer_buf[1], priv->xfer_buf[2]);
-
-	return 0;
 }
 
 /*

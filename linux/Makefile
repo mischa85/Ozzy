@@ -21,7 +21,8 @@ $(MODULE_NAME)-y := ozzy_core.o \
                     ozzy_pcm.o \
                     ozzy_midi.o \
                     devices/ploytec.o \
-                    ../common/devices/ploytec/ploytec_codec.o
+                    ../common/devices/ploytec/ploytec_codec.o \
+                    ../common/devices/ploytec/ploytec_handshake.o
 
 # To add a new device family, append:
 #   devices/newdevice.o

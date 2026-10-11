@@ -50,6 +50,10 @@ extern "C" {
 #define PLOYTEC_NUM_INTERFACES      2
 #define PLOYTEC_ALT_SETTING         1
 
+/* bmRequestType for vendor requests ('V', 'I') */
+#define PLOYTEC_REQTYPE_VENDOR_IN   0xC0  /* device-to-host, vendor, device */
+#define PLOYTEC_REQTYPE_VENDOR_OUT  0x40  /* host-to-device, vendor, device */
+
 /* Vendor request command bytes */
 #define PLOYTEC_CMD_FIRMWARE        0x56  /* 'V' - read firmware version (15 bytes) */
 #define PLOYTEC_CMD_STATUS          0x49  /* 'I' - read/write hardware status */

@@ -1,12 +1,34 @@
 #include "PloytecEngine.h"
 #include "PloytecProtocol.h"
+#include "../../../common/devices/ploytec/ploytec_handshake.h"
 #include "../../Shared/OzzyLog.h"
+#include <libkern/libkern.h>
+#include <sys/errno.h>
 
 // --- CONSTANTS ---
 // Endpoints (direction bit OR'd with base address from ploytec_defs.h)
 #define kEpPcmOut   PLOYTEC_EP_PCM_OUT
 #define kEpPcmIn    (PLOYTEC_EP_PCM_IN | 0x80)
 #define kEpMidiIn   (PLOYTEC_EP_MIDI_IN | 0x80)
+
+// --- Host ops for the shared handshake (common/devices/ploytec/ploytec_handshake.c) ---
+static int HostControl(void* ctx, uint8_t type, uint8_t req, uint16_t val, uint16_t idx, void* data, uint16_t len) {
+    return ((IOzzyBus*)ctx)->VendorRequest(type, req, val, idx, data, len) ? len : -EIO;
+}
+
+static void HostSleep(void* ctx, unsigned int ms) {
+    ((IOzzyBus*)ctx)->Sleep(ms);
+}
+
+static void HostLog(void* ctx, bool error, const char* fmt, va_list args) {
+    char line[256];
+    vsnprintf(line, sizeof(line), fmt, args);
+    LogPloytec("%s", line);
+}
+
+// No clear_halt: the official macOS driver never clears the PCM endpoint halt
+// (only the Windows driver does, see ploytec_handshake.c).
+static const struct ploytec_host_ops kHostOps = { HostControl, nullptr, HostSleep, HostLog };
 
 PloytecEngine::PloytecEngine(uint16_t pid) {
 
@@ -51,8 +73,6 @@ bool PloytecEngine::Start() {
     auto* shm = GetSHM();
     if(!shm) return false;
     
-    LogPloytec("--- begin handshake sequence ---");
-
     // 1. Setup Shared Memory (device names already set by kext from USB descriptors)
     shm->audio.deviceFlags = (mOutLayout == PLOYTEC_OUT_LAYOUT_BULK ? 1 : 0);
     shm->audio.sampleRate = mSampleRate;
@@ -62,29 +82,8 @@ bool PloytecEngine::Start() {
     shm->audio.inputBytesPerFrame = PLOYTEC_IN_FRAME_SIZE;
     
     // 2. Hardware Handshake Sequence
-    ReadFirmwareVersion();
-    GetHardwareFrameRate(); 
-    
-    if (!SetHardwareFrameRate(mSampleRate)) {
-        LogPloytec("handshake failed: sample rate");
+    if (ploytec_handshake(&kHostOps, mBus, mSampleRate, nullptr) < 0)
         return false;
-    }
-    
-    GetHardwareFrameRate(); 
-    mBus->Sleep(50);
-    
-    /* Read status, set MODE5 bit, sign-extend, and write back */
-    {
-        uint8_t statusBuf[1] = {0};
-        if (!mBus->VendorRequest(0xC0, PLOYTEC_CMD_STATUS, 0, 0, statusBuf, 1)) {
-            LogPloytec("handshake failed: status read");
-            return false;
-        }
-        uint16_t wval = ploytec_confirm_wvalue(statusBuf[0]);
-        WriteHardwareStatus(wval);
-        LogPloytec("status confirmed: read=0x%02X, wrote=0x%04X", statusBuf[0], wval);
-    }
-    ReadHardwareStatus();
     
     // Hardware is confirmed working and communicating
     shm->audio.hardwarePresent = true;
@@ -108,7 +107,6 @@ bool PloytecEngine::Start() {
     // Driver is now fully initialized and ready for I/O
     shm->audio.driverReady = true;
 
-    LogPloytec("--- handshake complete, device ready ---");
     return true;
 }
 
@@ -256,53 +254,4 @@ void PloytecEngine::SubmitMIDIIn(uint32_t idx) {
     if (!mBus->SubmitUSBPacket(kEpMidiIn, (void*)shm->midiInUSBBuffer, sizeof(shm->midiInUSBBuffer), (void*)(uintptr_t)idx)) {
         LogPloytec("MIDI input submission failed (idx: %u)", idx);
     }
-}
-
-// --------------------------------------------------------------------------
-// Protocol Helpers
-// --------------------------------------------------------------------------
-
-bool PloytecEngine::ReadFirmwareVersion() {
-    uint8_t buf[16] = {0};
-    if (!mBus->VendorRequest(0xC0, PLOYTEC_CMD_FIRMWARE, 0, 0, buf, 0x0F)) return false;
-    struct ploytec_firmware_version fw = ploytec_parse_firmware(buf);
-    LogPloytec("firmware: v1.%u.%u (chip ID: 0x%02X)", fw.major, fw.minor, fw.chip_id);
-    return true;
-}
-
-bool PloytecEngine::ReadHardwareStatus() {
-    uint8_t buf[1] = {0};
-    if (!mBus->VendorRequest(0xC0, PLOYTEC_CMD_STATUS, 0, 0, buf, 1)) return false;
-    uint8_t s = buf[0];
-    
-    LogPloytec("status: [0x%02X] %s %s %s %s %s %s", s,
-              (s & 0x80) ? "[b7:1]"        : "[b7:0]",  /* unknown; NOT USB speed (DB4 sets it, DB2 does not) */
-              (s & 0x20) ? "[Legacy/BCD1]" : "[Modern/BCD3]",
-              (s & 0x10) ? "[Armed]"       : "[Disarmed]",
-              (s & 0x04) ? "[Clock-Lock]"  : "[No-Lock]",
-              (s & 0x02) ? "[Streaming]"   : "[Idle]",
-              (s & 0x01) ? "[Stable]"      : "[Syncing]");
-    return true;
-}
-
-bool PloytecEngine::GetHardwareFrameRate() {
-    uint8_t buf[3] = {0};
-    if (!mBus->VendorRequest(PLOYTEC_CMD_GET_RATE_TYPE, PLOYTEC_CMD_GET_RATE_REQ, 0x0100, 0, buf, 3)) return false;
-    uint32_t rate = ploytec_decode_rate(buf);
-    LogPloytec("hardware sample rate: %u Hz", rate);
-    return true;
-}
-
-bool PloytecEngine::SetHardwareFrameRate(uint32_t r) {
-    LogPloytec("setting sample rate to %u Hz...", r);
-    uint8_t buf[3];
-    ploytec_encode_rate(r, buf);
-
-    mBus->VendorRequest(PLOYTEC_CMD_SET_RATE_TYPE, PLOYTEC_CMD_SET_RATE_REQ, 0x0100, PLOYTEC_EP_RATE_IN, buf, 3);
-    return mBus->VendorRequest(PLOYTEC_CMD_SET_RATE_TYPE, PLOYTEC_CMD_SET_RATE_REQ, 0x0100, PLOYTEC_EP_RATE_OUT, buf, 3);
-}
-
-bool PloytecEngine::WriteHardwareStatus(uint16_t v) {
-    LogPloytec("writing status: 0x%04X", v);
-    return mBus->VendorRequest(0x40, PLOYTEC_CMD_STATUS, v, 0, nullptr, 0);
 }

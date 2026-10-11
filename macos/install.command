@@ -197,6 +197,7 @@ SOURCES=(
     "Backends/OzzyKext/KextBus.cpp"
     "OzzyCore/OzzyEngine.cpp"
     "Devices/Ploytec/PloytecEngine.cpp"
+    "../common/devices/ploytec/ploytec_handshake.c"
 )
 
 # Detect system architecture

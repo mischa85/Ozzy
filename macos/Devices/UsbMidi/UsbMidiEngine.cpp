@@ -39,14 +39,14 @@ bool UsbMidiEngine::Start() {
     memset(&mEncoder, 0, sizeof(mEncoder));
     __atomic_store_n(&mOutBusy, false, __ATOMIC_RELEASE);
     mRunning = true;
-    shm->audio.hardwarePresent = true;
+    OzzyStoreRelease(&shm->audio.hardwarePresent, true);
 
     for (uint32_t slot = 0; slot < kNumReads; slot++) {
         mReadErrors[slot] = 0;
         SubmitRead(slot);
     }
 
-    shm->audio.driverReady = true;
+    OzzyStoreRelease(&shm->audio.driverReady, true);
     LogUsbMidi("Xone:1D ready");
     return true;
 }
@@ -79,9 +79,9 @@ void UsbMidiEngine::ProcessRead(uint32_t slot, uint32_t bytes) {
         for (unsigned int i = 0; i < len; i++) {
             uint32_t w = shm->midiIn.writeIndex;
             uint32_t nextW = (w + 1) & kOzzyMidiRingMask;
-            if (nextW == shm->midiIn.readIndex) return;     // ring full: drop the rest
+            if (nextW == OzzyLoadAcquire(&shm->midiIn.readIndex)) return;  // ring full: drop the rest
             shm->midiIn.buffer[w] = midi[i];
-            shm->midiIn.writeIndex = nextW;
+            OzzyStoreRelease(&shm->midiIn.writeIndex, nextW);
         }
     }
 }
@@ -122,23 +122,23 @@ void UsbMidiEngine::PumpMidiOut() {
         if (__atomic_exchange_n(&mOutBusy, true, __ATOMIC_ACQUIRE)) return;
 
         uint32_t r = shm->midiOut.readIndex;
-        uint32_t w = shm->midiOut.writeIndex;
+        uint32_t w = OzzyLoadAcquire(&shm->midiOut.writeIndex);
         uint8_t* packet = (uint8_t*)shm->midiOutUSBBuffer;
 
         while (r != w) {
             uint8_t byte = shm->midiOut.buffer[r];
             r = (r + 1) & kOzzyMidiRingMask;
             if (usb_midi_encode_byte(&mEncoder, kCable, byte, packet)) {
-                shm->midiOut.readIndex = r;
+                OzzyStoreRelease(&shm->midiOut.readIndex, r);
                 if (mBus->SubmitUSBPacket(kEpMidiOut, packet, USB_MIDI_PACKET_SIZE, nullptr)) return;
                 LogUsbMidi("MIDI output submission failed");
                 break;
             }
         }
-        shm->midiOut.readIndex = r;
+        OzzyStoreRelease(&shm->midiOut.readIndex, r);
         __atomic_store_n(&mOutBusy, false, __ATOMIC_RELEASE);
 
         // A kick that came in while we held mOutBusy returned early; pick up its bytes
-        if (shm->midiOut.writeIndex == r) return;
+        if (OzzyLoadAcquire(&shm->midiOut.writeIndex) == r) return;
     }
 }

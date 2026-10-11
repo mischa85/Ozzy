@@ -91,8 +91,8 @@ bool PloytecEngine::Start() {
     if (ploytec_handshake(&kHostOps, mBus, mSampleRate, nullptr) < 0)
         return false;
     
-    // Hardware is confirmed working and communicating
-    shm->audio.hardwarePresent = true;
+    // Hardware is confirmed working and communicating (release: the format fields above first)
+    OzzyStoreRelease(&shm->audio.hardwarePresent, true);
 
     // 3. Reset Engine State
     mHwSampleTime = 0;
@@ -111,7 +111,7 @@ bool PloytecEngine::Start() {
     }
     
     // Driver is now fully initialized and ready for I/O
-    shm->audio.driverReady = true;
+    OzzyStoreRelease(&shm->audio.driverReady, true);
 
     return true;
 }
@@ -131,15 +131,15 @@ void PloytecEngine::ProcessMIDIOutput(uint32_t packetIdx) {
     auto* shm = GetSHM();
     if (!shm) return;
     
-    // Read pending MIDI bytes from the midiOut ring buffer (kernel space - volatile reads)
+    // Read pending MIDI bytes from the midiOut ring buffer (acquire: the byte before the index)
     uint32_t r = shm->midiOut.readIndex;
-    uint32_t w = shm->midiOut.writeIndex;
+    uint32_t w = OzzyLoadAcquire(&shm->midiOut.writeIndex);
     
     uint8_t* packet = (uint8_t*)shm->audio.outputBuffer + (packetIdx % kOzzyNumPackets) * kOzzyMaxPacketSize;
     uint8_t byte = PLOYTEC_MIDI_IDLE_BYTE;
     if (r != w) {
         byte = shm->midiOut.buffer[r];
-        shm->midiOut.readIndex = (r + 1) & kOzzyMidiRingMask;
+        OzzyStoreRelease(&shm->midiOut.readIndex, (r + 1) & kOzzyMidiRingMask);
     }
     ploytec_out_set_midi(mOutLayout, packet, byte);
 }
@@ -148,16 +148,16 @@ void PloytecEngine::ProcessMIDIInput(uint32_t bytesReceived) {
     auto* shm = GetSHM();
     if (!shm || bytesReceived == 0) return;
     
-    // Write received MIDI bytes to the midiIn ring buffer (kernel space - volatile writes)
+    // Write received MIDI bytes to the midiIn ring buffer (release: the byte before the index)
     for (uint32_t i = 0; i < bytesReceived && i < sizeof(shm->midiInUSBBuffer); i++) {
         uint32_t w = shm->midiIn.writeIndex;
-        uint32_t r = shm->midiIn.readIndex;
+        uint32_t r = OzzyLoadAcquire(&shm->midiIn.readIndex);
         uint32_t nextW = (w + 1) & kOzzyMidiRingMask;
         
         // Check if ring buffer has space
         if (nextW != r) {
             shm->midiIn.buffer[w] = shm->midiInUSBBuffer[i];
-            shm->midiIn.writeIndex = nextW;
+            OzzyStoreRelease(&shm->midiIn.writeIndex, nextW);
         }
     }
 }
@@ -212,12 +212,15 @@ void PloytecEngine::UpdateTimestamp() {
     mHwSampleTime += PLOYTEC_FRAMES_PER_PKT;
 
     if ((mHwSampleTime % (PLOYTEC_FRAMES_PER_PKT * kOzzyTimestampPackets)) == 0) {
+        // Seqlock (reader: OzzyHAL::GetZeroTimeStamp). The fences keep the odd sequence
+        // visible before the new values, and the new values before the even sequence.
         volatile auto* ts = &shm->audio.timestamp;
         uint32_t seq = ts->sequence;
-        ts->sequence = seq + 1;
-        ts->sampleTime = mHwSampleTime;
-        ts->hostTime = mBus->GetTime(); 
-        ts->sequence = seq + 2;
+        OzzyStoreRelaxed(&ts->sequence, seq + 1);
+        __atomic_thread_fence(__ATOMIC_RELEASE);
+        OzzyStoreRelaxed(&ts->sampleTime, mHwSampleTime);
+        OzzyStoreRelaxed(&ts->hostTime, mBus->GetTime());
+        OzzyStoreRelease(&ts->sequence, seq + 2);
     }
 }
 

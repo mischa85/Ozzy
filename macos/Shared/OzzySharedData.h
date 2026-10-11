@@ -9,6 +9,19 @@
     typedef volatile uint64_t AtomicU64;
     typedef volatile bool     AtomicBool;
     #define CACHE_ALIGN __attribute__((aligned(64)))
+
+    // volatile only stops the compiler from reordering; on arm64 the CPU can still make a
+    // ring index visible before the data it publishes. Pair these with the user-space
+    // std::atomic acquire loads and release stores.
+    template <typename T> static inline T OzzyLoadAcquire(const volatile T* p) {
+        return __atomic_load_n(p, __ATOMIC_ACQUIRE);
+    }
+    template <typename T> static inline void OzzyStoreRelease(volatile T* p, T v) {
+        __atomic_store_n(p, v, __ATOMIC_RELEASE);
+    }
+    template <typename T> static inline void OzzyStoreRelaxed(volatile T* p, T v) {
+        __atomic_store_n(p, v, __ATOMIC_RELAXED);
+    }
 #else
     #include <atomic>
     typedef std::atomic<uint32_t> AtomicU32;

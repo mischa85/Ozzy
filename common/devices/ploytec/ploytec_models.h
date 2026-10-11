@@ -54,6 +54,8 @@ static inline const struct ploytec_model *ploytec_model_for_pid(uint16_t pid)
 		{ PLOYTEC_PID_XONE_4D,  "Xone:4D",   8, 8, 4, { 44100, 48000, 88200, 96000 } },
 		/* experimental: 6 analog inputs on 8 lanes (#77), no official table */
 		{ PLOYTEC_PID_XONE_2D,  "Xone:2D",   8, 8, 4, { 44100, 48000, 88200, 96000 } },
+		/* WIZARD_4.kext 3.3.11: 16 in / 2 out */
+		{ PLOYTEC_PID_WIZARD_4, "MixWizard WZ4 USB", 16, 2, 4, { 44100, 48000, 88200, 96000 } },
 	};
 	unsigned int i;
 

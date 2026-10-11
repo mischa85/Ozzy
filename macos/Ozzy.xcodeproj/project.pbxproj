@@ -13,6 +13,10 @@
 		1FC985E22F05B4B700668435 /* OzzyMIDI.mm in Sources */ = {isa = PBXBuildFile; fileRef = 1FC985DF2F05B4B700668435 /* OzzyMIDI.mm */; };
 		1FE242542F05D730004C729F /* CoreMIDI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1FC985E62F05B63100668435 /* CoreMIDI.framework */; };
 		1FF6DC902F06F1F00061482F /* CoreAudio.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1FC985EA2F05B64A00668435 /* CoreAudio.framework */; };
+		1F5418082F1C6900003FECA9 /* IOKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1FC985E82F05B64300668435 /* IOKit.framework */; };
+		1F5418092F1C6900003FECA9 /* CoreFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1FADCD2E2F05C9960059FC84 /* CoreFoundation.framework */; };
+		1F54180A2F1C6900003FECA9 /* IOKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1FC985E82F05B64300668435 /* IOKit.framework */; };
+		1F54180B2F1C6900003FECA9 /* CoreFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1FADCD2E2F05C9960059FC84 /* CoreFoundation.framework */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -39,6 +43,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				1FF6DC902F06F1F00061482F /* CoreAudio.framework in Frameworks */,
+				1F5418082F1C6900003FECA9 /* IOKit.framework in Frameworks */,
+				1F5418092F1C6900003FECA9 /* CoreFoundation.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -47,6 +53,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				1FE242542F05D730004C729F /* CoreMIDI.framework in Frameworks */,
+				1F54180A2F1C6900003FECA9 /* IOKit.framework in Frameworks */,
+				1F54180B2F1C6900003FECA9 /* CoreFoundation.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

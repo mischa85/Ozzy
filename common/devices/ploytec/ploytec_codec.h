@@ -25,6 +25,10 @@
 #include <stdint.h>
 #endif
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /*
  * ploytec_encode_frame - Convert one S24_3LE frame to Ploytec device format.
  * @dest: output buffer, must be at least 48 bytes (PLOYTEC_OUT_FRAME_SIZE)
@@ -46,5 +50,9 @@ void ploytec_encode_frame(uint8_t *dest, const uint8_t *src);
  * bit-per-byte layout where each byte carries one bit per channel.
  */
 void ploytec_decode_frame(uint8_t *dest, const uint8_t *src);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* OZZY_PLOYTEC_CODEC_H */

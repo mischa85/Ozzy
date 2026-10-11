@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		1F5418052F1C6900003FECA9 /* PloytecCodec.mm in Sources */ = {isa = PBXBuildFile; fileRef = 1F5418042F1C6900003FECA9 /* PloytecCodec.mm */; };
+		1F5418072F1C6900003FECA9 /* ploytec_codec.c in Sources */ = {isa = PBXBuildFile; fileRef = 1F5418062F1C6900003FECA9 /* ploytec_codec.c */; };
 		1FB396AA2F0AECA200073667 /* OzzyHAL.mm in Sources */ = {isa = PBXBuildFile; fileRef = 1FB396A92F0AECA200073667 /* OzzyHAL.mm */; };
 		1FC985E22F05B4B700668435 /* OzzyMIDI.mm in Sources */ = {isa = PBXBuildFile; fileRef = 1FC985DF2F05B4B700668435 /* OzzyMIDI.mm */; };
 		1FE242542F05D730004C729F /* CoreMIDI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1FC985E62F05B63100668435 /* CoreMIDI.framework */; };
@@ -16,6 +17,7 @@
 
 /* Begin PBXFileReference section */
 		1F5418042F1C6900003FECA9 /* PloytecCodec.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; name = PloytecCodec.mm; path = Devices/Ploytec/PloytecCodec.mm; sourceTree = SOURCE_ROOT; };
+		1F5418062F1C6900003FECA9 /* ploytec_codec.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = ploytec_codec.c; path = ../common/devices/ploytec/ploytec_codec.c; sourceTree = SOURCE_ROOT; };
 		1FADCD2B2F05C8AC0059FC84 /* OzzyMIDI.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = OzzyMIDI.h; sourceTree = "<group>"; };
 		1FADCD2E2F05C9960059FC84 /* CoreFoundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreFoundation.framework; path = System/Library/Frameworks/CoreFoundation.framework; sourceTree = SDKROOT; };
 		1FB396A82F0AECA200073667 /* OzzyHAL.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = OzzyHAL.h; sourceTree = "<group>"; };
@@ -75,6 +77,7 @@
 			isa = PBXGroup;
 			children = (
 				1F5418042F1C6900003FECA9 /* PloytecCodec.mm */,
+				1F5418062F1C6900003FECA9 /* ploytec_codec.c */,
 				1FC985D32F05B4AE00668435 /* Info.plist */,
 				1FB396A92F0AECA200073667 /* OzzyHAL.mm */,
 				1FB396A82F0AECA200073667 /* OzzyHAL.h */,
@@ -213,6 +216,7 @@
 			files = (
 				1FB396AA2F0AECA200073667 /* OzzyHAL.mm in Sources */,
 				1F5418052F1C6900003FECA9 /* PloytecCodec.mm in Sources */,
+				1F5418072F1C6900003FECA9 /* ploytec_codec.c in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

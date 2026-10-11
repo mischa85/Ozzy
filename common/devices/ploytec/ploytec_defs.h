@@ -23,6 +23,7 @@ extern "C" {
 #define PLOYTEC_PID_XONE_4D        0xFF4D
 #define PLOYTEC_PID_WIZARD_4       0xFFAD
 #define PLOYTEC_PID_XONE_2D        0xFF01
+#define PLOYTEC_PID_XONE_1D        0x001E   /* MIDI only: USB MIDI class, not the Ploytec audio protocol */
 
 /* Other vendors' Ploytec-based devices */
 #define RELOOP_VENDOR_ID            0x200C

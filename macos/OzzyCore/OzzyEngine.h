@@ -13,11 +13,13 @@ struct OzzyDeviceProfile {
     // Interfaces the driver must claim
     uint8_t interfaceCount;
     uint8_t interfaceIndices[4]; // Max 4 interfaces is plenty for audio
+    uint8_t altSetting;          // Alternate setting selected on each claimed interface
 
     // Pipe Maps (0 = Unused)
     OzzyPipeConfig pcmOut;
     OzzyPipeConfig pcmIn;
     OzzyPipeConfig midiIn;
+    OzzyPipeConfig midiOut;
 };
 
 // --- Base Class ---
@@ -44,6 +46,10 @@ public:
 
     // Callbacks
     virtual void OnPacketComplete(uint8_t pipeID, void* contextID, int status, uint32_t bytesTransferred) = 0;
+
+    // The MIDI driver queued bytes in the midiOut ring. Engines that send MIDI on their own
+    // schedule (Ploytec embeds it in every PCM packet) ignore this.
+    virtual void OnMidiOutPending() {}
 };
 
 #endif

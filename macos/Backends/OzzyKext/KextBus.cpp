@@ -71,13 +71,21 @@ void KextBus_GlobalCompletion(void* owner, void* parameter, IOReturn status, uin
 
 KextBus::KextBus(IOUSBHostDevice* device, IOService* driver) 
     : mDevice(device), mDriver(driver), mPipes(nullptr), mPipeCount(0), mEngine(nullptr), mMainShmDesc(nullptr), mShmBase(0) {
+    for (int i = 0; i < kPipeSlots; i++) mPipeByAddress[i] = nullptr;
 }
 
 KextBus::~KextBus() {}
 
+/* Index pipes by endpoint address so SubmitUSBPacket finds them without searching */
 void KextBus::SetPipePool(IOUSBHostPipe** pipes, int count) {
     mPipes = pipes;
     mPipeCount = count;
+    for (int i = 0; i < kPipeSlots; i++) mPipeByAddress[i] = nullptr;
+    for (int i = 0; i < count; i++) {
+        if (!pipes[i]) continue;
+        const StandardUSB::EndpointDescriptor* d = pipes[i]->getEndpointDescriptor();
+        if (d) mPipeByAddress[PipeSlot(d->bEndpointAddress)] = pipes[i];
+    }
 }
 
 void KextBus::SetEngine(OzzyEngine* engine) {
@@ -95,11 +103,7 @@ OzzyEngine* KextBus::GetEngine() {
 }
 
 IOUSBHostPipe* KextBus::FindPipe(uint8_t address) {
-    if (!mPipes) return nullptr;
-    if (address == 0x05) return mPipes[0];
-    if (address == 0x86) return mPipes[1];
-    if (address == 0x83) return mPipes[2];
-    return nullptr;
+    return mPipeByAddress[PipeSlot(address)];
 }
 
 bool KextBus::SubmitUSBPacket(uint8_t pipeID, void* buffer, uint32_t size, void* contextID) {

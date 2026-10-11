@@ -1,6 +1,7 @@
 #include "OzzyKext.h"
 #include "KextBus.h"
-#include "../../Devices/Ploytec/PloytecEngine.h" 
+#include "../../Devices/Ploytec/PloytecEngine.h"
+#include "../../Devices/UsbMidi/UsbMidiEngine.h"
 #include "../../Shared/OzzySharedData.h"
 #include "../../Shared/OzzyLog.h"
 #include "../../../common/ozzy_version.h"
@@ -43,6 +44,17 @@ public:
         return kIOReturnNoMemory;
     }
 
+    // Selector 0 (no arguments): OzzyMIDI queued bytes in the midiOut ring
+    virtual IOReturn externalMethod(uint32_t selector, IOExternalMethodArguments* args,
+                                    IOExternalMethodDispatch* dispatch, OSObject* target,
+                                    void* reference) override {
+        if (selector == kOzzyMethodMidiOutPending) {
+            if (mOwner) mOwner->MidiOutPending();
+            return kIOReturnSuccess;
+        }
+        return IOUserClient::externalMethod(selector, args, dispatch, target, reference);
+    }
+
 private:
     OzzyKext* mOwner = nullptr;
 };
@@ -76,11 +88,16 @@ IOReturn OzzyKext::newUserClient(task_t owningTask, void* securityID,
     return kIOReturnSuccess;
 }
 
-PloytecEngine* CreateEngine(uint16_t vid, uint16_t pid) {
-    void* raw = IOMalloc(sizeof(PloytecEngine));
+/* The Xone:1D is a USB MIDI class device; everything else speaks the Ploytec protocol.
+ * @size returns the allocation size for SafeKernelDelete. */
+OzzyEngine* CreateEngine(uint16_t vid, uint16_t pid, size_t* size) {
+    bool usbMidi = (vid == PLOYTEC_VENDOR_ID && pid == PLOYTEC_PID_XONE_1D);
+    *size = usbMidi ? sizeof(UsbMidiEngine) : sizeof(PloytecEngine);
+    void* raw = IOMalloc(*size);
     if (!raw) return nullptr;
-    memset(raw, 0, sizeof(PloytecEngine));
-    return new(raw) PloytecEngine(vid, pid); 
+    memset(raw, 0, *size);
+    if (usbMidi) return new(raw) UsbMidiEngine();
+    return new(raw) PloytecEngine(vid, pid);
 }
 
 KextBus* CreateBus(IOUSBHostDevice* dev, IOService* driver) {
@@ -91,8 +108,8 @@ KextBus* CreateBus(IOUSBHostDevice* dev, IOService* driver) {
 }
 
 template <typename T>
-void SafeKernelDelete(T* ptr) {
-    if (ptr) { ptr->~T(); IOFree(ptr, sizeof(T)); }
+void SafeKernelDelete(T* ptr, size_t size = sizeof(T)) {
+    if (ptr) { ptr->~T(); IOFree(ptr, size); }
 }
 
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
@@ -159,7 +176,7 @@ bool OzzyKext::start(IOService* provider) {
     uint16_t vid = desc ? desc->idVendor : 0;
     uint16_t pid = desc ? desc->idProduct : 0;
     
-    mEngine = CreateEngine(vid, pid);
+    mEngine = CreateEngine(vid, pid, &mEngineSize);
     mBus = CreateBus(mHostDevice, this);
 
     if (!mEngine || !mBus) return false;
@@ -187,14 +204,23 @@ bool OzzyKext::start(IOService* provider) {
 
     LogOzzyKext("driver ready");
 
+    // OzzyHAL only attaches to devices with audio (the Xone:1D is MIDI only)
+    setProperty(kOzzyAudioPropertyKey, mSHM->audio.inputChannels + mSHM->audio.outputChannels > 0);
+    mRunning = true;
+
     registerService();
 
     return true;
 }
 
+void OzzyKext::MidiOutPending() {
+    if (mRunning && mEngine) mEngine->OnMidiOutPending();
+}
+
 IOReturn OzzyKext::message(UInt32 type, IOService* provider, void* argument) {
     if (type == kIOMessageServiceIsTerminated) {
         LogOzzyKext("device disconnected");
+        mRunning = false;
         
         // Immediately signal HAL that hardware is gone
         if (mSHM) {
@@ -243,6 +269,7 @@ void OzzyKext::stop(IOService* provider) {
     }
     
     // 1. Stop the engine first (clears flags, signals HAL)
+    mRunning = false;
     if (mEngine) { 
         mEngine->Stop();
     }
@@ -271,7 +298,7 @@ void OzzyKext::stop(IOService* provider) {
     
     // 6. Clean up engine and bus
     if (mEngine) { 
-        SafeKernelDelete(mEngine); 
+        SafeKernelDelete(mEngine, mEngineSize); 
         mEngine = nullptr; 
     }
     if (mBus) { 
@@ -348,8 +375,10 @@ bool OzzyKext::ConfigureHardware() {
                         iface->retain();
                         mInterfaces[i] = iface;
                         foundCount++;
-                        iface->selectAlternateSetting(1);
-                        IOSleep(50);
+                        if (profile.altSetting) {
+                            iface->selectAlternateSetting(profile.altSetting);
+                            IOSleep(50);
+                        }
                     }
                 }
             }
@@ -363,10 +392,11 @@ bool OzzyKext::ConfigureHardware() {
     OzzyPipeConfig* configs[] = {
         const_cast<OzzyPipeConfig*>(&profile.pcmOut),
         const_cast<OzzyPipeConfig*>(&profile.pcmIn),
-        const_cast<OzzyPipeConfig*>(&profile.midiIn)
+        const_cast<OzzyPipeConfig*>(&profile.midiIn),
+        const_cast<OzzyPipeConfig*>(&profile.midiOut)
     };
 
-    for (int k = 0; k < 3; k++) {
+    for (int k = 0; k < 4; k++) {
         OzzyPipeConfig* cfg = configs[k];
         if (cfg->address == 0) continue;
 
@@ -383,7 +413,9 @@ bool OzzyKext::ConfigureHardware() {
             if (p) {
                 if (pipeCounter < kMaxPipes) {
                     mPipes[pipeCounter++] = p;
-                    LogOzzyKext("  pipe 0x%02x opened", cfg->address);
+                    const StandardUSB::EndpointDescriptor* d = p->getEndpointDescriptor();
+                    LogOzzyKext("  pipe 0x%02x opened (wMaxPacketSize %u)", cfg->address,
+                                d ? USBToHost16(d->wMaxPacketSize) & 0x07FF : 0);
 
                     // Pass transfer type and wMaxPacketSize of the output endpoint to the engine
                     if (k == 0) {

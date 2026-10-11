@@ -20,7 +20,11 @@
 // --- CONFIGURATION ---
 #define kOzzySharedMemName          "/ozzy_shared_mem"
 #define kOzzyMagic                  0x4F5A5A59 // "OZZY"
-#define kOzzySharedVersion          2          // bump when OzzySharedMemory changes layout
+// OzzyKext user client: external method selectors and registry property
+#define kOzzyMethodMidiOutPending   0          // OzzyMIDI queued bytes in midiOut
+#define kOzzyAudioPropertyKey       "OzzyAudio" // true if the device has audio channels
+
+#define kOzzySharedVersion          3          // bump when OzzySharedMemory changes layout
 
 // Sizing: 8KB covers High Speed USB max packet size, devices use what they need
 #define kOzzyMaxPacketSize          8192
@@ -102,6 +106,9 @@ struct OzzySharedMemory {
     // USB MIDI input buffer (for kext to receive MIDI from device)
     // Size must match endpoint's max packet size (512 bytes for bulk endpoints)
     uint8_t midiInUSBBuffer[512];
+
+    // USB MIDI output buffer for devices with a MIDI OUT endpoint (USB MIDI class event packets)
+    uint8_t midiOutUSBBuffer[64];
     
     CACHE_ALIGN OzzyAudioBuffer audio;
 };

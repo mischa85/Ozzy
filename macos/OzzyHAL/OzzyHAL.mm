@@ -129,8 +129,13 @@ void OzzyHAL::MapSharedMemory() {
         mKextMapSize = 0;
     }
 
-    // --- 1. Try OzzyKext (IOKit) ---
+    // --- 1. Try OzzyKext (IOKit), skipping MIDI-only devices such as the Xone:1D ---
     CFMutableDictionaryRef matching = IOServiceMatching("OzzyKext");
+    CFMutableDictionaryRef props = CFDictionaryCreateMutable(kCFAllocatorDefault, 1,
+        &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    CFDictionarySetValue(props, CFSTR(kOzzyAudioPropertyKey), kCFBooleanTrue);
+    CFDictionarySetValue(matching, CFSTR(kIOPropertyMatchKey), props);
+    CFRelease(props);
     io_service_t service = IOServiceGetMatchingService(kIOMainPortDefault, matching);
     
     if (service) {

@@ -26,6 +26,7 @@ public:
     virtual IOReturn message(UInt32 type, IOService* provider, void* argument) override;
 
     IOMemoryDescriptor* GetMemory() { return mShmDescriptor; }
+    void MidiOutPending();
     OzzySharedMemory* GetSHM() { return mSHM; }
 
 private:
@@ -37,6 +38,8 @@ private:
     IOUSBHostDevice* mHostDevice = nullptr;
     KextBus* mBus = nullptr;
     OzzyEngine* mEngine = nullptr;
+    size_t mEngineSize = 0;
+    volatile bool mRunning = false;   // engine started and device present
     
     // MASTER MEMORY OBJECTS
     IOBufferMemoryDescriptor* mShmDescriptor = nullptr; // The Owner

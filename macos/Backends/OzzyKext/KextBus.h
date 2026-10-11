@@ -41,5 +41,10 @@ private:
     IOBufferMemoryDescriptor* mMainShmDesc;
     uintptr_t mShmBase;
 
+    // Endpoint number in bits 0-3, direction in bit 4
+    static constexpr int kPipeSlots = 32;
+    static int PipeSlot(uint8_t address) { return (address & 0x0F) | ((address & 0x80) >> 3); }
+    IOUSBHostPipe* mPipeByAddress[kPipeSlots];
+
     IOUSBHostPipe* FindPipe(uint8_t address);
 };

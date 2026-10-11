@@ -14,6 +14,9 @@
 // Ploytec logging (device-specific code in kext)
 #define LogPloytec(fmt, ...) IOLog("[Ploytec] " fmt "\n", ##__VA_ARGS__)
 
+// USB MIDI class device logging (Xone:1D)
+#define LogUsbMidi(fmt, ...) IOLog("[UsbMidi] " fmt "\n", ##__VA_ARGS__)
+
 #else
 // ============================================================================
 // USERSPACE LOGGING (HAL, MIDI, Daemon)

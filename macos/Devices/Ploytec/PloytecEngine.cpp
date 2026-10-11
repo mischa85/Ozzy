@@ -46,6 +46,7 @@ PloytecEngine::PloytecEngine(uint16_t vid, uint16_t pid) {
     mProfile.interfaceCount = PLOYTEC_NUM_INTERFACES;
     mProfile.interfaceIndices[0] = 0;
     mProfile.interfaceIndices[1] = 1;
+    mProfile.altSetting = 1;
     
     // PCM Out (EP 0x05) lives on Interface 0
     mProfile.pcmOut.address = kEpPcmOut;

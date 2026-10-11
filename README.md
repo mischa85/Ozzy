@@ -123,7 +123,7 @@ For detailed information, see [macos/README.md](macos/README.md)
     git clone https://github.com/mischa85/Ozzy
     cd Ozzy/linux
     make
-    sudo make install
+    sudo make modules_install
     ```
 2.  Load the module:
     ```bash

@@ -89,3 +89,14 @@ related to level metering or some control protocol. Has its own pipe assignment 
   status byte was restored on every message. Ozzy passes MIDI out bytes through unchanged. If the
   Xone firmware behaves the same, it could explain MIDI out reports (#19 Xone:4D, #88 Xone:DB2).
   Not verified on any Xone device.
+- **Kext log lines mostly never reach the macOS unified log** (macOS 26.2, Apple Silicon, tested
+  2026-10-11). `IOLog` and `os_log(OS_LOG_DEFAULT, …)` from OzzyKext both fail the same way: the
+  kernel tags the lines with no sender image (`<compose failure [missing precomposed log]>`) or with
+  another loaded kext's UUID (`<compose failure [UUID]>`), even though `/var/db/uuidtext/` has a
+  correct entry for the OzzyKext UUID. Only isolated bursts get through (seen once at `stop()`, once
+  at `device disconnected`). A minimal Xcode-style reference kext (`tools/refkext/` in the
+  investigation folder) logs fine on the same Mac. Ruled out: build flags (`-fapple-kext`,
+  `KMOD_EXPLICIT_DECL` + libkmod, deployment target), boot timing (runtime reload), log quarantine,
+  Mach-O layout. Not tested: USB matching vs IOResources, the IOUSBHostFamily dependency, Info.plist.
+  Same bug class as Apple forums 133822 ("kext log output slides") and 133313 ("os_log using
+  incorrect or stale text"); Apple only asked for bug reports. The HAL's log lines are reliable.

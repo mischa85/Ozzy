@@ -15,8 +15,8 @@ every VID/PID the driver supports.
 | 0xFFD2  | Xone:DB2    | 24-bit Ploytec bulk | Confirmed, supported in Ozzy. **48 kHz only** (official plist table). fw 1.2.0: EP 0x05 interrupt, wMaxPacketSize 512 → 512 framing. Boots at 44.1k. See `ploytec_sample_rates.md`, `ploytec_bulk_devices.md` |
 | 0xFFDD  | Xone:DX     | 24-bit Ploytec bulk | Confirmed, supported in Ozzy. Special-cased in `updateAjInputSelector` |
 | 0xFF4D  | Xone:4D     | 24-bit Ploytec bulk | Confirmed, supported in Ozzy |
-| 0xFFAD  | Wizard 4    | 24-bit Ploytec bulk | Confirmed, supported in Ozzy |
-| 0xFF01  | Xone:2D     | ? | Found in legacy macOS Info.plist only |
+| 0xFFAD  | Wizard 4    | 24-bit Ploytec bulk | In Ozzy on Linux and macOS, untested on hardware |
+| 0xFF01  | Xone:2D     | 24-bit Ploytec (same URB sizes as DB4, #77) | In Ozzy as experimental; 6 real analog inputs, 8-ch frames |
 | 0x1016  | ?           | ? | Has `setFreqOnOutPipe` support |
 | 0x2416  | ?           | ? | Has `setFreqOnOutPipe` support |
 | 0x5A16  | ?           | ? | Excluded from first `updateAjInputSelector` call in `configurationDone` |

@@ -61,6 +61,7 @@ static const struct usb_device_id ozzy_id_table[] = {
 	{ USB_DEVICE(0x0a4a, 0xffdd), .driver_info = (kernel_ulong_t)&ploytec_desc }, /* Xone:DX */
 	{ USB_DEVICE(0x0a4a, 0xff4d), .driver_info = (kernel_ulong_t)&ploytec_desc }, /* Xone:4D */
 	{ USB_DEVICE(0x0a4a, 0xffad), .driver_info = (kernel_ulong_t)&ploytec_desc }, /* Wizard 4 */
+	{ USB_DEVICE(0x0a4a, 0xff01), .driver_info = (kernel_ulong_t)&ploytec_desc }, /* Xone:2D (experimental) */
 	{}
 };
 MODULE_DEVICE_TABLE(usb, ozzy_id_table);

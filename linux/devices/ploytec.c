@@ -40,6 +40,8 @@ struct ploytec_private {
 	unsigned char xfer_buf[16];     /* DMA-safe bounce buffer for control transfers */
 	struct ozzy_device_info info;   /* ploytec_info with this model's channels and rates */
 	const struct ozzy_device_info *base_info;
+	ploytec_frame_fn encode;        /* frame codecs for this model, picked once */
+	ploytec_frame_fn decode;
 };
 
 /* Placeholder until ploytec_init() applies the model's rates (ploytec_models.h) */
@@ -66,6 +68,8 @@ static void ploytec_apply_model(struct ozzy_chip *chip, struct ploytec_private *
 		priv->info.rates_mask |= snd_pcm_rate_to_rate_bit(model->rates[i]);
 	priv->info.rate_min = model->rates[0];
 	priv->info.rate_max = model->rates[model->num_rates - 1];
+	priv->encode = ploytec_frame_encoder(model->out_channels);
+	priv->decode = ploytec_frame_decoder(model->in_channels);
 
 	chip->info = &priv->info;
 	chip->requested_rate = model->num_rates - 1;
@@ -172,6 +176,11 @@ static int ploytec_init(struct ozzy_chip *chip)
 			return -ENOMEM;
 		chip->private_data = priv;
 		ploytec_apply_model(chip, priv);
+		if (!priv->encode || !priv->decode) {
+			ploytec_err(&chip->dev->dev, "no frame codec for %u in / %u out\n",
+				    chip->info->capture_channels, chip->info->playback_channels);
+			return -EINVAL;
+		}
 	}
 
 	ret = ploytec_handshake(&ploytec_host_ops, chip,
@@ -222,9 +231,9 @@ static unsigned int ploytec_process_out_packet(struct ozzy_chip *chip,
 					       unsigned int dma_off,
 					       unsigned int pcm_buffer_size)
 {
+	struct ploytec_private *priv = chip->private_data;
 	enum ploytec_out_layout layout = ploytec_out_layout(chip);
-	unsigned int channels = chip->info->playback_channels;
-	unsigned int frame_bytes = channels * ALSA_BYTES_PER_SAMPLE;
+	unsigned int frame_bytes = chip->info->playback_channels * ALSA_BYTES_PER_SAMPLE;
 	unsigned int f, src_off;
 
 	for (f = 0; f < PLOYTEC_FRAMES_PER_PKT; f++) {
@@ -232,8 +241,7 @@ static unsigned int ploytec_process_out_packet(struct ozzy_chip *chip,
 		if (src_off >= pcm_buffer_size)
 			src_off -= pcm_buffer_size;
 
-		ploytec_encode_frame(urb_buf + ploytec_out_frame_offset(layout, f),
-				     dma_area + src_off, channels);
+		priv->encode(urb_buf + ploytec_out_frame_offset(layout, f), dma_area + src_off);
 	}
 
 	return PLOYTEC_FRAMES_PER_PKT * frame_bytes;
@@ -249,8 +257,8 @@ static unsigned int ploytec_process_in_packet(struct ozzy_chip *chip,
 					      unsigned int dma_off,
 					      unsigned int pcm_buffer_size)
 {
-	unsigned int channels = chip->info->capture_channels;
-	unsigned int frame_bytes = channels * ALSA_BYTES_PER_SAMPLE;
+	struct ploytec_private *priv = chip->private_data;
+	unsigned int frame_bytes = chip->info->capture_channels * ALSA_BYTES_PER_SAMPLE;
 	unsigned int f;
 	unsigned int dst_off;
 
@@ -259,8 +267,7 @@ static unsigned int ploytec_process_in_packet(struct ozzy_chip *chip,
 		if (dst_off >= pcm_buffer_size)
 			dst_off -= pcm_buffer_size;
 
-		ploytec_decode_frame(dma_area + dst_off,
-				     urb_buf + f * PLOYTEC_IN_FRAME_SIZE, channels);
+		priv->decode(dma_area + dst_off, urb_buf + f * PLOYTEC_IN_FRAME_SIZE);
 	}
 
 	return PLOYTEC_FRAMES_PER_PKT * frame_bytes;

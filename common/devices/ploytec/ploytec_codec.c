@@ -12,10 +12,9 @@
 #endif
 
 #include "ploytec_codec.h"
-#include "ploytec_defs.h"
 
 /*
- * encode_frame_8ch - ploytec_encode_frame() for 8 channels, unrolled.
+ * ploytec_encode_frame_8ch - 8 channels (official dmaEncode08).
  *
  * Input:  24 bytes (8 channels x 3 bytes S24_3LE)
  * Output: 48 bytes (Ploytec bit-interleaved format)
@@ -27,7 +26,7 @@
  * Each output byte contains one bit from each of 4 channels,
  * with bits ordered MSB-first from the source samples.
  */
-static void encode_frame_8ch(uint8_t *dest, const uint8_t *src)
+void ploytec_encode_frame_8ch(uint8_t *dest, const uint8_t *src)
 {
 	//           ========= channel 1 ========   ========= channel 3 ========   ========= channel 5 ========   ========= channel 7 ========
 	dest[0x00] = ((src[0x02] & 0x80) >> 0x07) | ((src[0x08] & 0x80) >> 0x06) | ((src[0x0E] & 0x80) >> 0x05) | ((src[0x14] & 0x80) >> 0x04);
@@ -82,7 +81,7 @@ static void encode_frame_8ch(uint8_t *dest, const uint8_t *src)
 }
 
 /*
- * decode_frame_8ch - ploytec_decode_frame() for 8 channels, unrolled.
+ * ploytec_decode_frame_8ch - 8 channels (official dmaDecode16To08).
  *
  * Input:  64 bytes (Ploytec capture format, bit-per-byte layout)
  * Output: 24 bytes (8 channels x 3 bytes S24_3LE)
@@ -92,7 +91,7 @@ static void encode_frame_8ch(uint8_t *dest, const uint8_t *src)
  * even channels (2,4,6,8) in bits 0-3. Each channel's 24-bit sample
  * is reconstructed by gathering one bit from each of 24 consecutive bytes.
  */
-static void decode_frame_8ch(uint8_t *dest, const uint8_t *src)
+void ploytec_decode_frame_8ch(uint8_t *dest, const uint8_t *src)
 {
 	//           ===================================================================================================================== channel 1 =====================================================================================================================
 	dest[0x00] = ((src[0x17] & 0x01) << 0x00) | ((src[0x16] & 0x01) << 0x01) | ((src[0x15] & 0x01) << 0x02) | ((src[0x14] & 0x01) << 0x03) | ((src[0x13] & 0x01) << 0x04) | ((src[0x12] & 0x01) << 0x05) | ((src[0x11] & 0x01) << 0x06) | ((src[0x10] & 0x01) << 0x07);
@@ -129,11 +128,11 @@ static void decode_frame_8ch(uint8_t *dest, const uint8_t *src)
 }
 
 /*
- * encode_frame_2ch - ploytec_encode_frame() for 2 channels, unrolled (official dmaEncode02).
+ * ploytec_encode_frame_2ch - 2 channels (official dmaEncode02).
  * Only bit 0 of each byte carries audio; the other lanes are silent.
- * Generated; checked against encode_frame_lanes() by tools/ploytec_lanes_test.c.
+ * Generated; checked against the generic reference in tools/ploytec_lanes_test.c.
  */
-static void encode_frame_2ch(uint8_t *dest, const uint8_t *src)
+void ploytec_encode_frame_2ch(uint8_t *dest, const uint8_t *src)
 {
 	/* channel 1 */
 	dest[0x00] = (src[0x02] >> 7) & 1;
@@ -188,11 +187,10 @@ static void encode_frame_2ch(uint8_t *dest, const uint8_t *src)
 }
 
 /*
- * decode_frame_16ch - ploytec_decode_frame() for 16 channels, unrolled (official
- * dmaDecode16To16). Generated; checked against decode_frame_lanes() by
+ * ploytec_decode_frame_16ch - 16 channels (official dmaDecode16To16). Generated; checked against the generic reference in
  * tools/ploytec_lanes_test.c.
  */
-static void decode_frame_16ch(uint8_t *dest, const uint8_t *src)
+void ploytec_decode_frame_16ch(uint8_t *dest, const uint8_t *src)
 {
 	/* channel 1 */
 	dest[0x00] = (((src[0x17] >> 0) & 1) << 0) | (((src[0x16] >> 0) & 1) << 1) | (((src[0x15] >> 0) & 1) << 2) | (((src[0x14] >> 0) & 1) << 3) | (((src[0x13] >> 0) & 1) << 4) | (((src[0x12] >> 0) & 1) << 5) | (((src[0x11] >> 0) & 1) << 6) | (((src[0x10] >> 0) & 1) << 7);
@@ -260,75 +258,20 @@ static void decode_frame_16ch(uint8_t *dest, const uint8_t *src)
 	dest[0x2F] = (((src[0x27] >> 7) & 1) << 0) | (((src[0x26] >> 7) & 1) << 1) | (((src[0x25] >> 7) & 1) << 2) | (((src[0x24] >> 7) & 1) << 3) | (((src[0x23] >> 7) & 1) << 4) | (((src[0x22] >> 7) & 1) << 5) | (((src[0x21] >> 7) & 1) << 6) | (((src[0x20] >> 7) & 1) << 7);
 }
 
-/*
- * encode_frame_lanes - ploytec_encode_frame() for any channel count.
- * Channel c (0-based) goes to bit c/2 of half c%2 of the frame.
- */
-static void encode_frame_lanes(uint8_t *dest, const uint8_t *src, unsigned int channels)
-{
-	unsigned int c, i;
-
-	for (i = 0; i < PLOYTEC_OUT_FRAME_SIZE; i++)
-		dest[i] = 0;
-
-	for (c = 0; c < channels; c++) {
-		uint32_t sample = src[c * 3] | (src[c * 3 + 1] << 8) | ((uint32_t)src[c * 3 + 2] << 16);
-		uint8_t *half = dest + (c & 1) * (PLOYTEC_OUT_FRAME_SIZE / 2);
-		unsigned int lane = c >> 1;
-
-		for (i = 0; i < 24; i++)
-			half[i] |= ((sample >> (23 - i)) & 1) << lane;
-	}
-}
-
-/*
- * decode_frame_lanes - ploytec_decode_frame() for any channel count.
- * Channel c (0-based) comes from bit c/2 of half c%2 of the frame.
- */
-static void decode_frame_lanes(uint8_t *dest, const uint8_t *src, unsigned int channels)
-{
-	unsigned int c, i;
-
-	for (c = 0; c < channels; c++) {
-		const uint8_t *half = src + (c & 1) * (PLOYTEC_IN_FRAME_SIZE / 2);
-		unsigned int lane = c >> 1;
-		uint32_t sample = 0;
-
-		for (i = 0; i < 24; i++)
-			sample = (sample << 1) | ((half[i] >> lane) & 1);
-
-		dest[c * 3]     = sample & 0xFF;
-		dest[c * 3 + 1] = (sample >> 8) & 0xFF;
-		dest[c * 3 + 2] = (sample >> 16) & 0xFF;
-	}
-}
-
-void ploytec_encode_frame(uint8_t *dest, const uint8_t *src, unsigned int channels)
+ploytec_frame_fn ploytec_frame_encoder(unsigned int channels)
 {
 	switch (channels) {
-	case 8:
-		encode_frame_8ch(dest, src);
-		break;
-	case 2:
-		encode_frame_2ch(dest, src);
-		break;
-	default:
-		encode_frame_lanes(dest, src, channels);
-		break;
+	case 8: return ploytec_encode_frame_8ch;
+	case 2: return ploytec_encode_frame_2ch;
+	default: return 0;
 	}
 }
 
-void ploytec_decode_frame(uint8_t *dest, const uint8_t *src, unsigned int channels)
+ploytec_frame_fn ploytec_frame_decoder(unsigned int channels)
 {
 	switch (channels) {
-	case 8:
-		decode_frame_8ch(dest, src);
-		break;
-	case 16:
-		decode_frame_16ch(dest, src);
-		break;
-	default:
-		decode_frame_lanes(dest, src, channels);
-		break;
+	case 8: return ploytec_decode_frame_8ch;
+	case 16: return ploytec_decode_frame_16ch;
+	default: return 0;
 	}
 }

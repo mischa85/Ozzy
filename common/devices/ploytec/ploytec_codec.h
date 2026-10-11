@@ -33,28 +33,29 @@ extern "C" {
 #endif
 
 /*
- * ploytec_encode_frame - Convert one S24_3LE frame to Ploytec device format.
- * @dest:     output buffer, must be at least 48 bytes (PLOYTEC_OUT_FRAME_SIZE)
- * @src:      input buffer, @channels x 3 bytes of S24_3LE interleaved audio
- * @channels: channels in @src, 1..PLOYTEC_MAX_OUT_CHANNELS; unused lanes are silent
+ * Frame codecs, one unrolled function per channel count (like the official
+ * driver's dmaEncodeNN / dmaDecode16ToNN). There is no branching per frame:
+ * look the function up once with ploytec_frame_encoder()/_decoder() when the
+ * model is known, then call it for every frame.
  *
- * Scatters the 24-bit samples across 48 bytes using the Ploytec bit-interleaving
- * scheme: odd channels (1,3,5,7) in bits 0..3 of the first 24 bytes, even channels
- * (2,4,6,8) in bits 0..3 of the second 24 bytes, MSB first.
+ * Encoders: @src is channels x 3 bytes S24_3LE, @dest a 48-byte output frame
+ * (PLOYTEC_OUT_FRAME_SIZE). Odd channels go to bits 0..3 of bytes 0x00..0x17,
+ * even channels to bits 0..3 of bytes 0x18..0x2F, MSB first; unused lanes are silent.
+ *
+ * Decoders: @src is a 64-byte input frame (PLOYTEC_IN_FRAME_SIZE), @dest gets
+ * channels x 3 bytes S24_3LE. Odd channels come from bits 0..7 of bytes
+ * 0x00..0x17, even channels from bytes 0x20..0x37, MSB first.
  */
-void ploytec_encode_frame(uint8_t *dest, const uint8_t *src, unsigned int channels);
+typedef void (*ploytec_frame_fn)(uint8_t *dest, const uint8_t *src);
 
-/*
- * ploytec_decode_frame - Convert one Ploytec device frame to S24_3LE.
- * @dest:     output buffer, @channels x 3 bytes
- * @src:      input buffer, 64 bytes of Ploytec capture data (PLOYTEC_IN_FRAME_SIZE)
- * @channels: channels to decode, 1..PLOYTEC_MAX_IN_CHANNELS
- *
- * Gathers bits from the 64-byte input frame: bytes 0x00..0x17 carry the odd
- * channels (1,3,..,15) in bits 0..7, bytes 0x20..0x37 the even channels
- * (2,4,..,16), one bit of each channel per byte, MSB first.
- */
-void ploytec_decode_frame(uint8_t *dest, const uint8_t *src, unsigned int channels);
+void ploytec_encode_frame_8ch(uint8_t *dest, const uint8_t *src);
+void ploytec_encode_frame_2ch(uint8_t *dest, const uint8_t *src);
+void ploytec_decode_frame_8ch(uint8_t *dest, const uint8_t *src);
+void ploytec_decode_frame_16ch(uint8_t *dest, const uint8_t *src);
+
+/* The codec for a channel count, or NULL if there is none. Call once, not per frame. */
+ploytec_frame_fn ploytec_frame_encoder(unsigned int channels);
+ploytec_frame_fn ploytec_frame_decoder(unsigned int channels);
 
 #ifdef __cplusplus
 }

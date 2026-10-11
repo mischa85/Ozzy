@@ -214,28 +214,26 @@ void OzzyHAL::MapSharedMemory() {
 void OzzyHAL::ApplyDeviceConfig() {
     if (!mSHM) return;
 
-    // Bit 0: 512-byte "bulk" output layout (follows wMaxPacketSize, not transfer type)
-    bool isBulk = (mSHM->audio.deviceFlags & 1);
-    if (mSHM->vendorID == PLOYTEC_VENDOR_ID) {
-        mWriteOutput = isBulk ? PloytecWriteOutputBulk : PloytecWriteOutputInterrupt;
-        mReadInput = PloytecReadInput;
-        mClearOutput = isBulk ? PloytecClearOutputBulk : PloytecClearOutputInterrupt;
-        LogOzzyHAL("using Ploytec codec (%{public}s layout) for VID:0x%{public}04X",
-                   isBulk ? "bulk" : "interrupt", mSHM->vendorID);
-    } else {
-        mWriteOutput = isBulk ? PloytecWriteOutputBulk : PloytecWriteOutputInterrupt;
-        mReadInput = PloytecReadInput;
-        mClearOutput = isBulk ? PloytecClearOutputBulk : PloytecClearOutputInterrupt;
-        LogOzzyHAL("using default codec (%{public}s layout) for VID:0x%{public}04X",
-                   isBulk ? "bulk" : "interrupt", mSHM->vendorID);
-    }
+    // Channel counts per direction, as published by the engine for this model
+    mInputChannels = mSHM->audio.inputChannels;
+    mOutputChannels = mSHM->audio.outputChannels;
 
-    // Channel counts per direction (kept at 8 if the engine published nothing sensible)
-    uint32_t in = mSHM->audio.inputChannels, out = mSHM->audio.outputChannels;
-    mInputChannels = (in >= 1 && in <= PLOYTEC_MAX_IN_CHANNELS) ? in : 8;
-    mOutputChannels = (out >= 1 && out <= PLOYTEC_MAX_OUT_CHANNELS) ? out : 8;
+    // Bit 0: 512-byte "bulk" output layout (follows wMaxPacketSize, not transfer type).
+    // Writer and reader are picked here once; the I/O path doesn't branch on layout or channels.
+    bool isBulk = (mSHM->audio.deviceFlags & 1);
+    mWriteOutput = PloytecOutputWriter(isBulk, mOutputChannels);
+    mReadInput = PloytecInputReader(mInputChannels);
+    if (!mWriteOutput || !mReadInput) {
+        LogOzzyHALError("no codec for %{public}u in / %{public}u out, falling back to 8 / 8",
+                        mInputChannels, mOutputChannels);
+        mInputChannels = mOutputChannels = 8;
+        mWriteOutput = PloytecOutputWriter(isBulk, 8);
+        mReadInput = PloytecInputReader(8);
+    }
+    mClearOutput = isBulk ? PloytecClearOutputBulk : PloytecClearOutputInterrupt;
     RebuildStreamConfigs();
-    LogOzzyHAL("channels: %{public}u in / %{public}u out", mInputChannels, mOutputChannels);
+    LogOzzyHAL("using Ploytec codec (%{public}s layout, %{public}u in / %{public}u out) for VID:0x%{public}04X",
+               isBulk ? "bulk" : "interrupt", mInputChannels, mOutputChannels, mSHM->vendorID);
 
     uint32_t rate = mSHM->audio.sampleRate.load();
     if (rate == 0) rate = 96000;
@@ -486,14 +484,14 @@ OSStatus OzzyHAL::ioOperation(AudioServerPlugInDriverRef inDriver, AudioObjectID
     if (inOperationID == kAudioServerPlugInIOOperationWriteMix) {
         if (mWriteOutput) {
             uint64_t sampleTime = (uint64_t)inIOCycleInfo->mOutputTime.mSampleTime;
-            mWriteOutput(mOutputBufferAddr, (const float*)ioMainBuffer, sampleTime, inIOBufferFrameSize, mRingSize, mOutputBytesPerFrame, mOutputChannels);
+            mWriteOutput(mOutputBufferAddr, (const float*)ioMainBuffer, sampleTime, inIOBufferFrameSize, mRingSize, mOutputBytesPerFrame);
             mSHM->audio.halWritePosition.store(sampleTime + inIOBufferFrameSize, std::memory_order_release);
         }
     }
     else if (inOperationID == kAudioServerPlugInIOOperationReadInput) {
         if (mReadInput) {
             uint64_t sampleTime = (uint64_t)inIOCycleInfo->mInputTime.mSampleTime;
-            mReadInput((float*)ioMainBuffer, mInputBufferAddr, sampleTime, inIOBufferFrameSize, mRingSize, mInputBytesPerFrame, mInputChannels);
+            mReadInput((float*)ioMainBuffer, mInputBufferAddr, sampleTime, inIOBufferFrameSize, mRingSize, mInputBytesPerFrame);
         }
     }
     return kAudioHardwareNoError;

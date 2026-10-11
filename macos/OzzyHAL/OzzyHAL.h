@@ -15,8 +15,8 @@
 #include "../Shared/OzzySharedData.h"
 
 // Codec function pointer types for device-agnostic encoding/decoding
-typedef void (*WriteOutputFunc)(uint8_t* ringBuffer, const float* srcFrames, uint64_t sampleTime, uint32_t frameCount, uint32_t ringSize, uint32_t bytesPerFrame, uint32_t channels);
-typedef void (*ReadInputFunc)(float* dstFrames, const uint8_t* ringBuffer, uint64_t sampleTime, uint32_t frameCount, uint32_t ringSize, uint32_t bytesPerFrame, uint32_t channels);
+typedef void (*WriteOutputFunc)(uint8_t* ringBuffer, const float* srcFrames, uint64_t sampleTime, uint32_t frameCount, uint32_t ringSize, uint32_t bytesPerFrame);
+typedef void (*ReadInputFunc)(float* dstFrames, const uint8_t* ringBuffer, uint64_t sampleTime, uint32_t frameCount, uint32_t ringSize, uint32_t bytesPerFrame);
 typedef void (*ClearOutputFunc)(uint8_t* outputBuffer, uint32_t bufferSize);
 
 #define kOzzyDeviceID 100

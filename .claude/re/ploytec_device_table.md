@@ -15,7 +15,7 @@ every VID/PID the driver supports.
 | 0xFFD2  | Xone:DB2    | 24-bit Ploytec bulk | Confirmed, supported in Ozzy. **48 kHz only** (official plist table). fw 1.2.0: EP 0x05 interrupt, wMaxPacketSize 512 → 512 framing. Boots at 44.1k. See `ploytec_sample_rates.md`, `ploytec_bulk_devices.md` |
 | 0xFFDD  | Xone:DX     | 24-bit Ploytec bulk | Confirmed, supported in Ozzy. Special-cased in `updateAjInputSelector` |
 | 0xFF4D  | Xone:4D     | 24-bit Ploytec bulk | Confirmed, supported in Ozzy |
-| 0xFFAD  | Wizard 4    | 24-bit Ploytec bulk | In Ozzy on Linux and macOS, untested on hardware |
+| 0xFFAD  | Wizard 4    | 24-bit Ploytec, **16 in / 2 out** | Not supported: needs a 16-channel frame format (see below) |
 | 0xFF01  | Xone:2D     | 24-bit Ploytec (same URB sizes as DB4, #77) | In Ozzy as experimental; 6 real analog inputs, 8-ch frames |
 | 0x1016  | ?           | ? | Has `setFreqOnOutPipe` support |
 | 0x2416  | ?           | ? | Has `setFreqOnOutPipe` support |
@@ -464,9 +464,13 @@ Currently supported in Ozzy (all VID 0x0A4A):
 - Xone:DB2 (0xFFD2)
 - Xone:DX (0xFFDD)
 - Xone:4D (0xFF4D)
-- Wizard 4 (0xFFAD)
 
 Potential future support (same vendor, Ploytec chipset):
+- MixWizard WZ4 USB option card (0xFFAD, A&H part 004-232JIT): **16 channels to the computer,
+  2 back** (stereo return), 44.1/48/88.2/96 kHz, 24 bit (A&H application note AP8987 issue 2, in
+  the investigation folder under `WZ4/`). Ozzy's codec only knows the 8×8 frame format, so the
+  WZ4 needs its own frame layout (and a USB capture or the official driver's codec to find it).
+  It was in the Linux table as 8×8 until 2026-10-11, which could only have produced garbage.
 - Xone:2D (0xFF01) — found in legacy driver, may work with existing code
 - SPL Crimson (0xC150) — different channel topology
 - Dotec-Audio (0xD064) — variable channel count based on sample rate

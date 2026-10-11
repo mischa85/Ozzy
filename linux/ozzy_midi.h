@@ -14,7 +14,7 @@ struct ozzy_chip;
 
 #define OZZY_MIDI_N_URBS          4
 #define OZZY_MIDI_PACKET_SIZE     512
-#define OZZY_MIDI_SEND_BUF_SIZE   512
+#define OZZY_MIDI_SEND_BUF_SIZE   512   /* power of two (ring index mask) */
 
 struct midi_urb {
 	struct ozzy_chip *chip;
@@ -26,9 +26,10 @@ struct midi_urb {
 /*
  * struct midi_runtime - Per-device MIDI subsystem state.
  *
- * All MIDI state is per-instance (no globals). The send buffer holds
+ * All MIDI state is per-instance (no globals). The send ring holds
  * pending MIDI output bytes that are consumed by the device's
- * fill_midi_out callback during PCM output URB handling.
+ * fill_midi_out callback during PCM output URB handling. Both sides
+ * hold out_lock.
  */
 struct midi_runtime {
 	struct ozzy_chip *chip;
@@ -44,11 +45,14 @@ struct midi_runtime {
 
 	struct midi_urb midi_in_urbs[OZZY_MIDI_N_URBS];
 
-	/* MIDI output send buffer (replaces old globals) */
+	/* MIDI output send ring, filled from the rawmidi output substream */
 	u8 *send_buffer;                    /* pending MIDI bytes to embed in PCM out */
-	u8 *out_buffer;                     /* temp buffer for snd_rawmidi_transmit */
-	uint16_t send_count;                /* read position in send_buffer */
-	uint16_t send_pending;              /* number of bytes waiting to be sent */
+	unsigned int send_head;             /* write position */
+	unsigned int send_tail;             /* read position */
+
+	/* Running status expansion of the outgoing stream (see ozzy_midi_put_out) */
+	u8 run_status;                      /* last channel status byte, 0 = none */
+	u8 run_remaining;                   /* data bytes left in the current message */
 };
 
 /*

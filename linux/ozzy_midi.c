@@ -18,29 +18,105 @@
 #include "ozzy_midi.h"
 
 /* ========================================================================
- * MIDI Send Buffer (consumed by device's fill_midi_out)
+ * MIDI Send Ring (consumed by device's fill_midi_out)
  * ======================================================================== */
 
+#define SEND_MASK (OZZY_MIDI_SEND_BUF_SIZE - 1)
+
+static unsigned int ozzy_midi_send_used(const struct midi_runtime *rt)
+{
+	return (rt->send_head - rt->send_tail) & SEND_MASK;
+}
+
+static void ozzy_midi_send_push(struct midi_runtime *rt, u8 byte)
+{
+	rt->send_buffer[rt->send_head] = byte;
+	rt->send_head = (rt->send_head + 1) & SEND_MASK;
+}
+
+/* Data bytes that follow a channel status byte (0x80..0xEF) */
+static u8 ozzy_midi_data_len(u8 status)
+{
+	return ((status & 0xF0) == 0xC0 || (status & 0xF0) == 0xD0) ? 1 : 2;
+}
+
 /*
- * ozzy_midi_consume - Read pending MIDI output bytes from the send buffer.
- * Fills with idle_byte when no data is pending. Called from device's
- * fill_midi_out in URB handler context (atomic).
+ * ozzy_midi_put_out - Queue one byte from the application, expanding running status.
+ *
+ * The ALSA sequencer's rawmidi bridge drops a status byte equal to the previous one
+ * (seq_midi.c never calls snd_midi_event_no_status()). The official driver only ever
+ * sends complete messages (CoreMIDI packets carry no running status), and at least
+ * one Ploytec firmware ignores running status (PR #80), so put the status back in
+ * front of every channel message. Needs room for 2 bytes.
+ */
+static void ozzy_midi_put_out(struct midi_runtime *rt, u8 byte)
+{
+	if (byte >= 0xF8) {
+		/* real-time: may appear anywhere, doesn't affect running status */
+		ozzy_midi_send_push(rt, byte);
+	} else if (byte >= 0xF0) {
+		/* SysEx and system common cancel running status; their data passes as is */
+		ozzy_midi_send_push(rt, byte);
+		rt->run_status = 0;
+		rt->run_remaining = 0;
+	} else if (byte & 0x80) {
+		ozzy_midi_send_push(rt, byte);
+		rt->run_status = byte;
+		rt->run_remaining = ozzy_midi_data_len(byte);
+	} else {
+		if (rt->run_status && !rt->run_remaining) {
+			ozzy_midi_send_push(rt, rt->run_status);
+			rt->run_remaining = ozzy_midi_data_len(rt->run_status);
+		}
+		ozzy_midi_send_push(rt, byte);
+		if (rt->run_remaining)
+			rt->run_remaining--;
+	}
+}
+
+/*
+ * ozzy_midi_fill_send - Move pending bytes from the rawmidi output substream into
+ * the send ring. Call with out_lock held.
+ */
+static void ozzy_midi_fill_send(struct midi_runtime *rt)
+{
+	u8 byte;
+
+	if (!rt->out)
+		return;
+
+	/* each byte can grow to 2 (re-inserted status), keep one slot free */
+	while (ozzy_midi_send_used(rt) + 2 < OZZY_MIDI_SEND_BUF_SIZE &&
+	       snd_rawmidi_transmit_peek(rt->out, &byte, 1) == 1) {
+		ozzy_midi_put_out(rt, byte);
+		snd_rawmidi_transmit_ack(rt->out, 1);
+	}
+}
+
+/*
+ * ozzy_midi_consume - Read pending MIDI output bytes from the send ring.
+ * Refills the ring from the rawmidi substream when it runs empty, and fills
+ * with idle_byte when no data is pending. Called from device's fill_midi_out
+ * in URB handler context (atomic).
  */
 void ozzy_midi_consume(struct midi_runtime *rt, u8 *buffer, int count,
 		       u8 idle_byte)
 {
+	unsigned long flags;
 	int i;
 
+	spin_lock_irqsave(&rt->out_lock, flags);
 	for (i = 0; i < count; i++) {
-		if (rt->send_pending > 0) {
-			buffer[i] = rt->send_buffer[rt->send_count];
-			rt->send_count++;
-			rt->send_pending--;
+		if (!ozzy_midi_send_used(rt))
+			ozzy_midi_fill_send(rt);
+		if (ozzy_midi_send_used(rt)) {
+			buffer[i] = rt->send_buffer[rt->send_tail];
+			rt->send_tail = (rt->send_tail + 1) & SEND_MASK;
 		} else {
-			rt->send_count = 0;
 			buffer[i] = idle_byte;
 		}
 	}
+	spin_unlock_irqrestore(&rt->out_lock, flags);
 }
 
 /* ========================================================================
@@ -121,32 +197,19 @@ static void ozzy_midi_in_trigger(struct snd_rawmidi_substream *alsa_sub, int up)
 }
 
 /*
- * ozzy_midi_out_trigger - Enable MIDI output and drain data into send buffer.
+ * ozzy_midi_out_trigger - Enable or disable MIDI output.
+ * While enabled, ozzy_midi_consume() keeps pulling from the substream, so
+ * nothing is left behind when an application writes more than fits the ring.
  */
 static void ozzy_midi_out_trigger(struct snd_rawmidi_substream *alsa_sub, int up)
 {
 	struct midi_runtime *rt = alsa_sub->rmidi->private_data;
-	int ret;
 	unsigned long flags;
 
 	spin_lock_irqsave(&rt->out_lock, flags);
 	if (up) {
-		if (rt->out) {
-			spin_unlock_irqrestore(&rt->out_lock, flags);
-			return;
-		}
-
-		ret = snd_rawmidi_transmit(alsa_sub, rt->out_buffer, 64);
-		if (ret > 0) {
-			if (rt->send_pending > (OZZY_MIDI_SEND_BUF_SIZE - ret)) {
-				ozzy_midi_notice(&rt->chip->dev->dev,
-					    "send buffer overflow\n");
-			} else {
-				memcpy(rt->send_buffer + rt->send_pending,
-				       rt->out_buffer, ret);
-				rt->send_pending += ret;
-			}
-		}
+		rt->out = alsa_sub;
+		ozzy_midi_fill_send(rt);
 	} else if (rt->out == alsa_sub) {
 		rt->out = NULL;
 	}
@@ -281,22 +344,17 @@ int ozzy_midi_init(struct ozzy_chip *chip)
 	if (!rt)
 		return -ENOMEM;
 
-	rt->out_buffer = kzalloc(64, GFP_KERNEL);
-	if (!rt->out_buffer) {
-		kfree(rt);
-		return -ENOMEM;
-	}
-
 	rt->send_buffer = kzalloc(OZZY_MIDI_SEND_BUF_SIZE, GFP_KERNEL);
 	if (!rt->send_buffer) {
-		kfree(rt->out_buffer);
 		kfree(rt);
 		return -ENOMEM;
 	}
 
 	rt->chip = chip;
-	rt->send_count = 0;
-	rt->send_pending = 0;
+	rt->send_head = 0;
+	rt->send_tail = 0;
+	rt->run_status = 0;
+	rt->run_remaining = 0;
 
 	spin_lock_init(&rt->in_lock);
 	spin_lock_init(&rt->out_lock);
@@ -305,7 +363,6 @@ int ozzy_midi_init(struct ozzy_chip *chip)
 	if (ret < 0) {
 		ozzy_midi_err(&chip->dev->dev, "Cannot create MIDI instance\n");
 		kfree(rt->send_buffer);
-		kfree(rt->out_buffer);
 		kfree(rt);
 		return ret;
 	}
@@ -329,7 +386,6 @@ int ozzy_midi_init(struct ozzy_chip *chip)
 		if (ret < 0) {
 			ozzy_midi_err(&chip->dev->dev, "MIDI URB setup failed\n");
 			kfree(rt->send_buffer);
-			kfree(rt->out_buffer);
 			kfree(rt);
 			return ret;
 		}

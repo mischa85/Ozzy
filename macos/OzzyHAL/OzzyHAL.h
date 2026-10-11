@@ -57,7 +57,7 @@ public:
     
     UInt32 GetLatency() const { return 0; }
     UInt32 GetSafetyOffset() const { return 2 * mFramesPerPacket; }  // 2 URBs worth of frames
-    UInt32 GetZeroTimestampPeriod() const;
+    UInt32 GetZeroTimestampPeriod() const { return kOzzyTimestampPackets * mFramesPerPacket; }  // spacing of the kext's timestamp anchors
     
     AudioChannelLayout* GetPreferredChannelLayout(AudioObjectPropertyScope inScope);
     UInt32 GetPreferredChannelLayoutSize(AudioObjectPropertyScope inScope) const;
@@ -72,7 +72,6 @@ private:
     CFStringRef mModelUID = nullptr;
     CFStringRef mManufacturerUID = nullptr;
     
-    uint32_t mZeroTimestampPeriod = 640;  // Updated dynamically: 2 URBs * framesPerPacket * 4
     uint8_t* mInputBufferAddr = nullptr;
     uint8_t* mOutputBufferAddr = nullptr;
     

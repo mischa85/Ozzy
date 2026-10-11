@@ -69,7 +69,6 @@ void OzzyHAL::Init(AudioServerPlugInHostRef host) {
     mDeviceUID = CFSTR("OzzyHAL.device");
     mModelUID = CFSTR("Ozzy Audio Device");
     mManufacturerUID = CFSTR("Ozzy");
-    mZeroTimestampPeriod = 640;
 
     mCurrentStreamFormat.mSampleRate = 96000.0;
     mCurrentStreamFormat.mFormatID = kAudioFormatLinearPCM;
@@ -198,9 +197,6 @@ void OzzyHAL::MapSharedMemory() {
         mRingSize = kOzzyNumPackets * mFramesPerPacket;
         mOutputBytesPerFrame = mSHM->audio.outputBytesPerFrame;
         mInputBytesPerFrame = mSHM->audio.inputBytesPerFrame;
-        
-        // Calculate zero timestamp period: 2 URBs * framesPerPacket * 4
-        mZeroTimestampPeriod = 2 * mFramesPerPacket * 4;
         
         ApplyDeviceConfig();
     }
@@ -502,7 +498,6 @@ AudioStreamRangedDescription OzzyHAL::GetStreamRangedDescription() const {
     outDesc.mSampleRateRange = mAvailableSampleRates;
     return outDesc;
 }
-UInt32 OzzyHAL::GetZeroTimestampPeriod() const { return mZeroTimestampPeriod; }
 
 AudioChannelLayout* OzzyHAL::GetPreferredChannelLayout(AudioObjectPropertyScope inScope) {
     AudioChannelLayout* layout = (AudioChannelLayout*)mChannelLayoutBuffer;

@@ -205,7 +205,7 @@ void PloytecEngine::UpdateTimestamp() {
 
     mHwSampleTime += PLOYTEC_FRAMES_PER_PKT;
 
-    if ((mHwSampleTime % (PLOYTEC_FRAMES_PER_PKT * 8)) == 0) {
+    if ((mHwSampleTime % (PLOYTEC_FRAMES_PER_PKT * kOzzyTimestampPackets)) == 0) {
         volatile auto* ts = &shm->audio.timestamp;
         uint32_t seq = ts->sequence;
         ts->sequence = seq + 1;

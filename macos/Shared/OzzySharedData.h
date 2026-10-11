@@ -27,6 +27,12 @@
 #define kOzzyUSBBuffers             4    // Number of USB buffers in flight (ping-pong)
 #define kOzzyPacketMask             (kOzzyUSBBuffers - 1)  // Mask for USB buffer rotation
 
+// The kext publishes a timestamp anchor every kOzzyTimestampPackets packets; the HAL reports
+// that spacing as the zero timestamp period. CoreAudio caps the IO buffer size at 3/8 of the
+// period (measured: 8 packets of 80 frames -> 240 frames max, too small for 256+ buffers), so
+// 40 packets (3200 frames) allows buffers up to 1200 frames. Must stay below kOzzyNumPackets.
+#define kOzzyTimestampPackets       40
+
 #define kOzzyMidiRingSize           1024 
 #define kOzzyMidiRingMask           (kOzzyMidiRingSize - 1)
 

@@ -57,6 +57,11 @@ static inline const struct ploytec_model *ploytec_model_for_ids(uint16_t vid, ui
 		{ PLOYTEC_VENDOR_ID, PLOYTEC_PID_XONE_2D,  "Xone:2D",   8, 8, 4, { 44100, 48000, 88200, 96000 } },
 		/* WIZARD_4.kext 3.3.11: 16 in / 2 out */
 		{ PLOYTEC_VENDOR_ID, PLOYTEC_PID_WIZARD_4, "MixWizard WZ4 USB", 16, 2, 4, { 44100, 48000, 88200, 96000 } },
+		/* Reloop's driver (rldj2meu.sys) sets 6 in / 4 out and hardcodes 44.1 kHz for 200c:1009
+		 * (the sibling 200c:1005 gets 96 kHz; 96 kHz audibly distorts on this DAC). A loopback
+		 * test showed Line In 1/2 on in 1-4 and the mic on in 5/6. Its firmware ignores MIDI
+		 * running status, which the Linux MIDI path expands. Found by julled in PR #80. */
+		{ RELOOP_VENDOR_ID, RELOOP_PID_DIGITAL_JOCKEY_2, "Reloop Digital Jockey 2 ME", 6, 4, 1, { 44100 } },
 	};
 	unsigned int i;
 

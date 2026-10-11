@@ -57,6 +57,7 @@ static const struct usb_device_id ozzy_id_table[] = {
 	{ USB_DEVICE(0x0a4a, 0xff4d), .driver_info = (kernel_ulong_t)&ploytec_desc }, /* Xone:4D */
 	{ USB_DEVICE(0x0a4a, 0xff01), .driver_info = (kernel_ulong_t)&ploytec_desc }, /* Xone:2D (experimental) */
 	{ USB_DEVICE(0x0a4a, 0xffad), .driver_info = (kernel_ulong_t)&ploytec_desc }, /* MixWizard WZ4 USB (16 in / 2 out) */
+	{ USB_DEVICE(0x200c, 0x1009), .driver_info = (kernel_ulong_t)&ploytec_desc }, /* Reloop Digital Jockey 2 ME (6 in / 4 out) */
 	{}
 };
 MODULE_DEVICE_TABLE(usb, ozzy_id_table);

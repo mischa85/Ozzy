@@ -65,10 +65,12 @@ The `setFrequency` function retries the SET_CUR request up to 200 times for thes
 |---------|-------------|-------|
 | 0x0019  | ?           | `setFreqOnOutPipe` support only |
 
-## VID 0x200C (unknown vendor)
+## VID 0x200C (Reloop)
 
 | USB PID | Device Name | Notes |
 |---------|-------------|-------|
+| 0x1009  | Digital Jockey 2 Master Edition | In Ozzy (experimental). Junction frame, 6 in / 4 out, 44.1 kHz only (Reloop's rldj2meu.sys hardcodes 0xAC44 for 200c:1009), bulk 512-byte output layout, same endpoints and handshake as the Xone mixers. Firmware ignores MIDI running status. Found by julled (PR #80) |
+| 0x1005  | sibling model | Gets 96 kHz in rldj2meu.sys (PR #80) |
 | 0x1007–0x1027 | ? | Range with bitmask in `setFreqOnOutPipe` |
 | 0x1019  | ?           | Returns early from `updateAjInputSelector` with status 0x12 |
 | 0x1030  | ?           | Uses SET_INTERFACE (bRequest 0x0B) in `configurationDone` |

@@ -24,6 +24,10 @@ extern "C" {
 #define PLOYTEC_PID_WIZARD_4       0xFFAD
 #define PLOYTEC_PID_XONE_2D        0xFF01
 
+/* Other vendors' Ploytec-based devices */
+#define RELOOP_VENDOR_ID            0x200C
+#define RELOOP_PID_DIGITAL_JOCKEY_2 0x1009   /* Digital Jockey 2 Master Edition */
+
 /* USB endpoint addresses (low nibble) */
 #define PLOYTEC_EP_PCM_OUT          0x05
 #define PLOYTEC_EP_PCM_IN           0x06

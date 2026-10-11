@@ -40,6 +40,7 @@ Ozzy reverses the protocol and provides modern drivers—so your equipment keeps
 | **Allen & Heath Xone:4D** | 8×8 | 44.1/48/88.2/96 kHz | ✅ Perfect |
 | **Allen & Heath Xone:2D** | 6×8 | 44.1/48/88.2/96 kHz | 🧪 Experimental, needs testers |
 | **Allen & Heath MixWizard WZ4 USB** | 16 in / 2 out | 44.1/48/88.2/96 kHz | 🧪 Experimental, needs testers |
+| **Reloop Digital Jockey 2 Master Edition** | 6 in / 4 out | 44.1 kHz | 🧪 Experimental |
 
 ---
 

@@ -2,6 +2,7 @@
 #include "../Devices/Ploytec/PloytecCodec.h"
 #include "../Devices/Ploytec/PloytecProtocol.h"
 #include "../Shared/OzzyLog.h"
+#include "../../common/ozzy_version.h"
 #include <CoreAudio/CoreAudio.h>
 
 static CFStringRef SafeCreateString(const char* str) {
@@ -62,7 +63,7 @@ OzzyHAL& OzzyHAL::Get() {
 }
 
 void OzzyHAL::Init(AudioServerPlugInHostRef host) {
-    LogOzzyHAL("init");
+    LogOzzyHAL("init (build %{public}s)", OZZY_GIT_VERSION);
     mHost = host;
 
     mDeviceUID = CFSTR("OzzyHAL.device");

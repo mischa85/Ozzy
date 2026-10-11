@@ -23,10 +23,12 @@
 #include "ozzy_pcm.h"
 #include "ozzy_midi.h"
 #include "devices/ploytec.h"
+#include "../common/ozzy_version.h"
 
 MODULE_AUTHOR("Marcel Bierling <marcel@hackerman.art>");
 MODULE_DESCRIPTION("Ozzy USB Audio Driver");
 MODULE_LICENSE("Dual MIT/GPL");
+MODULE_VERSION(OZZY_GIT_VERSION);
 
 #define DRIVER_NAME "snd-usb-ozzy"
 
@@ -90,6 +92,7 @@ static int ozzy_probe(struct usb_interface *intf,
 	desc = (const struct ozzy_device_desc *)usb_id->driver_info;
 	device = interface_to_usbdev(intf);
 
+	ozzy_log(&device->dev, "build: %s\n", OZZY_GIT_VERSION);
 	ozzy_log(&device->dev, "found device: %s\n", device->product);
 	ozzy_log(&device->dev, "  manufacturer: %s\n", device->manufacturer ?: "unknown");
 	ozzy_log(&device->dev, "  USB ID: %04x:%04x (bcdDevice %04x)\n",

@@ -24,6 +24,10 @@ $(MODULE_NAME)-y := ozzy_core.o \
                     ../common/devices/ploytec/ploytec_codec.o \
                     ../common/devices/ploytec/ploytec_handshake.o
 
+# Commit the module is built from: logged at probe, shown by `modinfo -F version`
+OZZY_GIT_VERSION := $(shell git -C $(src) describe --always --dirty 2>/dev/null || echo unknown)
+CFLAGS_ozzy_core.o := -DOZZY_GIT_VERSION='"$(OZZY_GIT_VERSION)"'
+
 # To add a new device family, append:
 #   devices/newdevice.o
 #   ../common/devices/newdevice/newdevice_codec.o  (if shared codec)

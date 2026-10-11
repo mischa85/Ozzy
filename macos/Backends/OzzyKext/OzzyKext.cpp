@@ -3,6 +3,7 @@
 #include "../../Devices/Ploytec/PloytecEngine.h" 
 #include "../../Shared/OzzySharedData.h"
 #include "../../Shared/OzzyLog.h"
+#include "../../../common/ozzy_version.h"
 #include <IOKit/IOLib.h>
 #include <IOKit/IOWorkLoop.h>
 
@@ -122,7 +123,7 @@ OSDefineMetaClassAndStructors(OzzyKext, IOService)
 
 bool OzzyKext::start(IOService* provider) {
     if (!IOService::start(provider)) return false;
-    LogOzzyKext("start");
+    LogOzzyKext("start (build %s)", OZZY_GIT_VERSION);
 
     mHostDevice = OSDynamicCast(IOUSBHostDevice, provider);
     if (!mHostDevice || !mHostDevice->open(this)) {

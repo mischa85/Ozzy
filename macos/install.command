@@ -214,12 +214,16 @@ else
 fi
 
 SDKROOT=$(xcrun --sdk macosx --show-sdk-path)
+
+# Commit we build from, logged by the kext and HAL at startup
+GIT_VERSION=$(git -C "$DIR" describe --always --dirty 2>/dev/null || echo unknown)
+echo "   🏷️  Build: $GIT_VERSION"
 KERNEL_HEADERS="$SDKROOT/System/Library/Frameworks/Kernel.framework/Headers"
 
 CFLAGS="-x c++ -arch $KEXT_ARCH -std=c++11 -O2 -DKERNEL -D__KERNEL__ -mkernel \
 -fno-builtin -fno-exceptions -fno-rtti -fno-common -fno-use-cxa-atexit \
 -Wno-deprecated-declarations -Wno-inconsistent-missing-override \
--nostdinc -I. -I$KERNEL_HEADERS"
+-nostdinc -I. -I$KERNEL_HEADERS -DOZZY_GIT_VERSION=\"$GIT_VERSION\""
 
 LDFLAGS="-arch $KEXT_ARCH -Xlinker -kext -nostdlib -lkmod -lcc_kext"
 
@@ -271,6 +275,7 @@ xcodebuild -project "Ozzy.xcodeproj" \
            -configuration Release \
            -arch "$SYSTEM_ARCH" \
            SYMROOT="$DIR/Build" \
+           GCC_PREPROCESSOR_DEFINITIONS="\$(inherited) OZZY_GIT_VERSION=\\\"$GIT_VERSION\\\"" \
            OTHER_LDFLAGS="-framework IOKit -framework CoreFoundation" \
            build > /dev/null
 

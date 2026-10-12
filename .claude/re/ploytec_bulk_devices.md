@@ -104,10 +104,13 @@ if (pipe->wMaxPacketSize <= 0x200) {       // 512
 
 | Device / fw | EP 0x05 | wMaxPacketSize | Framing |
 |-------------|---------|----------------|---------|
-| DB4 fw 1.3.9 | bulk | 512 | `[480 PCM][MIDI][FF][30 pad]` |
-| **DB2 fw 1.2.0** | **interrupt** | **512** | `[480 PCM][MIDI][FF][30 pad]` |
-| DB4 fw 1.4.1 | interrupt | 964 (inferred: Ozzy's 3856 B URB = 4×964 works) | 2× `[432 PCM][2 MIDI][48 PCM]` |
-| Xone:4D | interrupt | 964 (issue #9 lsusb; Win log `mExpectedEndpointBytes:964`) | 2× `[432][2][48]` |
+| DB4 fw 1.3.9 | bulk | 512 | `[480 PCM][MIDI][ctrl][30 pad]` |
+| **DB2 fw 1.2.0** | **interrupt** | **512** | `[480 PCM][MIDI][ctrl][30 pad]` |
+| DB4 fw 1.4.1 | interrupt | 964 (inferred: Ozzy's 3856 B URB = 4×964 works) | 2× `[432 PCM][MIDI][ctrl][48 PCM]` |
+| Xone:4D | interrupt | 964 (issue #9 lsusb; Win log `mExpectedEndpointBytes:964`) | 2× `[432][MIDI][ctrl][48]` |
+
+The byte after each MIDI slot is a control byte (FF when idle), and every slot can carry MIDI,
+paced to 2500 bytes/s: see `ploytec_midi.md`.
 
 Verified on the DB2 Windows capture: across 2352 non-silent 512-byte chunks, bytes 0–479
 behave as audio (≈50% non-zero at every offset, including 432–433), and bytes 480–511 are

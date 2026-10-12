@@ -92,8 +92,8 @@ static void SetPortDevice(OzzyMidiPort* port, const OzzySharedMemory* shm) {
 	if (vendorName) CFRelease(vendorName);
 }
 
-static void DisconnectPort(OzzyMidiPort* port) {
-	if (!port->shm) return;
+/* Close the port's kext connection; no CoreMIDI calls */
+static void UnmapPort(OzzyMidiPort* port) {
 	os_unfair_lock_lock(&gPortLock);
 	IOConnectUnmapMemory(port->connect, 0, mach_task_self(), port->mapAddress);
 	IOServiceClose(port->connect);
@@ -103,7 +103,11 @@ static void DisconnectPort(OzzyMidiPort* port) {
 	port->shm = nullptr;
 	port->registryID = 0;
 	os_unfair_lock_unlock(&gPortLock);
+}
 
+static void DisconnectPort(OzzyMidiPort* port) {
+	if (!port->shm) return;
+	UnmapPort(port);
 	if (port->device) MIDIObjectSetIntegerProperty(port->device, kMIDIPropertyOffline, 1);
 	LogOzzyMIDI("'%{public}s' disconnected", port->name);
 }
@@ -326,12 +330,12 @@ static OSStatus Stop(MIDIDriverRef self) {
 		pthread_join(gPollThread, NULL);
 		gPollThread = nullptr;
 	}
+	// Only close the kext connections. MIDIServer stops its drivers when it shuts down, and
+	// changing or disposing devices that are in the setup then crashes it (in whichever
+	// driver it stops next); the devices stay in the setup as they are.
 	for (int i = 0; i < kMaxPorts; i++) {
-		DisconnectPort(&gPorts[i]);
-		if (gPorts[i].device) MIDIDeviceDispose(gPorts[i].device);
-		gPorts[i] = OzzyMidiPort{};
+		if (gPorts[i].shm) UnmapPort(&gPorts[i]);
 	}
-	gDriverRef = nullptr;
 	return noErr;
 }
 

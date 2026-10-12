@@ -24,6 +24,12 @@
  */
 #define kMaxPorts 8
 
+// MIDI out that doesn't fit the shared ring waits here until the kext has drained it: the
+// device takes 2500 bytes/s and the ring holds 1 KB. 64 KB like the official driver's MIDI
+// queue (26 s of MIDI).
+#define kPendingSize 65536
+#define kPendingMask (kPendingSize - 1)
+
 struct OzzyMidiPort {
 	// Connection to one OzzyKext instance; shm is null while disconnected
 	uint64_t registryID;
@@ -41,6 +47,12 @@ struct OzzyMidiPort {
 
 	// Bumped on every connect, so the poll thread knows to reset its parser
 	uint32_t generation;
+
+	// MIDI out waiting for room in the shared ring, oldest first (gPortLock)
+	Byte pending[kPendingSize];
+	uint32_t pendingHead;
+	uint32_t pendingTail;
+	uint32_t dropped;      // bytes lost because pending was full too, reported once it drains
 };
 
 /* MIDI input parser, owned by the poll thread */
@@ -54,8 +66,8 @@ struct OzzyMidiParser {
 static OzzyMidiPort gPorts[kMaxPorts];
 static MIDIDriverRef gDriverRef = nullptr;
 
-// Held around every use of a port's shared memory by Send and the poll thread, and while the
-// main thread maps or unmaps it. Never held across a CoreMIDI call.
+// Held around every use of a port's shared memory and pending MIDI out by Send and the poll
+// thread, and while the main thread maps or unmaps it. Never held across a CoreMIDI call.
 static os_unfair_lock gPortLock = OS_UNFAIR_LOCK_INIT;
 
 static std::atomic<bool> gThreadShouldRun{false};
@@ -102,6 +114,7 @@ static void UnmapPort(OzzyMidiPort* port) {
 	port->mapSize = 0;
 	port->shm = nullptr;
 	port->registryID = 0;
+	port->pendingHead = port->pendingTail = 0;
 	os_unfair_lock_unlock(&gPortLock);
 }
 
@@ -277,13 +290,71 @@ static bool DrainInput(OzzyMidiPort* port, OzzyMidiParser* parser) {
 	return true;
 }
 
+/*
+ * Queue MIDI out for the kext: pending bytes first, then @data, into the shared ring as far as
+ * it has room; the rest waits in pending. Call with gPortLock held and the port connected.
+ * Returns true if anything reached the ring.
+ */
+static bool QueueMidiOut(OzzyMidiPort* port, const Byte* data, uint32_t length) {
+	OzzySharedMemory* shm = port->shm;
+	uint32_t w = std::atomic_load_explicit(&shm->midiOut.writeIndex, std::memory_order_relaxed);
+	uint32_t r = std::atomic_load_explicit(&shm->midiOut.readIndex, std::memory_order_acquire);
+	uint32_t space = (r - w - 1) & kOzzyMidiRingMask;
+	uint32_t moved = 0, i = 0;
+
+	while (space && port->pendingHead != port->pendingTail) {
+		shm->midiOut.buffer[w] = port->pending[port->pendingHead];
+		port->pendingHead = (port->pendingHead + 1) & kPendingMask;
+		w = (w + 1) & kOzzyMidiRingMask;
+		space--; moved++;
+	}
+	if (port->pendingHead == port->pendingTail) {
+		for (; space && i < length; i++, space--, moved++) {
+			shm->midiOut.buffer[w] = data[i];
+			w = (w + 1) & kOzzyMidiRingMask;
+		}
+	}
+	std::atomic_store_explicit(&shm->midiOut.writeIndex, w, std::memory_order_release);
+
+	for (; i < length; i++) {
+		uint32_t next = (port->pendingTail + 1) & kPendingMask;
+		if (next == port->pendingHead) {
+			port->dropped += length - i;
+			break;
+		}
+		port->pending[port->pendingTail] = data[i];
+		port->pendingTail = next;
+	}
+	return moved != 0;
+}
+
+/* Move waiting MIDI out into the shared ring as the kext drains it. Returns true if any moved. */
+static bool FlushMidiOut(OzzyMidiPort* port) {
+	uint32_t dropped = 0;
+
+	os_unfair_lock_lock(&gPortLock);
+	bool moved = port->shm && port->pendingHead != port->pendingTail && QueueMidiOut(port, nullptr, 0);
+	if (moved) IOConnectCallScalarMethod(port->connect, kOzzyMethodMidiOutPending, NULL, 0, NULL, NULL);
+	if (port->pendingHead == port->pendingTail) {
+		dropped = port->dropped;
+		port->dropped = 0;
+	}
+	os_unfair_lock_unlock(&gPortLock);
+
+	if (dropped) LogOzzyMIDIError("'%{public}s': MIDI out queue drained, %{public}u bytes were dropped", port->name, dropped);
+	return moved;
+}
+
 static void* MidiInputPollThread(void* arg) {
 	LogOzzyMIDI("poll thread started");
 	OzzyMidiParser parsers[kMaxPorts] = {};
 
 	while (gThreadShouldRun.load()) {
 		bool didWork = false;
-		for (int i = 0; i < kMaxPorts; i++) didWork |= DrainInput(&gPorts[i], &parsers[i]);
+		for (int i = 0; i < kMaxPorts; i++) {
+			didWork |= DrainInput(&gPorts[i], &parsers[i]);
+			didWork |= FlushMidiOut(&gPorts[i]);
+		}
 		if (!didWork) usleep(500);
 	}
 	return NULL;
@@ -339,34 +410,29 @@ static OSStatus Stop(MIDIDriverRef self) {
 	return noErr;
 }
 
-/* Queue the bytes in the port's midiOut ring, then tell the kext. Ploytec devices pick them
- * up with the next PCM packet anyway; the Xone:1D sends only when told. */
+/* Queue the bytes for the kext (QueueMidiOut), then tell it. Ploytec devices pick them up
+ * with the next PCM packet anyway; the Xone:1D sends only when told. */
 static OSStatus Send(MIDIDriverRef self, const MIDIPacketList *pktlist, void *destRefCon1, void *destRefCon2) {
 	OzzyMidiPort* port = (OzzyMidiPort*)destRefCon1;
 	if (!port) return kMIDINoConnection;
 
 	os_unfair_lock_lock(&gPortLock);
-	OzzySharedMemory* shm = port->shm;
-	if (!shm) {
+	if (!port->shm) {
 		os_unfair_lock_unlock(&gPortLock);
 		return kMIDINoConnection;
 	}
 
+	uint32_t droppedBefore = port->dropped;
 	const MIDIPacket *packet = &pktlist->packet[0];
 	for (unsigned int i = 0; i < pktlist->numPackets; ++i) {
-		for (unsigned int j = 0; j < packet->length; ++j) {
-			uint32_t w = std::atomic_load_explicit(&shm->midiOut.writeIndex, std::memory_order_relaxed);
-			uint32_t r = std::atomic_load_explicit(&shm->midiOut.readIndex, std::memory_order_acquire);
-			uint32_t nextW = (w + 1) & kOzzyMidiRingMask;
-			if (nextW != r) {
-				shm->midiOut.buffer[w] = packet->data[j];
-				std::atomic_store_explicit(&shm->midiOut.writeIndex, nextW, std::memory_order_release);
-			}
-		}
+		QueueMidiOut(port, packet->data, packet->length);
 		packet = MIDIPacketNext(packet);
 	}
 	IOConnectCallScalarMethod(port->connect, kOzzyMethodMidiOutPending, NULL, 0, NULL, NULL);
+	bool startedDropping = droppedBefore == 0 && port->dropped != 0;
 	os_unfair_lock_unlock(&gPortLock);
+
+	if (startedDropping) LogOzzyMIDIError("'%{public}s': MIDI out queue full (64 KB), dropping", port->name);
 	return noErr;
 }
 

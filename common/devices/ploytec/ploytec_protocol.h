@@ -159,9 +159,11 @@ enum ploytec_us3xx_config_flags {
  * driver (AudioBulkIRP::useOut):
  *
  *   BULK (wMaxPacketSize <= 512), 512 bytes per sub-packet:
- *     [480 PCM (10 frames)][MIDI][0xFF sync][30 pad]
+ *     [480 PCM (10 frames)][MIDI][control][30 pad]
  *   INT (wMaxPacketSize 964), 482 bytes per sub-packet, 2 per USB packet:
- *     [432 PCM (9 frames)][2 MIDI][48 PCM (1 frame)]
+ *     [432 PCM (9 frames)][MIDI][control][48 PCM (1 frame)]
+ *
+ * ploytec_midi.h fills the MIDI slots.
  *
  * Both platforms compute all offsets with the helpers below.
  * ======================================================================== */
@@ -201,14 +203,14 @@ static inline uint32_t ploytec_out_frame_offset(enum ploytec_out_layout layout, 
 	if (layout == PLOYTEC_OUT_LAYOUT_BULK)
 		return subpkt * PLOYTEC_BULK_OUT_SUBPKT_SIZE + index * PLOYTEC_OUT_FRAME_SIZE;
 
-	/* INT: frames 0-8, then the 2 MIDI bytes, then frame 9 */
+	/* INT: frames 0-8, then the MIDI slot and control byte, then frame 9 */
 	return subpkt * PLOYTEC_INT_OUT_SUBPKT_SIZE + index * PLOYTEC_OUT_FRAME_SIZE +
 	       (index == PLOYTEC_FRAMES_PER_OUT_SUBPKT - 1 ? 2 : 0);
 }
 
 /*
- * ploytec_out_midi_offset - Byte offset of the MIDI slot in a sub-packet (0-7).
- * BULK: 1 MIDI byte followed by a 0xFF sync byte. INT: 2 MIDI bytes.
+ * ploytec_out_midi_offset - Byte offset of the MIDI slot of sub-packet 0-7.
+ * The control byte follows it.
  */
 static inline uint32_t ploytec_out_midi_offset(enum ploytec_out_layout layout, uint32_t subpkt)
 {
@@ -221,7 +223,8 @@ static inline uint32_t ploytec_out_midi_offset(enum ploytec_out_layout layout, u
 }
 
 /*
- * ploytec_out_init_packet - Fill an output packet with silence and idle MIDI bytes.
+ * ploytec_out_init_packet - Fill an output packet with silence, idle MIDI slots
+ * and idle control bytes.
  */
 static inline void ploytec_out_init_packet(enum ploytec_out_layout layout, uint8_t *pkt)
 {
@@ -233,21 +236,8 @@ static inline void ploytec_out_init_packet(enum ploytec_out_layout layout, uint8
 	for (k = 0; k < PLOYTEC_FRAMES_PER_PKT / PLOYTEC_FRAMES_PER_OUT_SUBPKT; k++) {
 		midi = ploytec_out_midi_offset(layout, k);
 		pkt[midi] = PLOYTEC_MIDI_IDLE_BYTE;
-		pkt[midi + 1] = layout == PLOYTEC_OUT_LAYOUT_BULK ? 0xFF : PLOYTEC_MIDI_IDLE_BYTE;
+		pkt[midi + 1] = PLOYTEC_MIDI_CONTROL_IDLE;
 	}
-}
-
-/*
- * ploytec_out_set_midi - Put this packet's MIDI out byte (PLOYTEC_MIDI_IDLE_BYTE if none).
- *
- * Only sub-packet 0's slot carries data: one byte per packet is ~1200 bytes/s
- * at 96 kHz, below MIDI's 3125 bytes/s (31250 baud). Using every slot would
- * overrun the device's MIDI output. The other slots keep the idle bytes from
- * ploytec_out_init_packet().
- */
-static inline void ploytec_out_set_midi(enum ploytec_out_layout layout, uint8_t *pkt, uint8_t byte)
-{
-	pkt[ploytec_out_midi_offset(layout, 0)] = byte;
 }
 
 /* ========================================================================

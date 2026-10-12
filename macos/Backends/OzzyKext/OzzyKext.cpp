@@ -414,18 +414,9 @@ bool OzzyKext::ConfigureHardware() {
                 if (pipeCounter < kMaxPipes) {
                     mPipes[pipeCounter++] = p;
                     const StandardUSB::EndpointDescriptor* d = p->getEndpointDescriptor();
-                    LogOzzyKext("  pipe 0x%02x opened (wMaxPacketSize %u)", cfg->address,
-                                d ? USBToHost16(d->wMaxPacketSize) & 0x07FF : 0);
-
-                    // Pass transfer type and wMaxPacketSize of the output endpoint to the engine
-                    if (k == 0) {
-                        const StandardUSB::EndpointDescriptor* epDesc = p->getEndpointDescriptor();
-                        if (epDesc) {
-                            bool isBulk = (epDesc->bmAttributes & 0x03) == 0x02;
-                            uint16_t maxPacketSize = USBToHost16(epDesc->wMaxPacketSize) & 0x07FF;
-                            mEngine->SetOutEndpoint(isBulk, maxPacketSize);
-                        }
-                    }
+                    uint16_t maxPacketSize = d ? USBToHost16(d->wMaxPacketSize) & 0x07FF : 0;
+                    LogOzzyKext("  pipe 0x%02x opened (wMaxPacketSize %u)", cfg->address, maxPacketSize);
+                    if (d) mEngine->SetEndpoint(cfg->address, d->bmAttributes & 0x03, maxPacketSize);
                 } else p->release();
             } else {
                 LogOzzyKext("  failed to open pipe 0x%02x", cfg->address);

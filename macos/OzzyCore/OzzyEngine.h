@@ -37,8 +37,9 @@ public:
     // New: The Kext calls this to ask "What hardware do you need?"
     virtual const OzzyDeviceProfile& GetProfile() const = 0;
 
-    // Called by kext after probing the PCM output endpoint descriptor, before Start()
-    virtual void SetOutEndpoint(bool isBulk, uint16_t maxPacketSize) = 0;
+    // Called by the kext for each pipe it opened, before Start(). transferType is
+    // bmAttributes & 3 (2 = bulk, 3 = interrupt).
+    virtual void SetEndpoint(uint8_t address, uint8_t transferType, uint16_t maxPacketSize) {}
 
     // Lifecycle (Pure Virtual)
     virtual bool Start() = 0;

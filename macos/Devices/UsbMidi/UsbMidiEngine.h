@@ -27,7 +27,6 @@ public:
     UsbMidiEngine();
 
     virtual const OzzyDeviceProfile& GetProfile() const override { return mProfile; }
-    virtual void SetOutEndpoint(bool isBulk, uint16_t maxPacketSize) override {}
     virtual bool Start() override;
     virtual void Stop() override;
     virtual void OnPacketComplete(uint8_t pipeID, void* ctx, int status, uint32_t bytes) override;

@@ -76,6 +76,9 @@ extern "C" {
 /* MIDI idle/sync byte (sent when no MIDI data is pending) */
 #define PLOYTEC_MIDI_IDLE_BYTE      0xFD
 
+/* Control byte after each MIDI out slot when there is no control data (see ploytec_midi.h) */
+#define PLOYTEC_MIDI_CONTROL_IDLE   0xFF
+
 #ifdef __cplusplus
 }
 #endif

@@ -64,12 +64,17 @@ PloytecEngine::PloytecEngine(uint16_t vid, uint16_t pid) {
 /* The output packet layout follows the endpoint's wMaxPacketSize, not its transfer type,
  * like the official driver (AudioBulkIRP::useOut): <= 512 uses the bulk layout, larger (964)
  * uses the interrupt layout. DB2 fw 1.2.0 is an interrupt endpoint with wMaxPacketSize 512. */
-void PloytecEngine::SetOutEndpoint(bool isBulk, uint16_t maxPacketSize) {
-    mOutLayout = ploytec_out_layout_for_maxpacket(maxPacketSize);
-    mPacketSizeOut = ploytec_out_packet_size(mOutLayout);
-    LogPloytec("transport: %s, wMaxPacketSize %u (%s layout, out packet: %u bytes)",
-               isBulk ? "bulk" : "interrupt", maxPacketSize,
-               mOutLayout == PLOYTEC_OUT_LAYOUT_BULK ? "bulk" : "interrupt", mPacketSizeOut);
+void PloytecEngine::SetEndpoint(uint8_t address, uint8_t transferType, uint16_t maxPacketSize) {
+    if (address == kEpPcmOut) {
+        mOutLayout = ploytec_out_layout_for_maxpacket(maxPacketSize);
+        mPacketSizeOut = ploytec_out_packet_size(mOutLayout);
+        LogPloytec("transport: %s, wMaxPacketSize %u (%s layout, out packet: %u bytes)",
+                   transferType == 2 ? "bulk" : "interrupt", maxPacketSize,
+                   mOutLayout == PLOYTEC_OUT_LAYOUT_BULK ? "bulk" : "interrupt", mPacketSizeOut);
+    } else if (address == kEpPcmIn) {
+        // Selects the MIDI IN frame above 48 kHz (ploytec_midi.h)
+        mPcmInInt1024 = transferType == 3 && maxPacketSize == 1024;
+    }
 }
 
 bool PloytecEngine::Start() {
@@ -90,6 +95,7 @@ bool PloytecEngine::Start() {
     // 2. Hardware Handshake Sequence
     if (ploytec_handshake(&kHostOps, mBus, mSampleRate, nullptr) < 0)
         return false;
+    ploytec_midi_init(&mMidi, mSampleRate, mPcmInInt1024);
     
     // Hardware is confirmed working and communicating (release: the format fields above first)
     OzzyStoreRelease(&shm->audio.hardwarePresent, true);
@@ -131,32 +137,46 @@ void PloytecEngine::ProcessMIDIOutput(uint32_t packetIdx) {
     auto* shm = GetSHM();
     if (!shm) return;
     
-    // Read pending MIDI bytes from the midiOut ring buffer (acquire: the byte before the index)
+    // Take as many bytes from the midiOut ring as the MIDI out pace allows in this packet
+    // (acquire: the bytes before the index)
+    uint32_t mask;
+    uint32_t count = ploytec_midi_out_slots(&mMidi, &mask);
+    uint8_t bytes[PLOYTEC_OUT_SUBPKTS];
     uint32_t r = shm->midiOut.readIndex;
     uint32_t w = OzzyLoadAcquire(&shm->midiOut.writeIndex);
-    
-    uint8_t* packet = (uint8_t*)shm->audio.outputBuffer + (packetIdx % kOzzyNumPackets) * kOzzyMaxPacketSize;
-    uint8_t byte = PLOYTEC_MIDI_IDLE_BYTE;
-    if (r != w) {
-        byte = shm->midiOut.buffer[r];
-        OzzyStoreRelease(&shm->midiOut.readIndex, (r + 1) & kOzzyMidiRingMask);
+    for (uint32_t i = 0; i < count; i++) {
+        bytes[i] = PLOYTEC_MIDI_IDLE_BYTE;
+        if (r != w) {
+            bytes[i] = shm->midiOut.buffer[r];
+            r = (r + 1) & kOzzyMidiRingMask;
+        }
     }
-    ploytec_out_set_midi(mOutLayout, packet, byte);
+    OzzyStoreRelease(&shm->midiOut.readIndex, r);
+
+    uint8_t* packet = (uint8_t*)shm->audio.outputBuffer + (packetIdx % kOzzyNumPackets) * kOzzyMaxPacketSize;
+    ploytec_midi_out_place(mOutLayout, packet, mask, bytes);
 }
 
 void PloytecEngine::ProcessMIDIInput(uint32_t bytesReceived) {
     auto* shm = GetSHM();
     if (!shm || bytesReceived == 0) return;
     
-    // Write received MIDI bytes to the midiIn ring buffer (release: the byte before the index)
-    for (uint32_t i = 0; i < bytesReceived && i < sizeof(shm->midiInUSBBuffer); i++) {
+    // Only the MIDI bytes of the frame (ploytec_midi.h)
+    uint8_t midi[PLOYTEC_MIDI_IN_MAX_SLOTS];
+    uint32_t count = ploytec_midi_in(&mMidi, (const uint8_t*)shm->midiInUSBBuffer,
+                                     bytesReceived < sizeof(shm->midiInUSBBuffer) ? bytesReceived
+                                                                                 : sizeof(shm->midiInUSBBuffer),
+                                     midi);
+
+    // Write them to the midiIn ring buffer (release: the byte before the index)
+    for (uint32_t i = 0; i < count; i++) {
         uint32_t w = shm->midiIn.writeIndex;
         uint32_t r = OzzyLoadAcquire(&shm->midiIn.readIndex);
         uint32_t nextW = (w + 1) & kOzzyMidiRingMask;
         
         // Check if ring buffer has space
         if (nextW != r) {
-            shm->midiIn.buffer[w] = shm->midiInUSBBuffer[i];
+            shm->midiIn.buffer[w] = midi[i];
             OzzyStoreRelease(&shm->midiIn.writeIndex, nextW);
         }
     }

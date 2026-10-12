@@ -130,7 +130,11 @@ void ozzy_midi_consume(struct midi_runtime *rt, u8 *buffer, int count,
 static void ozzy_midi_in_urb_handler(struct urb *usb_urb)
 {
 	struct midi_urb *in_urb = usb_urb->context;
-	struct midi_runtime *rt = in_urb->chip->midi;
+	struct ozzy_chip *chip = in_urb->chip;
+	struct midi_runtime *rt = chip->midi;
+	const u8 *data = in_urb->buffer;
+	unsigned int len = in_urb->instance.actual_length;
+	u8 decoded[OZZY_MIDI_IN_MAX_BYTES];
 	unsigned long flags;
 	int ret;
 
@@ -140,10 +144,14 @@ static void ozzy_midi_in_urb_handler(struct urb *usb_urb)
 		     usb_urb->status == -ESHUTDOWN))
 		goto in_fail;
 
+	if (chip->ops->decode_midi_in) {
+		len = chip->ops->decode_midi_in(chip, data, len, decoded);
+		data = decoded;
+	}
+
 	spin_lock_irqsave(&rt->in_lock, flags);
-	if (rt->in)
-		snd_rawmidi_receive(rt->in, in_urb->buffer,
-				    in_urb->instance.actual_length);
+	if (rt->in && len)
+		snd_rawmidi_receive(rt->in, data, len);
 	spin_unlock_irqrestore(&rt->in_lock, flags);
 
 	ret = usb_submit_urb(&in_urb->instance, GFP_ATOMIC);

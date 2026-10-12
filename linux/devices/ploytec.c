@@ -23,6 +23,7 @@
 #include "ploytec.h"
 #include "../../common/devices/ploytec/ploytec_defs.h"
 #include "../../common/devices/ploytec/ploytec_protocol.h"
+#include "../../common/devices/ploytec/ploytec_midi.h"
 #include "../../common/devices/ploytec/ploytec_codec.h"
 #include "../../common/devices/ploytec/ploytec_handshake.h"
 #include "../../common/devices/ploytec/ploytec_models.h"
@@ -42,6 +43,7 @@ struct ploytec_private {
 	const struct ozzy_device_info *base_info;
 	ploytec_frame_fn encode;        /* frame codecs for this model, picked once */
 	ploytec_frame_fn decode;
+	struct ploytec_midi midi;       /* MIDI framing at the current rate */
 };
 
 /* Placeholder until ploytec_init() applies the model's rates (ploytec_models.h) */
@@ -161,6 +163,17 @@ static const struct ploytec_host_ops ploytec_host_ops = {
  * ======================================================================== */
 
 /*
+ * ploytec_pcm_in_int_1024 - Whether the PCM IN endpoint is interrupt with
+ * wMaxPacketSize 1024 (selects the MIDI IN frame above 48 kHz, ploytec_midi.h).
+ */
+static bool ploytec_pcm_in_int_1024(struct ozzy_chip *chip)
+{
+	struct usb_host_endpoint *ep = chip->dev->ep_in[chip->info->in_ep];
+
+	return ep && usb_endpoint_xfer_int(&ep->desc) && usb_endpoint_maxp(&ep->desc) == 1024;
+}
+
+/*
  * ploytec_init - Perform the Ploytec vendor handshake after USB probe or reset.
  * On the first call, allocates private data and applies the model. Then runs the
  * shared handshake at the requested rate. Private data is kept on failure because
@@ -190,6 +203,8 @@ static int ploytec_init(struct ozzy_chip *chip)
 		return ret;
 
 	chip->current_rate = chip->requested_rate;
+	ploytec_midi_init(&priv->midi, chip->info->rates[chip->current_rate],
+			  ploytec_pcm_in_int_1024(chip));
 	return 0;
 }
 
@@ -287,19 +302,33 @@ static void ploytec_init_out_urb(struct ozzy_chip *chip, uint8_t *buffer)
 }
 
 /*
- * ploytec_fill_midi_out - Embed the next pending MIDI byte into a PCM output packet.
- * See ploytec_out_set_midi() for why it is one byte per packet.
+ * ploytec_fill_midi_out - Embed pending MIDI bytes into a PCM output packet,
+ * in the sub-packets the MIDI out pace opens (ploytec_midi.h).
  */
 static void ploytec_fill_midi_out(struct ozzy_chip *chip, uint8_t *urb_buf)
 {
-	struct midi_runtime *rt = chip->midi;
-	u8 byte;
+	struct ploytec_private *priv = chip->private_data;
+	u8 bytes[PLOYTEC_OUT_SUBPKTS] = { 0 };
+	u32 mask, count;
 
-	if (!rt)
+	if (!chip->midi)
 		return;
 
-	ozzy_midi_consume(rt, &byte, 1, PLOYTEC_MIDI_IDLE_BYTE);
-	ploytec_out_set_midi(ploytec_out_layout(chip), urb_buf, byte);
+	count = ploytec_midi_out_slots(&priv->midi, &mask);
+	if (count)
+		ozzy_midi_consume(chip->midi, bytes, count, PLOYTEC_MIDI_IDLE_BYTE);
+	ploytec_midi_out_place(ploytec_out_layout(chip), urb_buf, mask, bytes);
+}
+
+/*
+ * ploytec_decode_midi_in - The MIDI bytes of a MIDI IN transfer (ploytec_midi.h).
+ */
+static unsigned int ploytec_decode_midi_in(struct ozzy_chip *chip, const uint8_t *buf,
+					   unsigned int len, uint8_t *out)
+{
+	struct ploytec_private *priv = chip->private_data;
+
+	return ploytec_midi_in(&priv->midi, buf, len, out);
 }
 
 /*
@@ -345,5 +374,6 @@ const struct ozzy_device_ops ploytec_ops = {
 	.process_in_packet   = ploytec_process_in_packet,
 	.init_out_urb        = ploytec_init_out_urb,
 	.fill_midi_out       = ploytec_fill_midi_out,
+	.decode_midi_in      = ploytec_decode_midi_in,
 	.get_out_packet_size = ploytec_get_out_packet_size,
 };

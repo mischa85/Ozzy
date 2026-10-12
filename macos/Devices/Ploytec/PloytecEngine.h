@@ -5,6 +5,7 @@
 #include "../../Shared/OzzySharedData.h"
 #include "PloytecProtocol.h"
 #include "../../../common/devices/ploytec/ploytec_models.h"
+#include "../../../common/devices/ploytec/ploytec_midi.h"
 
 class PloytecEngine : public OzzyEngine {
     uint64_t mHwSampleTime = 0;
@@ -12,6 +13,8 @@ class PloytecEngine : public OzzyEngine {
     uint32_t mSampleRate = 96000;
     const struct ploytec_model* mModel = nullptr;
     uint32_t mPacketSizeOut = 0;
+    bool mPcmInInt1024 = false;     // PCM IN is interrupt, wMaxPacketSize 1024 (ploytec_midi.h)
+    struct ploytec_midi mMidi = {}; // MIDI framing at mSampleRate
     
     // Storage for the profile
     OzzyDeviceProfile mProfile;
@@ -23,7 +26,7 @@ public:
     PloytecEngine(uint16_t vid, uint16_t pid);
     
     virtual const OzzyDeviceProfile& GetProfile() const override { return mProfile; }
-    virtual void SetOutEndpoint(bool isBulk, uint16_t maxPacketSize) override;
+    virtual void SetEndpoint(uint8_t address, uint8_t transferType, uint16_t maxPacketSize) override;
     virtual bool Start() override;
     virtual void Stop() override;
     virtual void OnPacketComplete(uint8_t pipeID, void* ctx, int status, uint32_t bytes) override;

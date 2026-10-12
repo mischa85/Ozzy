@@ -138,6 +138,16 @@ struct ozzy_device_ops {
 	void (*fill_midi_out)(struct ozzy_chip *chip, uint8_t *urb_buf);
 
 	/*
+	 * decode_midi_in - Extract the MIDI bytes from a MIDI input transfer.
+	 * Called from the MIDI in URB handler. NULL if transfers are plain MIDI bytes.
+	 * @buf: the received transfer, @len bytes
+	 * @out: destination for the MIDI bytes, OZZY_MIDI_IN_MAX_BYTES long
+	 * Returns: number of MIDI bytes written to @out.
+	 */
+	unsigned int (*decode_midi_in)(struct ozzy_chip *chip, const uint8_t *buf,
+				       unsigned int len, uint8_t *out);
+
+	/*
 	 * get_out_packet_size - Return the output packet size in bytes.
 	 * May differ between bulk and interrupt transfer modes.
 	 * Called during URB allocation to determine buffer size.

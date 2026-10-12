@@ -15,6 +15,7 @@ struct ozzy_chip;
 #define OZZY_MIDI_N_URBS          4
 #define OZZY_MIDI_PACKET_SIZE     512
 #define OZZY_MIDI_SEND_BUF_SIZE   512   /* power of two (ring index mask) */
+#define OZZY_MIDI_IN_MAX_BYTES    16    /* MIDI bytes per input transfer after decode_midi_in */
 
 struct midi_urb {
 	struct ozzy_chip *chip;

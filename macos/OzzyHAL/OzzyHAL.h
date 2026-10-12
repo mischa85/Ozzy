@@ -32,7 +32,7 @@ public:
     AudioObjectID GetOutputStreamID() const { return GetDeviceID() + 2; }
 
     // Connection to the kext (monitor thread)
-    bool IsMapped() const { return mSHM != nullptr; }
+    bool IsMapped() const { return mSHM.load(std::memory_order_relaxed) != nullptr; }
     bool IsUsed() const { return mDeviceUID != nullptr; }   // has been published before
     uint64_t GetRegistryID() const { return mRegistryID; }
     bool Map(io_connect_t connect, mach_vm_address_t address, mach_vm_size_t size, uint64_t registryID, uint32_t locationID);
@@ -80,9 +80,6 @@ private:
     CFStringRef mModelUID = nullptr;
     CFStringRef mManufacturerUID = nullptr;
 
-    uint8_t* mInputBufferAddr = nullptr;
-    uint8_t* mOutputBufferAddr = nullptr;
-
     // Cached frame format for real-time I/O (updated on connect)
     uint32_t mFramesPerPacket = 80;
     uint32_t mRingSize = 10240; // kOzzyNumPackets * mFramesPerPacket
@@ -105,8 +102,10 @@ private:
     bool mIOStarted = false;
     uint32_t mTimestampSeed = 1;
 
-    // Kext connection
-    OzzySharedMemory* mSHM = nullptr;
+    // Kext connection. The monitor thread maps and unmaps; CoreAudio's threads use the
+    // mapping between AcquireSHM and ReleaseSHM, and Unmap waits for them to finish.
+    std::atomic<OzzySharedMemory*> mSHM { nullptr };
+    std::atomic<uint32_t> mSHMUsers { 0 };
     io_connect_t mKextConnect = IO_OBJECT_NULL;
     mach_vm_address_t mKextMapAddress = 0;
     mach_vm_size_t mKextMapSize = 0;
@@ -116,6 +115,8 @@ private:
 
     alignas(16) uint8_t mChannelLayoutBuffer[0x50C];
 
+    OzzySharedMemory* AcquireSHM();
+    void ReleaseSHM();
     void ApplyDeviceConfig();
     void UpdateMetadata();
     void RebuildStreamConfigs();

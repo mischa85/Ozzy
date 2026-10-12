@@ -81,10 +81,25 @@ void OzzyHALDevice::Init(uint32_t slot) {
     RebuildStreamConfigs();
 }
 
+/*
+ * Pin the mapping for a call from a CoreAudio thread; null if there is none. Lock-free:
+ * announce the use, then read the pointer. Unmap does the reverse (clear the pointer, then
+ * wait for the users to go away), and with sequentially consistent ordering on both sides
+ * either Unmap sees this user or this user sees the null pointer.
+ */
+OzzySharedMemory* OzzyHALDevice::AcquireSHM() {
+    mSHMUsers.fetch_add(1, std::memory_order_seq_cst);
+    return mSHM.load(std::memory_order_seq_cst);
+}
+
+void OzzyHALDevice::ReleaseSHM() {
+    mSHMUsers.fetch_sub(1, std::memory_order_release);
+}
+
 void OzzyHALDevice::ClearOutputBuffer() {
-    if (!mOutputBufferAddr || !mSHM || !mClearOutput) return;
-    const uint32_t bufferSize = kOzzyMaxPacketSize * kOzzyNumPackets;
-    mClearOutput(mOutputBufferAddr, bufferSize);
+    OzzySharedMemory* shm = AcquireSHM();
+    if (shm && mClearOutput) mClearOutput(shm->audio.outputBuffer, kOzzyMaxPacketSize * kOzzyNumPackets);
+    ReleaseSHM();
 }
 
 void OzzyHALDevice::RebuildStreamConfigs() {
@@ -139,18 +154,16 @@ bool OzzyHALDevice::Map(io_connect_t connect, mach_vm_address_t address, mach_vm
     mRegistryID = registryID;
     mLocationID = locationID;
     mSessionID = shm->sessionID;
-    mInputBufferAddr = shm->audio.inputBuffer;
-    mOutputBufferAddr = shm->audio.outputBuffer;
-    mSHM = shm;
+    mSHM.store(shm, std::memory_order_release);
     LogOzzyHAL("device %{public}u: attached to kext (session: 0x%{public}08X)", mSlot, mSessionID);
     return true;
 }
 
+/* Monitor thread. Waits for CoreAudio threads still using the mapping (at most one I/O
+ * cycle) before unmapping, so they never touch unmapped memory. */
 void OzzyHALDevice::Unmap() {
-    if (!mSHM) return;
-    mSHM = nullptr;
-    mInputBufferAddr = nullptr;
-    mOutputBufferAddr = nullptr;
+    if (!mSHM.exchange(nullptr, std::memory_order_seq_cst)) return;
+    while (mSHMUsers.load(std::memory_order_seq_cst)) usleep(100);
     IOConnectUnmapMemory(mKextConnect, 0, mach_task_self(), mKextMapAddress);
     IOServiceClose(mKextConnect);
     mKextConnect = IO_OBJECT_NULL;
@@ -161,9 +174,10 @@ void OzzyHALDevice::Unmap() {
 
 /* Unmap if the kext went away or restarted. Returns true while still mapped. */
 bool OzzyHALDevice::CheckHealth() {
-    if (!mSHM) return false;
-    bool magicValid = (mSHM->magic == kOzzyMagic) && (mSHM->sessionID == mSessionID);
-    bool hwPresent = magicValid && mSHM->audio.hardwarePresent.load(std::memory_order_acquire);
+    OzzySharedMemory* shm = mSHM.load(std::memory_order_relaxed);
+    if (!shm) return false;
+    bool magicValid = (shm->magic == kOzzyMagic) && (shm->sessionID == mSessionID);
+    bool hwPresent = magicValid && shm->audio.hardwarePresent.load(std::memory_order_acquire);
     if (magicValid && hwPresent) return true;
     LogOzzyHAL("device %{public}u: disconnected (magic: %{public}d, hw: %{public}d)", mSlot, magicValid, hwPresent);
     Unmap();
@@ -174,22 +188,23 @@ bool OzzyHALDevice::CheckHealth() {
  * Called when the device comes up, because the engine only writes deviceFlags and
  * sampleRate during its Start() handshake. */
 void OzzyHALDevice::ApplyDeviceConfig() {
-    if (!mSHM) return;
+    OzzySharedMemory* shm = mSHM.load(std::memory_order_relaxed);
+    if (!shm) return;
 
     // Cache frame format for real-time I/O performance
-    mFramesPerPacket = mSHM->audio.framesPerPacket;  // e.g., 80 frames per logical packet
+    mFramesPerPacket = shm->audio.framesPerPacket;  // e.g., 80 frames per logical packet
     // Ring buffer size in FRAMES: 128 logical packets * 80 frames = 10,240 frames
     mRingSize = kOzzyNumPackets * mFramesPerPacket;
-    mOutputBytesPerFrame = mSHM->audio.outputBytesPerFrame;
-    mInputBytesPerFrame = mSHM->audio.inputBytesPerFrame;
+    mOutputBytesPerFrame = shm->audio.outputBytesPerFrame;
+    mInputBytesPerFrame = shm->audio.inputBytesPerFrame;
 
     // Channel counts per direction, as published by the engine for this model
-    mInputChannels = mSHM->audio.inputChannels;
-    mOutputChannels = mSHM->audio.outputChannels;
+    mInputChannels = shm->audio.inputChannels;
+    mOutputChannels = shm->audio.outputChannels;
 
     // Bit 0: 512-byte "bulk" output layout (follows wMaxPacketSize, not transfer type).
     // Writer and reader are picked here once; the I/O path doesn't branch on layout or channels.
-    bool isBulk = (mSHM->audio.deviceFlags & 1);
+    bool isBulk = (shm->audio.deviceFlags & 1);
     mWriteOutput = PloytecOutputWriter(isBulk, mOutputChannels);
     mReadInput = PloytecInputReader(mInputChannels);
     if (!mWriteOutput || !mReadInput) {
@@ -202,9 +217,9 @@ void OzzyHALDevice::ApplyDeviceConfig() {
     mClearOutput = isBulk ? PloytecClearOutputBulk : PloytecClearOutputInterrupt;
     RebuildStreamConfigs();
     LogOzzyHAL("device %{public}u: Ploytec codec (%{public}s layout, %{public}u in / %{public}u out) for VID:0x%{public}04X",
-               mSlot, isBulk ? "bulk" : "interrupt", mInputChannels, mOutputChannels, mSHM->vendorID);
+               mSlot, isBulk ? "bulk" : "interrupt", mInputChannels, mOutputChannels, shm->vendorID);
 
-    uint32_t rate = mSHM->audio.sampleRate.load();
+    uint32_t rate = shm->audio.sampleRate.load();
     if (rate == 0) rate = 96000;
     mCurrentStreamFormat.mSampleRate = rate;
     mAvailableSampleRates.mMinimum = rate;
@@ -213,16 +228,17 @@ void OzzyHALDevice::ApplyDeviceConfig() {
 }
 
 void OzzyHALDevice::UpdateMetadata() {
-    if (mSHM->productName[0] != 0) {
+    OzzySharedMemory* shm = mSHM.load(std::memory_order_relaxed);
+    if (shm->productName[0] != 0) {
         if (mModelUID) CFRelease(mModelUID);
-        mModelUID = SafeCreateString(mSHM->productName);
+        mModelUID = SafeCreateString(shm->productName);
     }
-    if (mSHM->manufacturerName[0] != 0) {
+    if (shm->manufacturerName[0] != 0) {
         if (mManufacturerUID) CFRelease(mManufacturerUID);
-        mManufacturerUID = SafeCreateString(mSHM->manufacturerName);
+        mManufacturerUID = SafeCreateString(shm->manufacturerName);
     }
     char uid[128];
-    MakeDeviceUID(mSHM, mLocationID, uid, sizeof(uid));
+    MakeDeviceUID(shm, mLocationID, uid, sizeof(uid));
     if (mDeviceUID) CFRelease(mDeviceUID);
     mDeviceUID = SafeCreateString(uid);
     if (!mModelUID) mModelUID = CFSTR("Ozzy Audio Device");
@@ -259,16 +275,17 @@ void OzzyHALDevice::NotifyDeviceChanged(AudioServerPlugInHostRef host) {
 
 /* Publish the device once the engine is up, withdraw it when it goes down */
 bool OzzyHALDevice::UpdateConnectionState(AudioServerPlugInHostRef host) {
-    bool hwReady = (mSHM && mSHM->audio.hardwarePresent.load(std::memory_order_acquire));
-    bool drvReady = (mSHM && mSHM->audio.driverReady.load(std::memory_order_acquire));
-    bool metaReady = (mSHM && mSHM->productName[0] != 0);
+    OzzySharedMemory* shm = mSHM.load(std::memory_order_relaxed);
+    bool hwReady = (shm && shm->audio.hardwarePresent.load(std::memory_order_acquire));
+    bool drvReady = (shm && shm->audio.driverReady.load(std::memory_order_acquire));
+    bool metaReady = (shm && shm->productName[0] != 0);
     bool currentlyConnected = (hwReady && drvReady && metaReady);
     if (currentlyConnected == mConnected) return false;
 
     if (currentlyConnected) {
         UpdateMetadata();
         ApplyDeviceConfig();
-        LogOzzyHAL("device %{public}u ready: '%{public}s'", mSlot, mSHM->productName);
+        LogOzzyHAL("device %{public}u ready: '%{public}s'", mSlot, shm->productName);
     } else if (mIOStarted) {
         mIOStarted = false;
         mTimestampSeed++;
@@ -283,9 +300,9 @@ bool OzzyHALDevice::UpdateConnectionState(AudioServerPlugInHostRef host) {
 
 kern_return_t OzzyHALDevice::StartIO() {
     if (!mConnected) return kAudioHardwareNotRunningError;
-    if (mSHM) {
-        mSHM->audio.halWritePosition.store(0, std::memory_order_relaxed);
-    }
+    OzzySharedMemory* shm = AcquireSHM();
+    if (shm) shm->audio.halWritePosition.store(0, std::memory_order_relaxed);
+    ReleaseSHM();
     LogOzzyHAL("device %{public}u: start I/O", mSlot);
     mIOStarted = true;
     mTimestampSeed++;
@@ -301,9 +318,13 @@ kern_return_t OzzyHALDevice::StopIO() {
 }
 
 HRESULT OzzyHALDevice::GetZeroTimeStamp(Float64* outSampleTime, UInt64* outHostTime, UInt64* outSeed) {
-    if (!mSHM) return kAudioHardwareNotRunningError;
+    OzzySharedMemory* shm = AcquireSHM();
+    if (!shm) {
+        ReleaseSHM();
+        return kAudioHardwareNotRunningError;
+    }
 
-    auto& ts = mSHM->audio.timestamp;
+    auto& ts = shm->audio.timestamp;
     uint64_t sTime = 0, hTime = 0;
     uint32_t seq1, seq2;
     int retries = 0;
@@ -319,6 +340,7 @@ HRESULT OzzyHALDevice::GetZeroTimeStamp(Float64* outSampleTime, UInt64* outHostT
         std::atomic_thread_fence(std::memory_order_acquire); 
         seq2 = ts.sequence.load(std::memory_order_relaxed);
     } while (seq1 != seq2 && ++retries < 100);
+    ReleaseSHM();
 
     if (outSampleTime) *outSampleTime = (Float64)sTime;
     if (outHostTime) *outHostTime = hTime;
@@ -328,21 +350,26 @@ HRESULT OzzyHALDevice::GetZeroTimeStamp(Float64* outSampleTime, UInt64* outHostT
 }
 
 OSStatus OzzyHALDevice::ioOperation(UInt32 inOperationID, UInt32 inIOBufferFrameSize, const AudioServerPlugInIOCycleInfo* inIOCycleInfo, void* ioMainBuffer) {
-    if (!mSHM || !mInputBufferAddr || !mOutputBufferAddr) return kAudioHardwareNoError;
+    OzzySharedMemory* shm = AcquireSHM();
+    if (!shm) {
+        ReleaseSHM();
+        return kAudioHardwareNoError;
+    }
 
     if (inOperationID == kAudioServerPlugInIOOperationWriteMix) {
         if (mWriteOutput) {
             uint64_t sampleTime = (uint64_t)inIOCycleInfo->mOutputTime.mSampleTime;
-            mWriteOutput(mOutputBufferAddr, (const float*)ioMainBuffer, sampleTime, inIOBufferFrameSize, mRingSize, mOutputBytesPerFrame);
-            mSHM->audio.halWritePosition.store(sampleTime + inIOBufferFrameSize, std::memory_order_release);
+            mWriteOutput(shm->audio.outputBuffer, (const float*)ioMainBuffer, sampleTime, inIOBufferFrameSize, mRingSize, mOutputBytesPerFrame);
+            shm->audio.halWritePosition.store(sampleTime + inIOBufferFrameSize, std::memory_order_release);
         }
     }
     else if (inOperationID == kAudioServerPlugInIOOperationReadInput) {
         if (mReadInput) {
             uint64_t sampleTime = (uint64_t)inIOCycleInfo->mInputTime.mSampleTime;
-            mReadInput((float*)ioMainBuffer, mInputBufferAddr, sampleTime, inIOBufferFrameSize, mRingSize, mInputBytesPerFrame);
+            mReadInput((float*)ioMainBuffer, shm->audio.inputBuffer, sampleTime, inIOBufferFrameSize, mRingSize, mInputBytesPerFrame);
         }
     }
+    ReleaseSHM();
     return kAudioHardwareNoError;
 }
 

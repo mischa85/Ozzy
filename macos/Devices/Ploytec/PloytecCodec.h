@@ -4,7 +4,7 @@
 #include <stdint.h>
 
 // Ploytec-specific PCM encoding/decoding
-// Up to 10 output / 16 input channels of 24-bit audio in the bit-interleaved junction frame
+// Up to 16 output / 16 input channels of 24-bit audio in the bit-interleaved junction frame
 
 // Packet-level I/O operations (handle MIDI byte interleaving)
 typedef void (*WriteOutputFunc)(uint8_t* ringBuffer, const float* srcFrames, uint64_t sampleTime, uint32_t frameCount, uint32_t ringSize, uint32_t bytesPerFrame);

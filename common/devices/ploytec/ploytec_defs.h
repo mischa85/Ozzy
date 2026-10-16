@@ -46,7 +46,7 @@ extern "C" {
 #define PLOYTEC_EP_MIDI_IN          0x03
 
 /* PCM topology */
-#define PLOYTEC_MAX_OUT_CHANNELS    10  /* audio lanes in an output frame */
+#define PLOYTEC_MAX_OUT_CHANNELS    16  /* audio lanes in an output frame */
 #define PLOYTEC_MAX_IN_CHANNELS     16  /* audio lanes in an input frame */
 #define PLOYTEC_OUT_FRAME_SIZE      48  /* bytes per device output frame */
 #define PLOYTEC_IN_FRAME_SIZE       64  /* bytes per device input frame */

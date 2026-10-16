@@ -39,22 +39,22 @@ rates and a few vendor extras (listed per device).
 | 200C:1037 | Reloop Jockey 3 Remix | 6 / 4 | 44.1–96k (fvdpol) | fallback | fvdpol/alsa-jockey3 | in Ozzy (experimental) |
 | 200C:1005 | Reloop IQ2 MIDI | 4 / 4 | 24/96 (spec) | fallback | none | in Ozzy (experimental) |
 | 200C:100A | Reloop Contour Interface Edition | 2 / **10** | 44.1k boot rate, others ? | fallback | none | in Ozzy (experimental, 44.1k only; 10-lane encoder `dmaEncode10` added) |
-| 200C:1006 | unidentified Reloop | 6 / 6 | | fallback | | identify |
+| 200C:1006 | unidentified Reloop | 6 / 6 | | fallback | | identify (#93) |
 | 0A92:0111 | ESI ESU1808 | 16 / 8 (**10-lane** output: S/PDIF mirrors a selectable pair) | 44.1–96k (spec) | fallback | none | in Ozzy (experimental): CPLD byte, S/PDIF mirror of pair 1/2 (the default); the pair selection (`_34/_56/_78`) is not offered |
 | 2573:0012 | ESI U168 XT | 16 / 8 | 44.1–96k (spec) | fallback | none | in Ozzy (experimental): ESI selector, 'A' requests (0x349, then 0x348), CPLD byte; ESI's own 2.0.0b90 beta runs on Apple Silicon (user-space, analog only, macOS ≤ 14.3) |
 | 2573:0013 | ESI U86 XT | 8 / 6 | 44.1–96k (spec) | fallback | none | in Ozzy (experimental): ESI selector, 'A' 0x348, CPLD byte; 6-lane output (`dmaEncode06`) added |
 | 2573:002A | ESI U108 PRE | 10 / 8 | 44.1–96k (spec) | fallback | none | in Ozzy (experimental): as the U86 XT; 10-lane input |
 | 1ACC:0103 | Midiplus AudioLink PLUS 4x4 ("Plus II") | 6 / 6 | 24/96 (spec) | fallback | none | in Ozzy (experimental; no device-specific requests); class-compliant mode? (?); Interspock's Ozzy fork adds it |
-| 1ACC:0102 | unidentified Midiplus | 4 / 4 | | fallback | | identify |
-| 1D03:005C | unidentified iCON | 2 / 2 | 44.1k | fallback | | identify |
-| 0A4A:5A16 | Smyth Research Realiser A16 | 2 / 16 | ? | fallback, Revival page | ? | 16-lane output (?) |
-| 0A4A:D064 | D.O.Tec EXBOX.UMA (?) ("DOTEC" in the kext) | 16 / 16 | default 88.2k, channels vary with rate | fallback | adiknoth/exboxuma (GPL, 2015 alpha) | own codecs; rate-dependent channels |
+| 1ACC:0102 | unidentified Midiplus | 4 / 4 | | fallback | | identify (#93) |
+| 1D03:005C | unidentified iCON | 2 / 2 | 44.1k | fallback | | identify (#93) |
+| 0A4A:5A16 | Smyth Research Realiser A16 | 2 / 16 | 44.1k boot rate, others ? | fallback (3.4.13 kext has no PtSpecific) | ? | in Ozzy (experimental, 44.1k only; 16-lane encoder `dmaEncode16` added) |
+| 0A4A:D064 | D.O.Tec EXBOX.UMA (?) ("DOTEC" in the kext) | 16 / 16 | default 88.2k, channels vary with rate | fallback | adiknoth/exboxuma (GPL, 2015 alpha) | not added: packed 24-bit frames (`dmaEncode08/16/32_DOTEC`, not bit-interleaved), 32 / 16 / 8 channels at ≤48k / 88.2–96k / 176.4–192k, per-rate sub-packet counts (`bulkAudioRun`); needs per-rate channel counts and a new packet layout; no known owner |
 | 0A4A:2416 | Ploytec JCT 24x16 reference board (?) | 24 / 16 | | fallback | | probably not a product |
 | 0A4A:DA01 | unidentified (A&H ICE-16?) | 16 / 16 | | fallback | | identify |
-| 0A4A:CF00, 1016 | unidentified | 2 / 2 | | fallback | | identify |
-| 0A4A:AFFE, CF04, 0003, 6A02, F1A0 | unidentified | | | not in fallback | | identify |
-| 0A4A:AA01/AA06/AA09/AA11 | Reloop Digital Jockey IE, Digital Jockey 2 IE, Spin 2, 10tion | ? | | older kexts, no plist | none | check family; captures |
-| 200C:1017, 100B, 1030 | Reloop Mixage IE, Play, Play 24/96 | ? | | not on the bulk list | none | check family |
+| 0A4A:CF00, 1016 | unidentified | 2 / 2 | | fallback | | identify (#93) |
+| 0A4A:AFFE, CF04, 0003, 6A02, F1A0 | unidentified | | | not in fallback | | identify (#93) |
+| 0A4A:AA01/AA06/AA09/AA11 | Reloop Digital Jockey IE, Digital Jockey 2 IE, Spin 2, 10tion | ? | | older kexts, no plist | none | check family: descriptor dumps (#92) |
+| 200C:1017, 100B, 1030 | Reloop Mixage IE, Play, Play 24/96 | ? | | not on the bulk list | none | check family (#92) |
 
 Not Xone protocol despite Ploytec's VID or driver: SPL Crimson (0A4A:C150; flags 0/0, reportedly
 UAC2 class compliant, Ploytec driver needed for 176.4/192k), Ploytec's generic `PGUSBAudio.kext`
@@ -70,7 +70,7 @@ independently confirming Ozzy's isochronous path.
 | VID:PID | Product | In / out | Rates | Source | Linux | Ozzy needs |
 |---|---|---|---|---|---|---|
 | 09E8:0010 | Akai EIE Pro | 4 / 4 | 44.1–96k | plist | out-of-tree (EmaP77 and others) | in Ozzy (experimental) |
-| 09E8:207F | Akai MPC Renaissance ("ACV0") | 4 / 4 (2 real inputs) | 44.1–96k | plist | none | in Ozzy (experimental) as 2 in / 4 out, first MIDI port only; second MIDI port and the bcdDevice 0x0300 isoc in + isoc out variant missing |
+| 09E8:207F | Akai MPC Renaissance ("ACV0") | 4 / 4 (2 real inputs) | 44.1–96k | plist | none | in Ozzy (experimental) as 2 in / 4 out, first MIDI port only; second MIDI port (bytes 4..7 of the same 9-byte transfer, both directions; needs a second port end to end) and the bcdDevice 0x0300 isoc in + isoc out variant missing |
 | 0763:4002 | M-Audio M-Track Quad | 4 / 4 | 44.1–96k | plist (flags closest to the EIE; setFreqOnOutPipe) | none (?) | in Ozzy (experimental) |
 | 0644:800F | Tascam US-144 | 4 / 4 | 44.1–96k | plist | snd-usb-us122l; us144mkii (6.18) | in Ozzy (experimental); left out of the Linux build by default |
 | 0644:8020 | Tascam US-144MKII | 4 / 4 | 44.1–96k | plist | us144mkii (6.18) | in Ozzy (experimental); left out of the Linux build by default |
@@ -80,20 +80,20 @@ independently confirming Ozzy's isochronous path.
 | 0644:8025 | Tascam US-2000 | 16 / 4 | 44.1–96k | plist | none | in Ozzy (experimental); digital out selector |
 | 0644:8030 | Tascam US-1800 | 16 / 4 | 44.1–96k | plist | none | in Ozzy (experimental); digital out selector |
 | 0644:801E | Tascam M-164UF (mixer) | ? | | 2.0 kext, no plist | none | captures |
-| 0644:8040, 8041 | Tascam US-322, US-366 | ? | | US3XX kext 3.4.13 (Ploytec-signed), no plist | none | captures; US-366 4/6-input post-processor |
-| 0644:8046, 8048 | Tascam US-1200, UH-7000 (?) | ? | | kext strings | none | identify / captures |
+| 0644:8040, 8041 | Tascam US-322, US-366 | ? | | US3XX kext 3.4.13 (Ploytec-signed), no plist | none | descriptors and captures (#91); US-366 4/6-input post-processor |
+| 0644:8046, 8048 | Tascam US-1200, UH-7000 (?) | ? | | kext strings | none | descriptors and captures (#91) |
 | 1210:0018 | Lexicon I-ONIX U42S / IO42 | 6 / 4 | 44.1–96k | plist | none (?) | in Ozzy (experimental); S/PDIF clock source missing |
 | 1210:0019 | Lexicon I-ONIX U82S / IO82 | 10 / 4 | 44.1–96k | plist | none (?) | in Ozzy (experimental; 10-lane decoder added); S/PDIF clock source missing |
 | 1210:001A | Lexicon I-ONIX U22 / IO22 | 2 / 2 | 44.1–96k | plist | none (?) | in Ozzy (experimental) |
-| 13B2:0030 | Alesis MultiMix 8 / 8 FX / 16 USB 2.0 | 4 / 4 per plist, 10 / 2 per spec | 44.1/48k per plist, up to 96k per spec | plist vs spec conflict | slash909uk JACK hobby project | descriptor dump first |
-| 0562:03EB | Dynacord PowerMate-3 / CMS-3 (600/1000/1600/2200) | 4 / 4 (spec, Bosch) | up to 96k | no plist | none (HW:03 revision is class compliant) | captures (dominics/Ozzy fork has captures and support; issue #15) |
+| 13B2:0030 | Alesis MultiMix 8 / 8 FX / 16 USB 2.0 | 4 / 4 per plist, 10 / 2 per spec | 44.1/48k per plist, up to 96k per spec | plist vs spec conflict | slash909uk JACK hobby project | descriptor dump (#90) |
+| 0562:03EB | Dynacord PowerMate-3 / CMS-3 (600/1000/1600/2200) | 4 / 4 (spec, Bosch) | up to 96k | no plist | none (HW:03 revision is class compliant) | not added yet. From the driver: isoc family at High Speed, 4 / 4 24-bit, 44.1k boot, MIDI forced to `M4_C1`. Open: does the class-compliant HW:03 revision share 0562:03EB (a row would take it from the class drivers)? dominics/Ozzy (MIT) has captures and support (#15) |
 | 15E4:0071 | Numark NS7 | 4 / 4 | 44.1k | plist (kInACR 8) | none | in Ozzy (experimental, NS7 MIDI framing) |
 | 15E4:0075 | Numark V7 | 4 / 4 | 44.1k | plist | none | in Ozzy (experimental, NS7 MIDI framing; tejofjord/openv7, MIT, documents it) |
 | 15E4:0079 | Numark NS6 | 4 / 4 | 44.1k | plist (kInACR 8) | none | in Ozzy (experimental, NS7 MIDI framing) |
 | 15E4:0040 | Numark MixDeck | 4 / 4 | 44.1/88.2k | plist (kInACR 2) | none | in Ozzy (experimental) |
 | 15E4:0026 | Numark 4Trak | 2 / 4 | 44.1k | plist (kInACR 8) | none | in Ozzy (experimental, NS7 MIDI framing) |
-| 15E4:002C, 0070, 0074, 0078 | further Numark PIDs in the EIE 3.3.17 kext | ? | | kext list | | identify |
-| 0A4A:0014, 5B01 | unidentified | ? | | kext list | | identify |
+| 15E4:002C, 0070, 0074, 0078 | further Numark PIDs in the EIE 3.3.17 kext | ? | | kext list | | identify (#93) |
+| 0A4A:0014, 5B01 | unidentified | ? | | kext list | | identify (#93) |
 
 Tascam setup, from the official generic PGDevice code (EIE kext decompile; the us144mkii driver
 sends the same values, facts only):
@@ -153,7 +153,8 @@ quirk). Details in `findings_other_and_projects.md`.
      external (S/PDIF) clock, Lexicon/ESI clock source (Ozzy fixes the ESI selector at STATE_A).
      The ESU1808 gets only the CPLD byte (`OZZY_QUIRK_ESI_CPLD`): ESI's selector and 'A'
      request are VID 0x2573 only.
-  2. Frame codecs: 16-lane output (Realiser A16). 10-lane output and the ESU1808 mirror are done.
+  2. Frame codecs: done for every bit-interleaved count the driver has (output 2/4/6/8/10/16 and the
+     ESU1808 mirror, input 2/4/6/8/10/16). Not done: the Dotec packed codecs.
   3. Input post-processing quirks (MPC Renaissance zeroes inputs 3/4, US-366).
   4. Rarer: isoc in + isoc out (MPC Renaissance bcdDevice 0x0300), rate-dependent channel counts
      (Dotec, SPL Crimson), `kMsWait` 200 (NS7, NS6, MixDeck; not in the V7/4Trak plists) is a 200 ms sleep at the start of

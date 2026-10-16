@@ -76,6 +76,8 @@ WriteOutputFunc PloytecOutputWriter(bool bulkLayout, uint32_t channels, bool spd
     if (spdifMirror12 && bulkLayout && channels == 8)
         return WriteOutputSpdif12;
     switch (channels) {
+    case 16: return bulkLayout ? WriteOutput<PLOYTEC_OUT_LAYOUT_BULK, 16, ploytec_encode_frame_16ch>
+                               : WriteOutput<PLOYTEC_OUT_LAYOUT_INT, 16, ploytec_encode_frame_16ch>;
     case 10: return bulkLayout ? WriteOutput<PLOYTEC_OUT_LAYOUT_BULK, 10, ploytec_encode_frame_10ch>
                                : WriteOutput<PLOYTEC_OUT_LAYOUT_INT, 10, ploytec_encode_frame_10ch>;
     case 8: return bulkLayout ? WriteOutput<PLOYTEC_OUT_LAYOUT_BULK, 8, ploytec_encode_frame_8ch>

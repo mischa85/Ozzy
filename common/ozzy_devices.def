@@ -295,6 +295,17 @@ OZZY_DEVICE(TascamUS2000, 0x0644, 0x8025, "Tascam US-2000", PLOYTEC_ISOC, 16, 4,
 #endif
 
 /*
+ * Smyth Research Realiser A16 3.4.13 kext (Ploytec, no kConfigurationData): 2 in / 16 out from the
+ * fallback table (dmaEncode16). Only the boot rate is known. No device-specific requests that
+ * change Ozzy's handshake (the official configurationDone skips its first selector call, the
+ * second still runs).
+ */
+#ifndef OZZY_DISABLE_SmythRealiserA16
+OZZY_DEVICE(SmythRealiserA16, 0x0A4A, 0x5A16, "Smyth Research Realiser A16", PLOYTEC_XONE, 2, 16,
+	    OZZY_RATE_44K1, EXPERIMENTAL, 0)
+#endif
+
+/*
  * Reloop devices without kConfigurationData in their kexts: channels and boot rate from the
  * fallback table (PGDevice::findInterfacesInConfig), no device-specific requests.
  */

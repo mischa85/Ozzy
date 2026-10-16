@@ -10,7 +10,7 @@
  * (3 bytes per sample) and the Ploytec device format (48 bytes per output
  * frame, 64 bytes per input frame). The frame format is the same for every
  * junction device; a device only differs in how many channel lanes carry
- * audio (up to 10 out, up to 16 in), like the official driver's dmaEncodeNN /
+ * audio (up to 16 out, up to 16 in), like the official driver's dmaEncodeNN /
  * dmaDecode16ToNN functions (see .claude/re/ploytec_device_table.md).
  *
  * Pure C with no platform dependencies -- usable in both kernel space
@@ -39,8 +39,8 @@ extern "C" {
  * model is known, then call it for every frame.
  *
  * Encoders: @src is channels x 3 bytes S24_3LE, @dest a 48-byte output frame
- * (PLOYTEC_OUT_FRAME_SIZE). Odd channels go to bits 0..4 of bytes 0x00..0x17,
- * even channels to bits 0..4 of bytes 0x18..0x2F, MSB first; unused lanes are silent.
+ * (PLOYTEC_OUT_FRAME_SIZE). Odd channels go to bits 0..7 of bytes 0x00..0x17,
+ * even channels to bits 0..7 of bytes 0x18..0x2F (channels 2k+1 and 2k+2 in bit k), MSB first; unused lanes are silent.
  *
  * Decoders: @src is a 64-byte input frame (PLOYTEC_IN_FRAME_SIZE), @dest gets
  * channels x 3 bytes S24_3LE. Odd channels come from bits 0..7 of bytes
@@ -48,6 +48,7 @@ extern "C" {
  */
 typedef void (*ploytec_frame_fn)(uint8_t *dest, const uint8_t *src);
 
+void ploytec_encode_frame_16ch(uint8_t *dest, const uint8_t *src);
 void ploytec_encode_frame_10ch(uint8_t *dest, const uint8_t *src);
 void ploytec_encode_frame_8ch(uint8_t *dest, const uint8_t *src);
 void ploytec_encode_frame_6ch(uint8_t *dest, const uint8_t *src);

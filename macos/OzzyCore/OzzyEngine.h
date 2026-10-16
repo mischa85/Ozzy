@@ -2,11 +2,23 @@
 #define OzzyEngine_h
 
 #include "IOzzyBus.h"
+#include "../../common/ozzy_ep.h"
 
 // --- Hardware Description ---
-struct OzzyPipeConfig {
-    uint8_t address;        // e.g., 0x05
-    uint8_t interfaceIndex; // Which interface owns this pipe? (0, 1, etc.)
+
+// A pipe is a fixed endpoint address, or (address 0) the first endpoint on its interface
+// of the given types and direction, the way the official Ploytec driver finds pipes. Same
+// type as Linux uses (common/ozzy_ep.h). The kext reports the address it found through
+// SetEndpoint().
+typedef struct ozzy_ep OzzyPipeConfig;
+
+enum OzzyPipeRole : uint8_t {
+    kOzzyPipePcmOut,
+    kOzzyPipePcmIn,
+    kOzzyPipeMidiIn,
+    kOzzyPipeMidiOut,
+    kOzzyPipeFeedback,
+    kOzzyPipeRoles
 };
 
 struct OzzyDeviceProfile {
@@ -20,6 +32,7 @@ struct OzzyDeviceProfile {
     OzzyPipeConfig pcmIn;
     OzzyPipeConfig midiIn;
     OzzyPipeConfig midiOut;
+    OzzyPipeConfig feedback;   // isochronous IN feedback for isochronous PCM out
 };
 
 // --- Base Class ---
@@ -38,8 +51,9 @@ public:
     virtual const OzzyDeviceProfile& GetProfile() const = 0;
 
     // Called by the kext for each pipe it opened, before Start(). transferType is
-    // bmAttributes & 3 (2 = bulk, 3 = interrupt).
-    virtual void SetEndpoint(uint8_t address, uint8_t transferType, uint16_t maxPacketSize) {}
+    // bmAttributes & 3 (1 = isochronous, 2 = bulk, 3 = interrupt); interval is bInterval.
+    virtual void SetEndpoint(OzzyPipeRole role, uint8_t address, uint8_t transferType,
+                             uint16_t maxPacketSize, uint8_t interval) {}
 
     // Lifecycle (Pure Virtual)
     virtual bool Start() = 0;
@@ -47,10 +61,14 @@ public:
 
     // Callbacks
     virtual void OnPacketComplete(uint8_t pipeID, void* contextID, int status, uint32_t bytesTransferred) = 0;
+    virtual void OnIsocComplete(uint8_t pipeID, void* contextID, int status, OzzyIsocPacket* packets, uint32_t count) {}
 
     // The MIDI driver queued bytes in the midiOut ring. Engines that send MIDI on their own
     // schedule (Ploytec embeds it in every PCM packet) ignore this.
     virtual void OnMidiOutPending() {}
+
+    // The bus timer (IOzzyBus::StartTimer) fired
+    virtual void OnTimer() {}
 };
 
 #endif

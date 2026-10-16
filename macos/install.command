@@ -196,6 +196,7 @@ SOURCES=(
     "Backends/OzzyKext/OzzyKext.cpp"
     "Backends/OzzyKext/KextBus.cpp"
     "OzzyCore/OzzyEngine.cpp"
+    "OzzyCore/OzzyIsocOutput.cpp"
     "Devices/Ploytec/PloytecEngine.cpp"
     "Devices/UsbMidi/UsbMidiEngine.cpp"
     "../common/devices/ploytec/ploytec_handshake.c"

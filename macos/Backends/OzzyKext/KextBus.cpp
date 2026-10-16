@@ -67,6 +67,47 @@ void KextBus_GlobalCompletion(void* owner, void* parameter, IOReturn status, uin
     }
 }
 
+// --- Isochronous transfers ---
+struct IsocContext {
+    IOMemoryDescriptor* slice;
+    void* userContext;
+    uint8_t pipeID;
+    KextBus* busInstance;
+    OzzyIsocPacket* packets;
+    uint32_t count;
+    IOUSBHostIsochronousTransaction transactions[kOzzyMaxIsocPackets];
+};
+
+/* Copy each transaction's result back to the engine's packets, then notify the engine */
+static void KextBus_IsocCompletion(void* owner, void* parameter, IOReturn status,
+                                   IOUSBHostIsochronousTransaction* transactions) {
+    IsocContext* ctx = (IsocContext*)parameter;
+    if (!ctx) return;
+
+    if (status != kIOReturnSuccess && status != kIOReturnAborted)
+        LogOzzyKext("isoc pipe 0x%02x error: 0x%x", ctx->pipeID, status);
+
+    for (uint32_t i = 0; i < ctx->count; i++) {
+        ctx->packets[i].actual = ctx->transactions[i].completeCount;
+        ctx->packets[i].status = ctx->transactions[i].status;
+        memcpy(&ctx->packets[i].time, &ctx->transactions[i].timeStamp, sizeof(uint64_t));
+    }
+
+    IODirection dir = (ctx->pipeID & 0x80) ? kIODirectionIn : kIODirectionOut;
+    ctx->slice->complete(dir);
+    ctx->slice->release();
+
+    KextBus* bus = ctx->busInstance;
+    void* userContext = ctx->userContext;
+    uint8_t pipeID = ctx->pipeID;
+    OzzyIsocPacket* packets = ctx->packets;
+    uint32_t count = ctx->count;
+    delete ctx;
+
+    OzzyEngine* engine = bus ? bus->GetEngine() : nullptr;
+    if (engine) engine->OnIsocComplete(pipeID, userContext, status, packets, count);
+}
+
 // --- Class Implementation ---
 
 KextBus::KextBus(IOUSBHostDevice* device, IOService* driver) 
@@ -74,7 +115,41 @@ KextBus::KextBus(IOUSBHostDevice* device, IOService* driver)
     for (int i = 0; i < kPipeSlots; i++) mPipeByAddress[i] = nullptr;
 }
 
-KextBus::~KextBus() {}
+KextBus::~KextBus() {
+    StopTimer();
+    if (mTimer) thread_call_free(mTimer);
+}
+
+bool KextBus::StartTimer(uint32_t intervalUs) {
+    if (!mTimer) mTimer = thread_call_allocate_with_priority(&KextBus::TimerFired, this, THREAD_CALL_PRIORITY_HIGH);
+    if (!mTimer) return false;
+    nanoseconds_to_absolutetime((uint64_t)intervalUs * 1000, &mTimerInterval);
+    mTimerDeadline = mach_absolute_time() + mTimerInterval;
+    mTimerOn = true;
+    thread_call_enter_delayed(mTimer, mTimerDeadline);
+    return true;
+}
+
+void KextBus::StopTimer() {
+    mTimerOn = false;
+    if (!mTimer) return;
+    // The first wait lets a running call finish; it may have re-armed before it saw mTimerOn,
+    // so cancel once more. Later calls see mTimerOn false and don't re-arm.
+    thread_call_cancel_wait(mTimer);
+    thread_call_cancel_wait(mTimer);
+}
+
+void KextBus::TimerFired(thread_call_param_t param, thread_call_param_t) {
+    KextBus* bus = (KextBus*)param;
+    if (!bus->mTimerOn) return;
+    if (bus->mEngine) bus->mEngine->OnTimer();
+
+    // Next deadline from the last one; if we fell behind, skip to the next one ahead
+    uint64_t now = mach_absolute_time();
+    bus->mTimerDeadline += bus->mTimerInterval;
+    if (bus->mTimerDeadline <= now) bus->mTimerDeadline = now + bus->mTimerInterval;
+    if (bus->mTimerOn) thread_call_enter_delayed(bus->mTimer, bus->mTimerDeadline);
+}
 
 /* Index pipes by endpoint address so SubmitUSBPacket finds them without searching */
 void KextBus::SetPipePool(IOUSBHostPipe** pipes, int count) {
@@ -153,6 +228,52 @@ bool KextBus::SubmitUSBPacket(uint8_t pipeID, void* buffer, uint32_t size, void*
         return false;
     }
     
+    return true;
+}
+
+/* Zero copy like SubmitUSBPacket: the transactions point into a slice of the shared memory.
+ * A packet that runs past the end of the buffer wraps to its start (XHCI). */
+bool KextBus::SubmitIsoc(uint8_t pipeID, void* buffer, uint32_t bufferSize,
+                         OzzyIsocPacket* packets, uint32_t count, void* contextID) {
+    IOUSBHostPipe* pipe = FindPipe(pipeID);
+    if (!pipe || !mMainShmDesc || mShmBase == 0 || count == 0 || count > kOzzyMaxIsocPackets) return false;
+
+    IODirection dir = (pipeID & 0x80) ? kIODirectionIn : kIODirectionOut;
+    IOSubMemoryDescriptor* slice = IOSubMemoryDescriptor::withSubRange(
+        mMainShmDesc, (uintptr_t)buffer - mShmBase, bufferSize, dir);
+    if (!slice) return false;
+    slice->prepare(dir);
+
+    IsocContext* ctx = new IsocContext;
+    if (!ctx) { slice->complete(dir); slice->release(); return false; }
+    ctx->slice = slice;
+    ctx->userContext = contextID;
+    ctx->pipeID = pipeID;
+    ctx->busInstance = this;
+    ctx->packets = packets;
+    ctx->count = count;
+    for (uint32_t i = 0; i < count; i++) {
+        IOUSBHostIsochronousTransaction& t = ctx->transactions[i];
+        memset(&t, 0, sizeof(t));
+        t.requestCount = packets[i].length;
+        t.offset = packets[i].offset;
+        t.options = (packets[i].offset + packets[i].length > bufferSize) ? kIsochronousTransactionOptionsWrap
+                                                                        : kIsochronousTransactionOptionsNone;
+    }
+
+    IOUSBHostIsochronousTransactionCompletion completion;
+    completion.owner = this;
+    completion.action = &KextBus_IsocCompletion;
+    completion.parameter = ctx;
+
+    IOReturn err = pipe->io(slice, ctx->transactions, count, 0, kIsochronousTransferOptionsNone, &completion);
+    if (err != kIOReturnSuccess) {
+        LogOzzyKext("isoc pipe 0x%02x submit failed: 0x%x", pipeID, err);
+        slice->complete(dir);
+        slice->release();
+        delete ctx;
+        return false;
+    }
     return true;
 }
 

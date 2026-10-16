@@ -20,9 +20,9 @@ UsbMidiEngine::UsbMidiEngine() {
     mProfile.interfaceIndices[0] = kMidiInterface;
     mProfile.altSetting = 0;
     mProfile.midiIn.address = kEpMidiIn;
-    mProfile.midiIn.interfaceIndex = kMidiInterface;
+    mProfile.midiIn.intf = kMidiInterface;
     mProfile.midiOut.address = kEpMidiOut;
-    mProfile.midiOut.interfaceIndex = kMidiInterface;
+    mProfile.midiOut.intf = kMidiInterface;
 }
 
 bool UsbMidiEngine::Start() {

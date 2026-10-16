@@ -26,7 +26,8 @@ public:
     PloytecEngine(uint16_t vid, uint16_t pid);
     
     virtual const OzzyDeviceProfile& GetProfile() const override { return mProfile; }
-    virtual void SetEndpoint(uint8_t address, uint8_t transferType, uint16_t maxPacketSize) override;
+    virtual void SetEndpoint(OzzyPipeRole role, uint8_t address, uint8_t transferType,
+                             uint16_t maxPacketSize, uint8_t interval) override;
     virtual bool Start() override;
     virtual void Stop() override;
     virtual void OnPacketComplete(uint8_t pipeID, void* ctx, int status, uint32_t bytes) override;

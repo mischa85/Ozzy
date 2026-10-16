@@ -50,28 +50,29 @@ PloytecEngine::PloytecEngine(uint16_t vid, uint16_t pid) {
     
     // PCM Out (EP 0x05) lives on Interface 0
     mProfile.pcmOut.address = kEpPcmOut;
-    mProfile.pcmOut.interfaceIndex = 0;
+    mProfile.pcmOut.intf = 0;
     
     // PCM In (EP 0x86) lives on Interface 1
     mProfile.pcmIn.address = kEpPcmIn;
-    mProfile.pcmIn.interfaceIndex = 1;
+    mProfile.pcmIn.intf = 1;
     
     // MIDI In (EP 0x83) lives on Interface 0
     mProfile.midiIn.address = kEpMidiIn;
-    mProfile.midiIn.interfaceIndex = 0;
+    mProfile.midiIn.intf = 0;
 }
 
 /* The output packet layout follows the endpoint's wMaxPacketSize, not its transfer type,
  * like the official driver (AudioBulkIRP::useOut): <= 512 uses the bulk layout, larger (964)
  * uses the interrupt layout. DB2 fw 1.2.0 is an interrupt endpoint with wMaxPacketSize 512. */
-void PloytecEngine::SetEndpoint(uint8_t address, uint8_t transferType, uint16_t maxPacketSize) {
-    if (address == kEpPcmOut) {
+void PloytecEngine::SetEndpoint(OzzyPipeRole role, uint8_t address, uint8_t transferType,
+                                uint16_t maxPacketSize, uint8_t interval) {
+    if (role == kOzzyPipePcmOut) {
         mOutLayout = ploytec_out_layout_for_maxpacket(maxPacketSize);
         mPacketSizeOut = ploytec_out_packet_size(mOutLayout);
         LogPloytec("transport: %s, wMaxPacketSize %u (%s layout, out packet: %u bytes)",
                    transferType == 2 ? "bulk" : "interrupt", maxPacketSize,
                    mOutLayout == PLOYTEC_OUT_LAYOUT_BULK ? "bulk" : "interrupt", mPacketSizeOut);
-    } else if (address == kEpPcmIn) {
+    } else if (role == kOzzyPipePcmIn) {
         // Selects the MIDI IN frame above 48 kHz (ploytec_midi.h)
         mPcmInInt1024 = transferType == 3 && maxPacketSize == 1024;
     }

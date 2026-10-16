@@ -8,14 +8,31 @@
 #ifndef OZZY_PCM_H
 #define OZZY_PCM_H
 
+#include "../common/isoc_feedback.h"
+
 struct ozzy_chip;
 
 #define OZZY_PCM_N_URBS  4
+
+/* Isochronous output (info->out_isoc): 3 URBs of 4 ms in flight, like the official EIE Pro driver */
+#define OZZY_PCM_N_ISO_URBS   3
+#define OZZY_PCM_N_FB_URBS    2      /* feedback URBs in flight */
+#define OZZY_PCM_ISO_UFRAMES  32     /* High Speed microframes per isochronous URB (4 ms) */
 
 struct pcm_urb {
 	struct ozzy_chip *chip;
 	struct urb instance;
 	struct usb_anchor submitted;
+	uint8_t *buffer;
+};
+
+/*
+ * struct pcm_iso_urb - An isochronous URB. Allocated once with usb_alloc_urb()
+ * (it needs room for its packet descriptors) and kept across device resets.
+ */
+struct pcm_iso_urb {
+	struct ozzy_chip *chip;
+	struct urb *instance;
 	uint8_t *buffer;
 };
 
@@ -51,6 +68,15 @@ struct pcm_runtime {
 	struct pcm_urb pcm_out_urbs[OZZY_PCM_N_URBS];
 	struct pcm_urb pcm_in_urbs[OZZY_PCM_N_URBS];
 
+	/* Isochronous output (info->out_isoc only) */
+	struct pcm_iso_urb pcm_iso_out_urbs[OZZY_PCM_N_ISO_URBS];
+	struct pcm_iso_urb pcm_fb_urbs[OZZY_PCM_N_FB_URBS];       /* if there is a feedback EP */
+	struct isoc_fb fb;              /* frames per packet, filled from the feedback */
+	unsigned int iso_uframes;       /* microframes per OUT packet (2^(bInterval-1)) */
+	unsigned int iso_max_frames;    /* frames that fit one OUT packet (wMaxPacketSize) */
+	unsigned int iso_frame_bytes;   /* bytes per frame, the ALSA frame size */
+	bool fb_logged;                 /* first feedback packet logged */
+
 	struct mutex stream_mutex;
 	uint8_t stream_state;  /* one of STREAM_xxx */
 	uint8_t rate;          /* index into device's rate table */
@@ -81,5 +107,11 @@ void ozzy_pcm_abort(struct ozzy_chip *chip);
  * Call before ozzy_pcm_abort when the device stays connected.
  */
 void ozzy_pcm_drain(struct ozzy_chip *chip);
+
+/*
+ * ozzy_pcm_free - Free the isochronous URBs. Call once the card is going away
+ * and all URBs are stopped.
+ */
+void ozzy_pcm_free(struct ozzy_chip *chip);
 
 #endif /* OZZY_PCM_H */

@@ -16,6 +16,8 @@
 #include <sound/core.h>
 #include <sound/pcm.h>
 
+#include "../common/isoc_feedback.h"
+
 struct ozzy_chip;
 struct pcm_runtime;
 struct midi_runtime;
@@ -52,12 +54,22 @@ struct ozzy_device_info {
 	unsigned int capture_channels;    /* number of capture channels (e.g. 8) */
 	unsigned int out_packet_size;     /* default output URB size in bytes */
 	unsigned int in_packet_size;      /* input URB size in bytes */
-	unsigned int frames_per_out_packet; /* audio frames per output USB transfer */
+	unsigned int frames_per_out_packet; /* audio frames per output USB transfer (bulk/interrupt) */
 	unsigned int frames_per_in_packet;  /* audio frames per input USB transfer */
 	struct ozzy_ep out_ep;            /* PCM output endpoint */
 	struct ozzy_ep in_ep;             /* PCM input endpoint */
 	u64 alsa_format;                  /* SNDRV_PCM_FMTBIT_xxx */
 	unsigned int bytes_per_sample;    /* bytes per ALSA sample (e.g. 3 for S24_3LE) */
+
+	/*
+	 * Isochronous PCM out: the core runs the URBs and sends ALSA's interleaved
+	 * samples as they are, as many frames per packet as the feedback endpoint
+	 * reports (common/isoc_feedback.h). Otherwise PCM out is bulk/interrupt
+	 * through process_out_packet.
+	 */
+	bool out_isoc;
+	struct ozzy_ep feedback_ep;       /* isochronous IN feedback endpoint (out_isoc only) */
+	struct isoc_fb_config feedback;   /* its format (ISOC_FB_NONE: nominal rate) */
 
 	/* MIDI topology */
 	struct ozzy_ep midi_in_ep;        /* dedicated MIDI input endpoint */
@@ -209,6 +221,7 @@ struct ozzy_chip {
 	/* Endpoint numbers resolved from info at probe (0 = none) */
 	unsigned int out_ep;
 	unsigned int in_ep;
+	unsigned int feedback_ep;
 	unsigned int midi_in_ep;
 	uint16_t out_maxpacket;           /* output EP wMaxPacketSize */
 

@@ -115,7 +115,8 @@ static unsigned int ozzy_resolve_ep(struct usb_device *device, const struct ozzy
 }
 
 /*
- * ozzy_check_pcm_eps - Both PCM endpoints exist.
+ * ozzy_check_pcm_eps - Both PCM endpoints exist, and PCM out has the transfer
+ * type the device's code is written for (isochronous or not).
  */
 static int ozzy_check_pcm_eps(struct ozzy_chip *chip)
 {
@@ -124,6 +125,11 @@ static int ozzy_check_pcm_eps(struct ozzy_chip *chip)
 
 	if (!out || !in) {
 		ozzy_err(&chip->dev->dev, "PCM %s endpoint not found\n", out ? "in" : "out");
+		return -ENODEV;
+	}
+	if (usb_endpoint_xfer_isoc(&out->desc) != chip->info->out_isoc) {
+		ozzy_err(&chip->dev->dev, "PCM out endpoint is %sisochronous, this device's driver expects otherwise\n",
+			 chip->info->out_isoc ? "not " : "");
 		return -ENODEV;
 	}
 	return 0;
@@ -242,6 +248,7 @@ static int ozzy_probe(struct usb_interface *intf,
 	/* Find the endpoints, then detect the output endpoint's transfer type */
 	chip->out_ep = ozzy_resolve_ep(device, &chip->info->out_ep, false);
 	chip->in_ep = ozzy_resolve_ep(device, &chip->info->in_ep, true);
+	chip->feedback_ep = ozzy_resolve_ep(device, &chip->info->feedback_ep, true);
 	chip->midi_in_ep = ozzy_resolve_ep(device, &chip->info->midi_in_ep, true);
 	ret = ozzy_check_pcm_eps(chip);
 	if (ret < 0)
@@ -253,9 +260,11 @@ static int ozzy_probe(struct usb_interface *intf,
 		 chip->info->num_interfaces, chip->info->alt_setting);
 	ozzy_log(&device->dev, "  PCM out: EP %u (%s, wMaxPacketSize %u)\n",
 		 chip->out_ep,
-		 chip->is_bulk ? "bulk" : "interrupt",
+		 chip->info->out_isoc ? "isochronous" : chip->is_bulk ? "bulk" : "interrupt",
 		 chip->out_maxpacket);
 	ozzy_log(&device->dev, "  PCM in:  EP %u\n", chip->in_ep);
+	if (chip->feedback_ep)
+		ozzy_log(&device->dev, "  feedback: EP %u\n", chip->feedback_ep);
 	if (chip->midi_in_ep)
 		ozzy_log(&device->dev, "  MIDI in: EP %u%s\n",
 			 chip->midi_in_ep,
@@ -325,6 +334,7 @@ static void ozzy_disconnect(struct usb_interface *intf)
 	ozzy_pcm_drain(chip);
 	ozzy_pcm_abort(chip);
 	ozzy_midi_abort(chip);
+	ozzy_pcm_free(chip);
 
 	if (chip->ops->free)
 		chip->ops->free(chip);

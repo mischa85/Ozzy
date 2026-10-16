@@ -54,7 +54,12 @@ enum ozzy_status {
 #define OZZY_RATE_192K   (1u << 5)
 #define OZZY_MAX_RATES   6
 
-/* Quirks (quirks field bits): none yet */
+/*
+ * Quirks (quirks field bits), interpreted by the device's family
+ *   OZZY_QUIRK_MIDI_NS7: Ploytec own-endpoint MIDI in the Numark NS7 framing
+ *     (42-byte transfers, ploytec_midi.h), the official driver's kInACR 8
+ */
+#define OZZY_QUIRK_MIDI_NS7  (1u << 0)
 
 /*
  * struct ozzy_device - One row of ozzy_devices.def.

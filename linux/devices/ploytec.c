@@ -50,6 +50,7 @@ struct ploytec_private {
 	ploytec_frame_fn decode;
 	struct ploytec_midi midi;       /* MIDI framing at the current rate */
 	unsigned int rates[OZZY_MAX_RATES];  /* this device's rates (common/ozzy_devices.def) */
+	u32 quirks;                     /* this device's OZZY_QUIRK_xxx bits */
 };
 
 /* Placeholder until ploytec_init() applies the device's rates (common/ozzy_devices.def) */
@@ -72,6 +73,7 @@ static int ploytec_apply_model(struct ozzy_chip *chip, struct ploytec_private *p
 		return -ENODEV;
 	}
 
+	priv->quirks = dev->quirks;
 	priv->base_info = chip->info;
 	priv->info = *chip->info;
 	priv->info.capture_channels = dev->in_channels;
@@ -411,8 +413,10 @@ static int ploytec_isoc_init(struct ozzy_chip *chip)
 		return ret;
 
 	chip->current_rate = chip->requested_rate;
-	/* kInACR 3: the 4-slot MIDI IN frame (inACR_M4_C1) at every rate */
-	ploytec_midi_init_slots(&priv->midi, rate, PLOYTEC_MIDI_IN_MAX_SLOTS);
+	/* MIDI framing on its own endpoints, as the device's kInACR picks it (ploytec_midi.h) */
+	ploytec_midi_init_xfer(&priv->midi, rate, (priv->quirks & OZZY_QUIRK_MIDI_NS7) ?
+			       PLOYTEC_MIDI_XFER_NS7 : PLOYTEC_MIDI_XFER_M4_C1);
+	priv->info.midi_in_size = priv->midi.xfer_size;
 	return 0;
 }
 
@@ -426,7 +430,7 @@ static unsigned int ploytec_fill_midi_out_xfer(struct ozzy_chip *chip, uint8_t *
 	unsigned int n = ploytec_midi_xfer_begin(&priv->midi, buf);
 
 	ozzy_midi_consume(chip->midi, buf, n, PLOYTEC_MIDI_IDLE_BYTE);
-	return PLOYTEC_MIDI_XFER_SIZE;
+	return priv->midi.xfer_size;
 }
 
 /* ========================================================================

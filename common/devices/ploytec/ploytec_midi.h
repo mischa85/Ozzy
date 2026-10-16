@@ -34,11 +34,20 @@
  *
  * DB4 fw 1.4.1 sends "FD FD FD B0 FF" at 48 kHz and "FD B0" at 96 kHz.
  *
- * Bulk in / isoc out devices (Akai EIE Pro, kInACR 3) use the 4-slot MIDI IN
- * frame at every rate, and send MIDI out on its own endpoint instead of in the
- * PCM packets: 9-byte transfers of 4 or 3 MIDI bytes (pattern 4,3,3,3,3,3,3,3),
- * 0xFD padding and a control byte last (AJ::fireOutputInternal). One transfer
- * per millisecond is 3125 bytes/s, a 31250-baud cable.
+ * Bulk in / isoc out devices send MIDI out on its own endpoint instead of in
+ * the PCM packets, in transfers of a fixed size: MIDI bytes first, 0xFD padding,
+ * a control byte last (AJ::fireOutputInternal). MIDI IN transfers have the same
+ * size. Two framings, picked per device by the official driver's kInACR
+ * (AJ::configurationDone, AJ::streamingStarted):
+ *
+ *   M4_C1 (kInACR 2, 3, and the first port of the MPC's two-port frame):
+ *     9-byte transfers; MIDI IN: 4 slots at every rate (inACR_M4_C1); MIDI out:
+ *     4 or 3 bytes per transfer (pattern 4,3,3,3,3,3,3,3). One transfer per
+ *     millisecond is 3125 bytes/s, a 31250-baud cable.
+ *   NS7 (kInACR 8, Numark NS7/V7/NS6/4Trak):
+ *     42-byte transfers (0x2a); MIDI IN: all 41 bytes before the control byte
+ *     (inACR_NS7); MIDI out: up to 39 bytes per transfer (initNS7 fills the
+ *     pattern with 0x27). The MIDI goes to the controller itself, not a cable.
  *
  * Copyright (C) 2024 Marcel Bierling <marcel@hackerman.art>
  */
@@ -55,13 +64,19 @@ extern "C" {
 /* MIDI out pace: 80% of 31250 baud at 10 bits per byte (3125 bytes/s) */
 #define PLOYTEC_MIDI_OUT_BYTES_PER_SEC  2500
 
-#define PLOYTEC_MIDI_IN_MAX_SLOTS       4
+#define PLOYTEC_MIDI_IN_MAX_SLOTS       41     /* NS7 framing; the Xone and M4_C1 frames have 4 */
 
-/* MIDI out on its own endpoint (bulk in / isoc out devices) */
-#define PLOYTEC_MIDI_XFER_SIZE          9      /* bytes per transfer */
+/* MIDI on its own endpoints (bulk in / isoc out devices) */
+#define PLOYTEC_MIDI_XFER_MAX           42     /* bytes per transfer, largest framing (NS7) */
 #define PLOYTEC_MIDI_XFER_INTERVAL_US   1000   /* one transfer per millisecond */
-#define PLOYTEC_MIDI_XFER_PATTERN       8      /* entries in the byte-count pattern */
+#define PLOYTEC_MIDI_XFER_PATTERN       8      /* entries in the M4_C1 byte-count pattern */
 #define PLOYTEC_MIDI_XFER_CONTROL_IDLE  0xE0   /* last byte of a transfer (seen in captures) */
+
+/* MIDI framing on its own endpoints, see above */
+enum ploytec_midi_xfer_framing {
+	PLOYTEC_MIDI_XFER_M4_C1,
+	PLOYTEC_MIDI_XFER_NS7,
+};
 #define PLOYTEC_OUT_SUBPKTS             (PLOYTEC_FRAMES_PER_PKT / PLOYTEC_FRAMES_PER_OUT_SUBPKT)
 
 /*
@@ -74,20 +89,37 @@ struct ploytec_midi {
 	uint32_t out_rate;   /* sample rate: a slot opens each time the sum passes it */
 	uint32_t out_acc;    /* pacing accumulator, always < out_rate */
 	uint32_t xfer_idx;   /* MIDI out transfer pattern position (own endpoint) */
+	uint32_t xfer_size;  /* bytes per MIDI IN / OUT transfer on own endpoints */
+	uint32_t xfer_bytes; /* MIDI out bytes per transfer, 0 = the M4_C1 pattern */
 };
 
 /*
- * ploytec_midi_init_slots - Set up MIDI framing with @in_slots MIDI byte slots
- * per MIDI IN transfer (bulk in / isoc out devices: PLOYTEC_MIDI_IN_MAX_SLOTS).
- * @rate: sample rate in Hz
+ * ploytec_midi_init_common - The parts every framing shares.
  */
-static inline void ploytec_midi_init_slots(struct ploytec_midi *m, uint32_t rate, uint32_t in_slots)
+static inline void ploytec_midi_init_common(struct ploytec_midi *m, uint32_t rate, uint32_t in_slots)
 {
 	m->in_slots = in_slots;
 	m->out_step = PLOYTEC_MIDI_OUT_BYTES_PER_SEC * PLOYTEC_FRAMES_PER_OUT_SUBPKT;
 	m->out_rate = rate;
 	m->out_acc = 0;
 	m->xfer_idx = 0;
+	m->xfer_size = 9;
+	m->xfer_bytes = 0;
+}
+
+/*
+ * ploytec_midi_init_xfer - Set up MIDI framing for a device with its own MIDI
+ * endpoints (bulk in / isoc out), in @framing.
+ * @rate: sample rate in Hz
+ */
+static inline void ploytec_midi_init_xfer(struct ploytec_midi *m, uint32_t rate,
+					  enum ploytec_midi_xfer_framing framing)
+{
+	uint32_t ns7 = framing == PLOYTEC_MIDI_XFER_NS7;
+
+	ploytec_midi_init_common(m, rate, ns7 ? PLOYTEC_MIDI_XFER_MAX - 1 : 4);
+	m->xfer_size = ns7 ? PLOYTEC_MIDI_XFER_MAX : 9;
+	m->xfer_bytes = ns7 ? 0x27 : 0;
 }
 
 /*
@@ -97,7 +129,7 @@ static inline void ploytec_midi_init_slots(struct ploytec_midi *m, uint32_t rate
  */
 static inline void ploytec_midi_init(struct ploytec_midi *m, uint32_t rate, bool pcm_in_int_1024)
 {
-	ploytec_midi_init_slots(m, rate, rate <= 48000 ? 4 : (pcm_in_int_1024 ? 2 : 1));
+	ploytec_midi_init_common(m, rate, rate <= 48000 ? 4 : (pcm_in_int_1024 ? 2 : 1));
 }
 
 /*
@@ -142,21 +174,22 @@ static inline void ploytec_midi_out_place(enum ploytec_out_layout layout, uint8_
 }
 
 /*
- * ploytec_midi_xfer_begin - Start the next MIDI out transfer on its own endpoint.
- * Fills @buf with 0xFD and the control byte, and returns how many MIDI bytes go
- * at its start (4 or 3). Bytes left over stay 0xFD.
+ * ploytec_midi_xfer_begin - Start the next MIDI out transfer on its own endpoint
+ * (xfer_size bytes). Fills @buf with 0xFD and the control byte, and returns how
+ * many MIDI bytes go at its start (M4_C1: 4 or 3, NS7: 39). Bytes left over stay 0xFD.
  */
 static inline uint32_t ploytec_midi_xfer_begin(struct ploytec_midi *m,
-					       uint8_t buf[PLOYTEC_MIDI_XFER_SIZE])
+					       uint8_t buf[PLOYTEC_MIDI_XFER_MAX])
 {
-	uint32_t i;
+	uint32_t i, pattern;
 
-	for (i = 0; i < PLOYTEC_MIDI_XFER_SIZE - 1; i++)
+	for (i = 0; i < m->xfer_size - 1; i++)
 		buf[i] = PLOYTEC_MIDI_IDLE_BYTE;
-	buf[PLOYTEC_MIDI_XFER_SIZE - 1] = PLOYTEC_MIDI_XFER_CONTROL_IDLE;
+	buf[m->xfer_size - 1] = PLOYTEC_MIDI_XFER_CONTROL_IDLE;
 
-	/* _USBMidiPattern_USB1: 4,3,3,3,3,3,3,3 */
-	return 3 + ((m->xfer_idx++ & (PLOYTEC_MIDI_XFER_PATTERN - 1)) == 0);
+	/* _USBMidiPattern_USB1: 4,3,3,3,3,3,3,3; NS7: a fixed count */
+	pattern = 3 + ((m->xfer_idx++ & (PLOYTEC_MIDI_XFER_PATTERN - 1)) == 0);
+	return m->xfer_bytes ? m->xfer_bytes : pattern;
 }
 
 /*

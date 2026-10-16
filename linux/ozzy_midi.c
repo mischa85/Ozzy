@@ -294,13 +294,13 @@ static int ozzy_midi_init_bulk_in_urb(struct midi_urb *urb,
 	if (chip->dev->ep_in[ep] && usb_endpoint_xfer_int(&chip->dev->ep_in[ep]->desc))
 		usb_fill_int_urb(&urb->instance, chip->dev,
 				 usb_rcvintpipe(chip->dev, ep),
-				 urb->buffer, 9,
+				 urb->buffer, chip->info->midi_in_size ?: 9,
 				 ozzy_midi_in_urb_handler, urb,
 				 chip->dev->ep_in[ep]->desc.bInterval);
 	else
 		usb_fill_bulk_urb(&urb->instance, chip->dev,
 				  usb_rcvbulkpipe(chip->dev, ep),
-				  urb->buffer, 9,
+				  urb->buffer, chip->info->midi_in_size ?: 9,
 				  ozzy_midi_in_urb_handler, urb);
 
 	if (usb_urb_ep_type_check(&urb->instance)) {

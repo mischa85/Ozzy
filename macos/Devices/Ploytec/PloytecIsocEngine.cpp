@@ -65,8 +65,9 @@ bool PloytecIsocEngine::Start() {
     struct ploytec_rate_endpoints eps = { mInAddr, mOutAddr };
     if (ploytec_handshake_eps(&kPloytecHostOps, mBus, mSampleRate, &eps, nullptr) < 0)
         return false;
-    // kInACR 3: the 4-slot MIDI IN frame (inACR_M4_C1) at every rate
-    ploytec_midi_init_slots(&mMidi, mSampleRate, PLOYTEC_MIDI_IN_MAX_SLOTS);
+    // MIDI framing on its own endpoints, as the device's kInACR picks it (ploytec_midi.h)
+    ploytec_midi_init_xfer(&mMidi, mSampleRate, (mModel->quirks & OZZY_QUIRK_MIDI_NS7) ?
+                           PLOYTEC_MIDI_XFER_NS7 : PLOYTEC_MIDI_XFER_M4_C1);
 
     OzzyStoreRelease(&shm->audio.hardwarePresent, true);
     shm->audio.timestamp.sampleTime = 0;
@@ -131,11 +132,11 @@ void PloytecIsocEngine::OnPacketComplete(uint8_t pipeID, void* ctx, int status, 
     }
 }
 
-/* 9-byte MIDI IN reads, like the official driver (AJ::configurationDone), one slot each */
+/* MIDI IN reads of the framing's transfer size (AJ::configurationDone), one slot each */
 void PloytecIsocEngine::SubmitMIDIIn(uint32_t slot) {
     auto* shm = GetSHM();
     void* buf = (void*)(shm->midiInUSBBuffer + slot * kMidiInSlot);
-    if (!mBus->SubmitUSBPacket(mMidiInAddr, buf, PLOYTEC_MIDI_XFER_SIZE, (void*)(uintptr_t)slot))
+    if (!mBus->SubmitUSBPacket(mMidiInAddr, buf, mMidi.xfer_size, (void*)(uintptr_t)slot))
         LogPloytec("isoc: MIDI input submission failed (slot %u)", slot);
 }
 
@@ -155,7 +156,7 @@ void PloytecIsocEngine::SendMidiOut() {
     uint32_t n = ploytec_midi_xfer_begin(&mMidi, buf);
     OzzyMidiRingPop(&shm->midiOut, buf, n);
 
-    if (!mBus->SubmitUSBPacket(mMidiOutAddr, buf, PLOYTEC_MIDI_XFER_SIZE, nullptr)) {
+    if (!mBus->SubmitUSBPacket(mMidiOutAddr, buf, mMidi.xfer_size, nullptr)) {
         LogPloytec("isoc: MIDI output submission failed");
         __atomic_store_n(&mMidiOutBusy, false, __ATOMIC_RELEASE);
     }

@@ -59,6 +59,7 @@ struct ozzy_device_info {
 	struct ozzy_ep midi_in_ep;        /* dedicated MIDI input endpoint */
 	struct ozzy_ep midi_out_ep;       /* dedicated MIDI output endpoint (fill_midi_out_xfer) */
 	unsigned int midi_out_interval_us; /* one midi_out_ep transfer per this many us */
+	unsigned int midi_in_size;        /* bytes per MIDI IN transfer (0: 9) */
 	bool midi_out_embedded;           /* true if MIDI out is embedded in PCM out packets */
 
 	/* USB interface configuration */

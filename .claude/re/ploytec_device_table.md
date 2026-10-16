@@ -170,11 +170,24 @@ The `setFrequency` function retries the SET_CUR request up to 200 times for thes
 | 0x1000  | ?           | 24-bit TUSB 2ch | `(PID \| 0x2000) == 0x3000` check |
 | 0x3000  | Mbox 2?     | 24-bit TUSB 2ch | Referenced via `initDigiDesignMbox2` in `setClockSource` |
 
-## VID 0x09E8 (unknown)
+## Akai Professional (VID 0x09E8)
 
 | USB PID | Device Name | Notes |
 |---------|-------------|-------|
-| 0x207F  | "ACV0"      | Named in `_IOLog`. bcdDevice 0x300 variant uses isoc in + isoc out (no bulk) |
+| 0x0010  | EIE Pro (#73) | In `isPloytecBulkInIsocOutDevice`: **bulk in, isoc out** (not a bulk/interrupt-out device like the Xones). In Ozzy as experimental on Linux (`ploytec_isoc_ops`), untested on hardware. See `akai_eie_pro.md` |
+| 0x207F  | "ACV0"      | Named in `_IOLog`. In `isPloytecBulkInIsocOutDevice`; the bcdDevice 0x300 variant uses isoc in + isoc out (no bulk) |
+
+### Bulk in / isoc out devices (`PGDevice::isPloytecBulkInIsocOutDevice` @ 0xc2a6)
+
+0562:03EB, 0644:(PID-0x800F bitmask 0x6200428101), 0763:4002, 09E8:0010, 09E8:207F,
+0A4A:0014, 0A4A:5B01, 1210:0018-001A, 13B2:0030. `PGKernelDeviceXONEDB2` pipe setup
+(~line 22720 of the decompile): PCM in from interface 1's bulk IN pipe (`+0xa90`, or its
+interrupt IN pipe, then "Use interrupt transfers"), plus interface 1's isoc IN pipe as
+`m_pcInPipeFeedback` (`+0xab8`). The out pipe isn't in this snippet: isoc out with explicit
+feedback is **inferred** from the function name and the feedback pipe (cf. `isPloytecBulkDevice`,
+whose name turned out misleading, `ploytec_bulk_devices.md`).
+`bulkInpEvent` ignores bulk IN errors for these devices on Darwin > 14. If the out pipe is
+isoc, Ozzy has no path for it, and none of these is just a table entry away.
 
 ---
 

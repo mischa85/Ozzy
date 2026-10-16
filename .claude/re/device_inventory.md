@@ -35,8 +35,8 @@ rates and a few vendor extras (listed per device).
 |---|---|---|---|---|---|---|
 | 0A4A:FFDB/FFD2/FFDD/FF4D/FF01/FFAD | Xone:DB4/DB2/DX/4D/2D, WZ4 | see `common/ozzy_devices.def` | | plist | Ozzy | in Ozzy |
 | 200C:1009 | Reloop Digital Jockey 2 ME | 6 / 4 | 44.1k | Reloop INF, PR #80 | Ozzy | in Ozzy |
-| 200C:1019 | Reloop Jockey 3 Master Edition | 6 / 4 | 44.1–96k | plist (flags = DB2/DB4) | fvdpol/alsa-jockey3 (GPL, out of tree; upstream patch pending) | model row |
-| 200C:1037 | Reloop Jockey 3 Remix | 6 / 4 | ? | fallback | fvdpol/alsa-jockey3 | model row |
+| 200C:1019 | Reloop Jockey 3 Master Edition | 6 / 4 | 44.1–96k | plist (flags = DB2/DB4, kInACR 1) | fvdpol/alsa-jockey3 (GPL, out of tree; upstream patch pending) | in Ozzy (experimental) |
+| 200C:1037 | Reloop Jockey 3 Remix | 6 / 4 | 44.1–96k (fvdpol) | fallback | fvdpol/alsa-jockey3 | in Ozzy (experimental) |
 | 200C:1005 | Reloop IQ2 MIDI | 4 / 4 | 24/96 (spec) | fallback | none | model row |
 | 200C:100A | Reloop Contour Interface Edition | 2 / **10** | ? | fallback | none | 10-lane output frame (`dmaEncode10_*`) |
 | 200C:1006 | unidentified Reloop | 6 / 6 | | fallback | | identify |
@@ -70,8 +70,8 @@ independently confirming Ozzy's isochronous path.
 | VID:PID | Product | In / out | Rates | Source | Linux | Ozzy needs |
 |---|---|---|---|---|---|---|
 | 09E8:0010 | Akai EIE Pro | 4 / 4 | 44.1–96k | plist | out-of-tree (EmaP77 and others) | in Ozzy (experimental) |
-| 09E8:207F | Akai MPC Renaissance ("ACV0") | 4 / 4 (2 real inputs) | 44.1–96k | plist | none | model row; inputs 3/4 zeroed; bcdDevice 0x0300 variant is isoc in + isoc out (new transport) |
-| 0763:4002 | M-Audio M-Track Quad | 4 / 4 | 44.1–96k | plist (flags closest to the EIE; setFreqOnOutPipe) | none (?) | model row: likely the easiest |
+| 09E8:207F | Akai MPC Renaissance ("ACV0") | 4 / 4 (2 real inputs) | 44.1–96k | plist | none | in Ozzy (experimental) as 2 in / 4 out, first MIDI port only; second MIDI port and the bcdDevice 0x0300 isoc in + isoc out variant missing |
+| 0763:4002 | M-Audio M-Track Quad | 4 / 4 | 44.1–96k | plist (flags closest to the EIE; setFreqOnOutPipe) | none (?) | in Ozzy (experimental) |
 | 0644:800F | Tascam US-144 | 4 / 4 | 44.1–96k | plist | snd-usb-us122l; us144mkii (6.18) | model row + Tascam 'A' register writes |
 | 0644:8020 | Tascam US-144MKII | 4 / 4 | 44.1–96k | plist | us144mkii (6.18) | same |
 | 0644:8034 | Tascam US-200 | 2 / 4 | 44.1–96k | plist | none | same (?) |
@@ -82,16 +82,16 @@ independently confirming Ozzy's isochronous path.
 | 0644:801E | Tascam M-164UF (mixer) | ? | | 2.0 kext, no plist | none | captures |
 | 0644:8040, 8041 | Tascam US-322, US-366 | ? | | US3XX kext 3.4.13 (Ploytec-signed), no plist | none | captures; US-366 4/6-input post-processor |
 | 0644:8046, 8048 | Tascam US-1200, UH-7000 (?) | ? | | kext strings | none | identify / captures |
-| 1210:0018 | Lexicon I-ONIX U42S / IO42 | 6 / 4 | 44.1–96k | plist | none (?) | model row; S/PDIF clock source |
-| 1210:0019 | Lexicon I-ONIX U82S / IO82 | 10 / 4 | 44.1–96k | plist | none (?) | model row; 10-lane input codec |
-| 1210:001A | Lexicon I-ONIX U22 / IO22 | 2 / 2 | 44.1–96k | plist | none (?) | model row |
+| 1210:0018 | Lexicon I-ONIX U42S / IO42 | 6 / 4 | 44.1–96k | plist | none (?) | in Ozzy (experimental); S/PDIF clock source missing |
+| 1210:0019 | Lexicon I-ONIX U82S / IO82 | 10 / 4 | 44.1–96k | plist | none (?) | in Ozzy (experimental; 10-lane decoder added); S/PDIF clock source missing |
+| 1210:001A | Lexicon I-ONIX U22 / IO22 | 2 / 2 | 44.1–96k | plist | none (?) | in Ozzy (experimental) |
 | 13B2:0030 | Alesis MultiMix 8 / 8 FX / 16 USB 2.0 | 4 / 4 per plist, 10 / 2 per spec | 44.1/48k per plist, up to 96k per spec | plist vs spec conflict | slash909uk JACK hobby project | descriptor dump first |
 | 0562:03EB | Dynacord PowerMate-3 / CMS-3 (600/1000/1600/2200) | 4 / 4 (spec, Bosch) | up to 96k | no plist | none (HW:03 revision is class compliant) | captures (dominics/Ozzy fork has captures and support; issue #15) |
-| 15E4:0071 | Numark NS7 | 4 / 4 | 44.1k | plist | none | model row |
-| 15E4:0075 | Numark V7 | 4 / 4 | 44.1k | plist | none | model row (tejofjord/openv7, MIT, documents it) |
-| 15E4:0079 | Numark NS6 | 4 / 4 | 44.1k | plist | none | model row |
-| 15E4:0040 | Numark MixDeck | 4 / 4 | 44.1/88.2k | plist | none | model row |
-| 15E4:0026 | Numark 4Trak | 2 / 4 | 44.1k | plist | none | model row |
+| 15E4:0071 | Numark NS7 | 4 / 4 | 44.1k | plist (kInACR 8) | none | in Ozzy (experimental, NS7 MIDI framing) |
+| 15E4:0075 | Numark V7 | 4 / 4 | 44.1k | plist | none | in Ozzy (experimental, NS7 MIDI framing; tejofjord/openv7, MIT, documents it) |
+| 15E4:0079 | Numark NS6 | 4 / 4 | 44.1k | plist (kInACR 8) | none | in Ozzy (experimental, NS7 MIDI framing) |
+| 15E4:0040 | Numark MixDeck | 4 / 4 | 44.1/88.2k | plist (kInACR 2) | none | in Ozzy (experimental) |
+| 15E4:0026 | Numark 4Trak | 2 / 4 | 44.1k | plist (kInACR 8) | none | in Ozzy (experimental, NS7 MIDI framing) |
 | 15E4:002C, 0070, 0074, 0078 | further Numark PIDs in the EIE 3.3.17 kext | ? | | kext list | | identify |
 | 0A4A:0014, 5B01 | unidentified | ? | | kext list | | identify |
 
@@ -99,6 +99,20 @@ Tascam 'A' register writes (from the us144mkii driver; facts only): bRequest 0x4
 wValue 0x0d04, 0x0e00, 0x0f00, rate (0x1000 44.1k, 0x1002 48k, 0x1008 88.2k, 0x100a 96k), 0x110b;
 'I' write 0x0010 before and 0x0030 to start; 'D' (0x44) = deep sleep. Whether all Tascams need
 them is open.
+
+MIDI framing on the bulk in / isoc out path (EIE kext `AJ::streamingStarted` @0x2e94, `kInACR`
+at `PGDevice+0x810`; `AJ::configurationDone` sets the transfer size):
+
+| kInACR | MIDI IN handler | Transfer | Devices |
+|---|---|---|---|
+| 0 | `inACR_Reg` | | |
+| 1 | Xone rule: `M4_C1` at ≤48k, `M1_C1` (or `M2` on a 1024-byte interrupt pipe) at 88.2/96k | 9 | Reloop Jockey 3 ME; Xone-protocol devices with 0xFF also land here |
+| 2, 3 | `inACR_M4_C1`, one port | 9 | MixDeck (2), EIE, M-Track Quad, Lexicon (3) |
+| 8 | `inACR_NS7`: 41 MIDI bytes + control byte at 41 | 0x2a = 42 | NS7, V7, NS6, 4Trak; out pattern `initNS7` = 39 bytes per transfer |
+| 0xFF (none) | `inACR_M4_M4_C1`, two ports (second at offset 4) | 9 | MPC Renaissance; overrides: Dynacord 0562:03EB and 170B:0020/0021 → `M4_C1`, Tascam 8040/8041 → `inACR_US366`, 8046/8048 → `inACR_UH7000`, Dotec 0A4A:D064 → its own |
+
+Ozzy implements `M4_C1` (default) and NS7 (`OZZY_QUIRK_MIDI_NS7`, `common/devices/ploytec/ploytec_midi.h`);
+for `M4_M4_C1` it reads the first port only.
 
 ## Not Ploytec, still candidates
 
@@ -122,15 +136,13 @@ quirk). Details in `findings_other_and_projects.md`.
 - **Missing pieces, in order of how many devices need them:**
   1. Per-device handshake extras: Tascam 'A' register writes (≥7 devices), ESI CPLD byte and 'A'
      request (4 devices), Lexicon/ESI S/PDIF clock source.
-  2. Frame codecs for more lane counts: 6-lane output (U86 XT, AudioLink), 10-lane input (U108
-     PRE, IO82), 10-lane output with the S/PDIF mirror (ESU1808, Contour IE), 16-lane output
+  2. Frame codecs for more lane counts: 6-lane output (U86 XT, AudioLink), 10-lane output with the S/PDIF mirror (ESU1808, Contour IE), 16-lane output
      (Realiser A16).
-  3. Rates per device on macOS (Numark NS7/V7/NS6/4Trak are 44.1k only; MixDeck 44.1/88.2k).
-  4. Input post-processing quirks (MPC Renaissance zeroes inputs 3/4, US-366).
-  5. Rarer: isoc in + isoc out (MPC Renaissance bcdDevice 0x0300), rate-dependent channel counts
-     (Dotec, SPL Crimson).
+  3. Input post-processing quirks (MPC Renaissance zeroes inputs 3/4, US-366).
+  4. Rarer: isoc in + isoc out (MPC Renaissance bcdDevice 0x0300), rate-dependent channel counts
+     (Dotec, SPL Crimson), the Numarks' `kMsWait` 200 (not implemented; its effect is open).
 - The central device list `common/ozzy_devices.def` (one row per device: VID, PID, name, family,
-  in/out, rates, status, platforms, quirks) is where a device is added; the Linux ID table, the
+  in/out, rates, status, quirks) is where a device is added; the Linux ID table, the
   kext's personalities and the engine choice are generated from it.
 
 ## Naming correction

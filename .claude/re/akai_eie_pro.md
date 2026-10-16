@@ -316,7 +316,7 @@ No EIE-specific vendor request exists anywhere. The only VID 0x09E8 checks are i
 but each read is 9 bytes long.
 
 `AJ::streamingStarted` @0x2e94: `kInACR = 3` → `inACR_M4_C1`, and `+0x13d8 = 0` (single port).
-Unlike the Xones (`kInACR` 0xff → case 1), this is **not** rate-dependent and does not call
+Unlike the Xones (`kInACR` 0xff, `isPloytecBulkDevice` → case 1; full table in `device_inventory.md`), this is **not** rate-dependent and does not call
 `USBMidiPattern::initForBulk`. 16 reads are queued.
 
 **MIDI in** (`AJ::inACR_M4_C1` @0x31d8): `MidiIO::putFrame(buf, 4)`, i.e. the first 4 bytes of

@@ -89,3 +89,92 @@ OZZY_DEVICE(AkaiEIEPro, 0x09E8, 0x0010, "Akai EIE Pro", PLOYTEC_ISOC, 4, 4,
 OZZY_DEVICE(Xone1D, 0x0A4A, 0x001E, "Xone:1D", USB_MIDI, 0, 0,
 	    0, EXPERIMENTAL, 0)
 #endif
+
+/*
+ * Bulk in / isoc out devices from the official kexts (kConfigurationData, High Speed, decoded
+ * with tools/ploytec_config_decode.py; .claude/re/device_inventory.md). Untested on hardware.
+ */
+
+/* M-Audio M-Track Quad 3.3.11 kext: 4 in / 4 out, 44.1-96k, kInACR 3 */
+#ifndef OZZY_DISABLE_MTrackQuad
+OZZY_DEVICE(MTrackQuad, 0x0763, 0x4002, "M-Audio M-Track Quad", PLOYTEC_ISOC, 4, 4,
+	    OZZY_RATE_44K1 | OZZY_RATE_48K | OZZY_RATE_88K2 | OZZY_RATE_96K, EXPERIMENTAL, 0)
+#endif
+
+/* Lexicon I-ONIX / IO Desktop 3.3.11 kext: U22/IO22 2 in / 2 out, kInACR 3 */
+#ifndef OZZY_DISABLE_LexiconIO22
+OZZY_DEVICE(LexiconIO22, 0x1210, 0x001A, "Lexicon I-ONIX U22 / IO22", PLOYTEC_ISOC, 2, 2,
+	    OZZY_RATE_44K1 | OZZY_RATE_48K | OZZY_RATE_88K2 | OZZY_RATE_96K, EXPERIMENTAL, 0)
+#endif
+
+/* Same kext: U42S/IO42 6 in (4 mic/line + S/PDIF) / 4 out (main + S/PDIF) */
+#ifndef OZZY_DISABLE_LexiconIO42
+OZZY_DEVICE(LexiconIO42, 0x1210, 0x0018, "Lexicon I-ONIX U42S / IO42", PLOYTEC_ISOC, 6, 4,
+	    OZZY_RATE_44K1 | OZZY_RATE_48K | OZZY_RATE_88K2 | OZZY_RATE_96K, EXPERIMENTAL, 0)
+#endif
+
+/* Same kext: U82S/IO82 10 in (8 mic/line + S/PDIF) / 4 out */
+#ifndef OZZY_DISABLE_LexiconIO82
+OZZY_DEVICE(LexiconIO82, 0x1210, 0x0019, "Lexicon I-ONIX U82S / IO82", PLOYTEC_ISOC, 10, 4,
+	    OZZY_RATE_44K1 | OZZY_RATE_48K | OZZY_RATE_88K2 | OZZY_RATE_96K, EXPERIMENTAL, 0)
+#endif
+
+/*
+ * Akai MPC Renaissance ("ACV0") 3.3.11 kext: 4 in / 4 out, but only inputs 1/2 are real (the
+ * official driver zeroes 3/4, _postprocessACV0BugFix), so Ozzy takes 2. No kInACR: its MIDI IN
+ * frame carries two ports (inACR_M4_M4_C1); Ozzy reads the first. The bcdDevice 0x0300
+ * variant streams isoc in instead of bulk in and is not supported (probe fails on PCM in).
+ */
+#ifndef OZZY_DISABLE_MPCRenaissance
+OZZY_DEVICE(MPCRenaissance, 0x09E8, 0x207F, "Akai MPC Renaissance", PLOYTEC_ISOC, 2, 4,
+	    OZZY_RATE_44K1 | OZZY_RATE_48K | OZZY_RATE_88K2 | OZZY_RATE_96K, EXPERIMENTAL, 0)
+#endif
+
+/* Numark 3.3.11 kexts (Ploytec-signed). NS7: 4 in / 4 out at 44.1k, kInACR 8 (NS7 MIDI framing) */
+#ifndef OZZY_DISABLE_NumarkNS7
+OZZY_DEVICE(NumarkNS7, 0x15E4, 0x0071, "Numark NS7", PLOYTEC_ISOC, 4, 4,
+	    OZZY_RATE_44K1, EXPERIMENTAL, OZZY_QUIRK_MIDI_NS7)
+#endif
+
+/* V7 (kext class PGKernelDeviceNUMARKNK14): 4 in / 4 out at 44.1k, kInACR 8 */
+#ifndef OZZY_DISABLE_NumarkV7
+OZZY_DEVICE(NumarkV7, 0x15E4, 0x0075, "Numark V7", PLOYTEC_ISOC, 4, 4,
+	    OZZY_RATE_44K1, EXPERIMENTAL, OZZY_QUIRK_MIDI_NS7)
+#endif
+
+/* NS6: 4 in / 4 out at 44.1k, kInACR 8 */
+#ifndef OZZY_DISABLE_NumarkNS6
+OZZY_DEVICE(NumarkNS6, 0x15E4, 0x0079, "Numark NS6", PLOYTEC_ISOC, 4, 4,
+	    OZZY_RATE_44K1, EXPERIMENTAL, OZZY_QUIRK_MIDI_NS7)
+#endif
+
+/* 4Trak: 2 in / 4 out at 44.1k, kInACR 8 */
+#ifndef OZZY_DISABLE_Numark4Trak
+OZZY_DEVICE(Numark4Trak, 0x15E4, 0x0026, "Numark 4Trak", PLOYTEC_ISOC, 2, 4,
+	    OZZY_RATE_44K1, EXPERIMENTAL, OZZY_QUIRK_MIDI_NS7)
+#endif
+
+/* MixDeck (kext class PGKernelDeviceNUMARKNC06): 4 in / 4 out at 44.1/88.2k, kInACR 2 (M4_C1) */
+#ifndef OZZY_DISABLE_NumarkMixDeck
+OZZY_DEVICE(NumarkMixDeck, 0x15E4, 0x0040, "Numark MixDeck", PLOYTEC_ISOC, 4, 4,
+	    OZZY_RATE_44K1 | OZZY_RATE_88K2, EXPERIMENTAL, 0)
+#endif
+
+/*
+ * Reloop Jockey 3 Master Edition 3.4.10 kext (kConfigurationData, same flags as the DB2/DB4):
+ * 6 in / 4 out, 44.1-96k, kInACR 1 (the Xone MIDI rule). The upstream Linux jockey3 patch v3
+ * uses 0x1009 for it; Reloop's kexts say 0x1009 is the Digital Jockey 2 ME and 0x1019 this.
+ */
+#ifndef OZZY_DISABLE_ReloopJockey3ME
+OZZY_DEVICE(ReloopJockey3ME, 0x200C, 0x1019, "Reloop Jockey 3 Master Edition", PLOYTEC_XONE, 6, 4,
+	    OZZY_RATE_44K1 | OZZY_RATE_48K | OZZY_RATE_88K2 | OZZY_RATE_96K, EXPERIMENTAL, 0)
+#endif
+
+/*
+ * Reloop Jockey 3 Remix 3.4.10 kext (no kConfigurationData): 6 in / 4 out from the kext's
+ * fallback table. Rates: all four per fvdpol/alsa-jockey3, whose author tests on this unit (?)
+ */
+#ifndef OZZY_DISABLE_ReloopJockey3Remix
+OZZY_DEVICE(ReloopJockey3Remix, 0x200C, 0x1037, "Reloop Jockey 3 Remix", PLOYTEC_XONE, 6, 4,
+	    OZZY_RATE_44K1 | OZZY_RATE_48K | OZZY_RATE_88K2 | OZZY_RATE_96K, EXPERIMENTAL, 0)
+#endif

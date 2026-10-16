@@ -49,6 +49,7 @@ extern "C" {
 typedef void (*ploytec_frame_fn)(uint8_t *dest, const uint8_t *src);
 
 void ploytec_encode_frame_8ch(uint8_t *dest, const uint8_t *src);
+void ploytec_encode_frame_6ch(uint8_t *dest, const uint8_t *src);
 void ploytec_encode_frame_4ch(uint8_t *dest, const uint8_t *src);
 void ploytec_encode_frame_2ch(uint8_t *dest, const uint8_t *src);
 void ploytec_decode_frame_2ch(uint8_t *dest, const uint8_t *src);

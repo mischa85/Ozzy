@@ -259,6 +259,65 @@ void ploytec_decode_frame_16ch(uint8_t *dest, const uint8_t *src)
 }
 
 /*
+ * ploytec_encode_frame_6ch - 6 channels (official dmaEncode06, ESI U86 XT, Midiplus
+ * AudioLink PLUS 4x4): bits 0..2 of each byte, lane 4 is silent. Generated; checked
+ * against the generic reference and the official encoder in tools/ploytec_lanes_test.c.
+ */
+void ploytec_encode_frame_6ch(uint8_t *dest, const uint8_t *src)
+{
+	/* channels 1, 3, 5 */
+	dest[0x00] = (((src[0x02] >> 7) & 1) << 0) | (((src[0x08] >> 7) & 1) << 1) | (((src[0x0E] >> 7) & 1) << 2);
+	dest[0x01] = (((src[0x02] >> 6) & 1) << 0) | (((src[0x08] >> 6) & 1) << 1) | (((src[0x0E] >> 6) & 1) << 2);
+	dest[0x02] = (((src[0x02] >> 5) & 1) << 0) | (((src[0x08] >> 5) & 1) << 1) | (((src[0x0E] >> 5) & 1) << 2);
+	dest[0x03] = (((src[0x02] >> 4) & 1) << 0) | (((src[0x08] >> 4) & 1) << 1) | (((src[0x0E] >> 4) & 1) << 2);
+	dest[0x04] = (((src[0x02] >> 3) & 1) << 0) | (((src[0x08] >> 3) & 1) << 1) | (((src[0x0E] >> 3) & 1) << 2);
+	dest[0x05] = (((src[0x02] >> 2) & 1) << 0) | (((src[0x08] >> 2) & 1) << 1) | (((src[0x0E] >> 2) & 1) << 2);
+	dest[0x06] = (((src[0x02] >> 1) & 1) << 0) | (((src[0x08] >> 1) & 1) << 1) | (((src[0x0E] >> 1) & 1) << 2);
+	dest[0x07] = (((src[0x02] >> 0) & 1) << 0) | (((src[0x08] >> 0) & 1) << 1) | (((src[0x0E] >> 0) & 1) << 2);
+	dest[0x08] = (((src[0x01] >> 7) & 1) << 0) | (((src[0x07] >> 7) & 1) << 1) | (((src[0x0D] >> 7) & 1) << 2);
+	dest[0x09] = (((src[0x01] >> 6) & 1) << 0) | (((src[0x07] >> 6) & 1) << 1) | (((src[0x0D] >> 6) & 1) << 2);
+	dest[0x0A] = (((src[0x01] >> 5) & 1) << 0) | (((src[0x07] >> 5) & 1) << 1) | (((src[0x0D] >> 5) & 1) << 2);
+	dest[0x0B] = (((src[0x01] >> 4) & 1) << 0) | (((src[0x07] >> 4) & 1) << 1) | (((src[0x0D] >> 4) & 1) << 2);
+	dest[0x0C] = (((src[0x01] >> 3) & 1) << 0) | (((src[0x07] >> 3) & 1) << 1) | (((src[0x0D] >> 3) & 1) << 2);
+	dest[0x0D] = (((src[0x01] >> 2) & 1) << 0) | (((src[0x07] >> 2) & 1) << 1) | (((src[0x0D] >> 2) & 1) << 2);
+	dest[0x0E] = (((src[0x01] >> 1) & 1) << 0) | (((src[0x07] >> 1) & 1) << 1) | (((src[0x0D] >> 1) & 1) << 2);
+	dest[0x0F] = (((src[0x01] >> 0) & 1) << 0) | (((src[0x07] >> 0) & 1) << 1) | (((src[0x0D] >> 0) & 1) << 2);
+	dest[0x10] = (((src[0x00] >> 7) & 1) << 0) | (((src[0x06] >> 7) & 1) << 1) | (((src[0x0C] >> 7) & 1) << 2);
+	dest[0x11] = (((src[0x00] >> 6) & 1) << 0) | (((src[0x06] >> 6) & 1) << 1) | (((src[0x0C] >> 6) & 1) << 2);
+	dest[0x12] = (((src[0x00] >> 5) & 1) << 0) | (((src[0x06] >> 5) & 1) << 1) | (((src[0x0C] >> 5) & 1) << 2);
+	dest[0x13] = (((src[0x00] >> 4) & 1) << 0) | (((src[0x06] >> 4) & 1) << 1) | (((src[0x0C] >> 4) & 1) << 2);
+	dest[0x14] = (((src[0x00] >> 3) & 1) << 0) | (((src[0x06] >> 3) & 1) << 1) | (((src[0x0C] >> 3) & 1) << 2);
+	dest[0x15] = (((src[0x00] >> 2) & 1) << 0) | (((src[0x06] >> 2) & 1) << 1) | (((src[0x0C] >> 2) & 1) << 2);
+	dest[0x16] = (((src[0x00] >> 1) & 1) << 0) | (((src[0x06] >> 1) & 1) << 1) | (((src[0x0C] >> 1) & 1) << 2);
+	dest[0x17] = (((src[0x00] >> 0) & 1) << 0) | (((src[0x06] >> 0) & 1) << 1) | (((src[0x0C] >> 0) & 1) << 2);
+	/* channels 2, 4, 6 */
+	dest[0x18] = (((src[0x05] >> 7) & 1) << 0) | (((src[0x0B] >> 7) & 1) << 1) | (((src[0x11] >> 7) & 1) << 2);
+	dest[0x19] = (((src[0x05] >> 6) & 1) << 0) | (((src[0x0B] >> 6) & 1) << 1) | (((src[0x11] >> 6) & 1) << 2);
+	dest[0x1A] = (((src[0x05] >> 5) & 1) << 0) | (((src[0x0B] >> 5) & 1) << 1) | (((src[0x11] >> 5) & 1) << 2);
+	dest[0x1B] = (((src[0x05] >> 4) & 1) << 0) | (((src[0x0B] >> 4) & 1) << 1) | (((src[0x11] >> 4) & 1) << 2);
+	dest[0x1C] = (((src[0x05] >> 3) & 1) << 0) | (((src[0x0B] >> 3) & 1) << 1) | (((src[0x11] >> 3) & 1) << 2);
+	dest[0x1D] = (((src[0x05] >> 2) & 1) << 0) | (((src[0x0B] >> 2) & 1) << 1) | (((src[0x11] >> 2) & 1) << 2);
+	dest[0x1E] = (((src[0x05] >> 1) & 1) << 0) | (((src[0x0B] >> 1) & 1) << 1) | (((src[0x11] >> 1) & 1) << 2);
+	dest[0x1F] = (((src[0x05] >> 0) & 1) << 0) | (((src[0x0B] >> 0) & 1) << 1) | (((src[0x11] >> 0) & 1) << 2);
+	dest[0x20] = (((src[0x04] >> 7) & 1) << 0) | (((src[0x0A] >> 7) & 1) << 1) | (((src[0x10] >> 7) & 1) << 2);
+	dest[0x21] = (((src[0x04] >> 6) & 1) << 0) | (((src[0x0A] >> 6) & 1) << 1) | (((src[0x10] >> 6) & 1) << 2);
+	dest[0x22] = (((src[0x04] >> 5) & 1) << 0) | (((src[0x0A] >> 5) & 1) << 1) | (((src[0x10] >> 5) & 1) << 2);
+	dest[0x23] = (((src[0x04] >> 4) & 1) << 0) | (((src[0x0A] >> 4) & 1) << 1) | (((src[0x10] >> 4) & 1) << 2);
+	dest[0x24] = (((src[0x04] >> 3) & 1) << 0) | (((src[0x0A] >> 3) & 1) << 1) | (((src[0x10] >> 3) & 1) << 2);
+	dest[0x25] = (((src[0x04] >> 2) & 1) << 0) | (((src[0x0A] >> 2) & 1) << 1) | (((src[0x10] >> 2) & 1) << 2);
+	dest[0x26] = (((src[0x04] >> 1) & 1) << 0) | (((src[0x0A] >> 1) & 1) << 1) | (((src[0x10] >> 1) & 1) << 2);
+	dest[0x27] = (((src[0x04] >> 0) & 1) << 0) | (((src[0x0A] >> 0) & 1) << 1) | (((src[0x10] >> 0) & 1) << 2);
+	dest[0x28] = (((src[0x03] >> 7) & 1) << 0) | (((src[0x09] >> 7) & 1) << 1) | (((src[0x0F] >> 7) & 1) << 2);
+	dest[0x29] = (((src[0x03] >> 6) & 1) << 0) | (((src[0x09] >> 6) & 1) << 1) | (((src[0x0F] >> 6) & 1) << 2);
+	dest[0x2A] = (((src[0x03] >> 5) & 1) << 0) | (((src[0x09] >> 5) & 1) << 1) | (((src[0x0F] >> 5) & 1) << 2);
+	dest[0x2B] = (((src[0x03] >> 4) & 1) << 0) | (((src[0x09] >> 4) & 1) << 1) | (((src[0x0F] >> 4) & 1) << 2);
+	dest[0x2C] = (((src[0x03] >> 3) & 1) << 0) | (((src[0x09] >> 3) & 1) << 1) | (((src[0x0F] >> 3) & 1) << 2);
+	dest[0x2D] = (((src[0x03] >> 2) & 1) << 0) | (((src[0x09] >> 2) & 1) << 1) | (((src[0x0F] >> 2) & 1) << 2);
+	dest[0x2E] = (((src[0x03] >> 1) & 1) << 0) | (((src[0x09] >> 1) & 1) << 1) | (((src[0x0F] >> 1) & 1) << 2);
+	dest[0x2F] = (((src[0x03] >> 0) & 1) << 0) | (((src[0x09] >> 0) & 1) << 1) | (((src[0x0F] >> 0) & 1) << 2);
+}
+
+/*
  * ploytec_encode_frame_4ch - 4 channels (official dmaEncode04): bits 0..1 of each byte,
  * the other lanes are silent. Generated; checked against the generic reference in
  * tools/ploytec_lanes_test.c.
@@ -441,6 +500,7 @@ ploytec_frame_fn ploytec_frame_encoder(unsigned int channels)
 {
 	switch (channels) {
 	case 8: return ploytec_encode_frame_8ch;
+	case 6: return ploytec_encode_frame_6ch;
 	case 4: return ploytec_encode_frame_4ch;
 	case 2: return ploytec_encode_frame_2ch;
 	default: return 0;

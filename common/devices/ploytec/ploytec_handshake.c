@@ -141,6 +141,77 @@ static int hs_confirm_status(const struct ploytec_host_ops *ops, void *ctx)
 }
 
 /*
+ * hs_esi_a_request - ESI 'A' write (sendEsuARequest), no data phase.
+ */
+static int hs_esi_a_request(const struct ploytec_host_ops *ops, void *ctx, uint16_t wvalue)
+{
+	int ret;
+
+	ret = ops->control(ctx, PLOYTEC_REQTYPE_VENDOR_OUT, PLOYTEC_CMD_ESI_A,
+			   wvalue, PLOYTEC_ESI_A_INDEX, 0, 0);
+	if (ret < 0)
+		hs_log(ops, ctx, true, "ESI 'A' request 0x%03X failed (ret=%d)", wvalue, ret);
+	return ret;
+}
+
+/*
+ * hs_esi_setup - The ESI U-series requests of the official configurationDone, which
+ * runs before startStreaming sets the rate:
+ *   - U168 XT only: 'A' 0x349
+ *   - ESI input selector (updateAjInputSelector_Esu186) in place of hs_confirm_status:
+ *     read 'I' wIndex 0 (again after 20 ms while the lock bit is set), keep the
+ *     PRESERVE_MASK bits, set STATE_A (the driver's default), send 'A' 0x348, and
+ *     write the byte back only if it changed, then wait 200 ms (the device
+ *     re-clocks; the official driver reads the rate back next, as the handshake does)
+ *   - the CPLD byte: 'I' wIndex 1, wValue 0xE7 (setEsuCpldByte(0))
+ * The second 'A' request overrides the first, as in the official driver, which
+ * runs the selector again after the U168 write.
+ */
+static int hs_esi_setup(const struct ploytec_host_ops *ops, void *ctx, uint32_t quirks)
+{
+	uint8_t buf[1] = { 0 };
+	uint8_t want;
+	int ret;
+
+	if (quirks & OZZY_QUIRK_ESI_U168) {
+		ret = hs_esi_a_request(ops, ctx, PLOYTEC_ESI_A_U168);
+		if (ret < 0)
+			return ret;
+	}
+
+	ret = ops->control(ctx, PLOYTEC_REQTYPE_VENDOR_IN, PLOYTEC_CMD_STATUS,
+			   0, PLOYTEC_REG_AJ_INPUT_SEL, buf, sizeof(buf));
+	if (ret >= 0 && (buf[0] & PLOYTEC_AJ_DIGITAL_LOCK_BIT)) {
+		ops->sleep_ms(ctx, 20);
+		ret = ops->control(ctx, PLOYTEC_REQTYPE_VENDOR_IN, PLOYTEC_CMD_STATUS,
+				   0, PLOYTEC_REG_AJ_INPUT_SEL, buf, sizeof(buf));
+	}
+	if (ret < 0)
+		return ret;
+
+	want = (buf[0] & PLOYTEC_AJ_ESU_PRESERVE_MASK) | PLOYTEC_AJ_ESU_STATE_A;
+	ret = hs_esi_a_request(ops, ctx, PLOYTEC_ESI_A_BASE);
+	if (ret < 0)
+		return ret;
+
+	if (want != buf[0]) {
+		ret = ops->control(ctx, PLOYTEC_REQTYPE_VENDOR_OUT, PLOYTEC_CMD_STATUS,
+				   (uint16_t)(int16_t)(int8_t)want, PLOYTEC_REG_AJ_INPUT_SEL, 0, 0);
+		if (ret < 0)
+			return ret;
+		ops->sleep_ms(ctx, 200);
+	}
+	hs_log(ops, ctx, false, "ESI selector: read 0x%02X, now 0x%02X", buf[0], want);
+
+	ret = ops->control(ctx, PLOYTEC_REQTYPE_VENDOR_OUT, PLOYTEC_CMD_STATUS,
+			   PLOYTEC_ESI_CPLD_BASE, PLOYTEC_REG_US3XX_CONFIG, 0, 0);
+	if (ret < 0)
+		return ret;
+	hs_log(ops, ctx, false, "ESI CPLD byte 0x%02X written", PLOYTEC_ESI_CPLD_BASE);
+	return 0;
+}
+
+/*
  * hs_clear_pcm_halt - Reset both PCM endpoints before streaming starts.
  * The A&H Windows driver does this after the status confirm (abort + clear
  * ENDPOINT_HALT on EP 0x86, then EP 0x05), seen in captures of the Xone:DB2 and
@@ -167,13 +238,13 @@ const struct ploytec_rate_endpoints ploytec_xone_rate_endpoints = { PLOYTEC_EP_R
 const struct ploytec_rate_endpoints ploytec_isoc_rate_endpoints = { PLOYTEC_EP_RATE_IN, PLOYTEC_ISOC_EP_RATE_OUT };
 
 int ploytec_handshake(const struct ploytec_host_ops *ops, void *ctx, uint32_t rate,
-		      struct ploytec_handshake_info *info)
+		      uint32_t quirks, struct ploytec_handshake_info *info)
 {
-	return ploytec_handshake_eps(ops, ctx, rate, &ploytec_xone_rate_endpoints, info);
+	return ploytec_handshake_eps(ops, ctx, rate, &ploytec_xone_rate_endpoints, quirks, info);
 }
 
 int ploytec_handshake_eps(const struct ploytec_host_ops *ops, void *ctx, uint32_t rate,
-			  const struct ploytec_rate_endpoints *eps,
+			  const struct ploytec_rate_endpoints *eps, uint32_t quirks,
 			  struct ploytec_handshake_info *info)
 {
 	struct ploytec_handshake_info local;
@@ -201,6 +272,13 @@ int ploytec_handshake_eps(const struct ploytec_host_ops *ops, void *ctx, uint32_
 	if (ret < 0)
 		goto err;
 
+	if (quirks & OZZY_QUIRK_ESI) {
+		hs_log(ops, ctx, false, "ESI selector, 'A' request and CPLD byte...");
+		ret = hs_esi_setup(ops, ctx, quirks);
+		if (ret < 0)
+			goto err;
+	}
+
 	hs_log(ops, ctx, false, "[%d/7] setting sample rate to %u Hz...", ++step, rate);
 	ret = hs_set_rate(ops, ctx, rate, eps);
 	if (ret < 0)
@@ -223,10 +301,15 @@ int ploytec_handshake_eps(const struct ploytec_host_ops *ops, void *ctx, uint32_
 	if (ret < 0)
 		goto err;
 
-	hs_log(ops, ctx, false, "[%d/7] confirming device status...", ++step);
-	ret = hs_confirm_status(ops, ctx);
-	if (ret < 0)
-		goto err;
+	/* ESI devices did their own selector write above; the Jockey 3 ME gets none */
+	if (quirks & (OZZY_QUIRK_ESI | OZZY_QUIRK_NO_AJ_SELECTOR)) {
+		hs_log(ops, ctx, false, "[%d/7] no status confirm for this device", ++step);
+	} else {
+		hs_log(ops, ctx, false, "[%d/7] confirming device status...", ++step);
+		ret = hs_confirm_status(ops, ctx);
+		if (ret < 0)
+			goto err;
+	}
 
 	if (ops->clear_halt) {
 		ret = hs_clear_pcm_halt(ops, ctx);

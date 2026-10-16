@@ -40,7 +40,8 @@ personality:
 |-----|---------|
 | `kConfigurationData` (0x178 bytes) | Copied by `PGDevice::initialSettings` into `APISpecificFeatures` at `PGDevice+0x660` (0x17C bytes); sets `this[0x7d7] = 1` ("configured from plist") |
 | `kInACR` | stored at `PGDevice+0x810` |
-| `kMsWait`, `kClockSourceSettings`, `kCustomName` | optional (absent for DB2/DB4) |
+| `kMsWait` | stored at `PGDevice+0x18`; `configurationDone` sleeps that many ms (capped at 1000) before its setup. Numarks: 200. Tascams without a plist get 100 from `initDeviceSpecificData` |
+| `kClockSourceSettings`, `kCustomName` | optional (absent for DB2/DB4) |
 
 ### kConfigurationData layout
 

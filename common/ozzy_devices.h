@@ -29,6 +29,8 @@
 #include <stdbool.h>
 #endif
 
+#include "ozzy_quirks.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -55,13 +57,6 @@ enum ozzy_status {
 #define OZZY_MAX_RATES   6
 
 /*
- * Quirks (quirks field bits), interpreted by the device's family
- *   OZZY_QUIRK_MIDI_NS7: Ploytec own-endpoint MIDI in the Numark NS7 framing
- *     (42-byte transfers, ploytec_midi.h), the official driver's kInACR 8
- */
-#define OZZY_QUIRK_MIDI_NS7  (1u << 0)
-
-/*
  * struct ozzy_device - One row of ozzy_devices.def.
  */
 struct ozzy_device {
@@ -74,7 +69,7 @@ struct ozzy_device {
 	uint8_t out_channels;
 	uint8_t status;       /* enum ozzy_status */
 	uint32_t rates;       /* OZZY_RATE_xxx bits */
-	uint32_t quirks;      /* OZZY_QUIRK_xxx bits */
+	uint32_t quirks;      /* enum ozzy_quirk bits (ozzy_quirks.h) */
 };
 
 static const struct ozzy_device ozzy_devices[] = {

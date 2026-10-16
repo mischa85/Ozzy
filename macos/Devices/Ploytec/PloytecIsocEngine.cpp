@@ -63,7 +63,7 @@ bool PloytecIsocEngine::Start() {
 
     // 2. Handshake, with the rate requests on the PCM endpoints found
     struct ploytec_rate_endpoints eps = { mInAddr, mOutAddr };
-    if (ploytec_handshake_eps(&kPloytecHostOps, mBus, mSampleRate, &eps, nullptr) < 0)
+    if (ploytec_handshake_eps(&kPloytecHostOps, mBus, mSampleRate, &eps, mModel->quirks, nullptr) < 0)
         return false;
     // MIDI framing on its own endpoints, as the device's kInACR picks it (ploytec_midi.h)
     ploytec_midi_init_xfer(&mMidi, mSampleRate, (mModel->quirks & OZZY_QUIRK_MIDI_NS7) ?

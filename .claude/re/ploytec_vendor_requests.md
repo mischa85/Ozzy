@@ -52,6 +52,14 @@ Log: `"WRITE ESU A-Request value: %d"` with `param & 7`.
 Appears to configure the ESU's clock source at the hardware level, complementing
 the composite state written to index 0 of vendor request 'I'.
 
+Order in `PGDevice::configurationDone` (all before `startStreaming` sets the rate):
+`updateAjInputSelector` (ESI: `_Esu186`, guarded by plist flags), then 'A' 0x349 for 2573:0012
+only, then `updateAjInputSelector(NULL)` again (ESI: another 'A', 0x348 for STATE_A, which
+overrides the 0x349), ..., then `setEsuCpldByte`. Ozzy (`hs_esi_setup` in
+`common/devices/ploytec/ploytec_handshake.c`, `OZZY_QUIRK_ESI` / `OZZY_QUIRK_ESI_U168`) sends
+'A' 0x349 (U168 XT), the ESI selector with STATE_A and 'A' 0x348, then the CPLD byte 0xE7, all
+before SET_CUR, and skips the Xone status confirm. Untested on hardware.
+
 ### 'A' (0x41) — Wolfson Codec Register Write (devices with Wolfson DAC/ADC)
 
 From `writeWolfsonRegister(this, chipIndex, registerIndex, value)`:

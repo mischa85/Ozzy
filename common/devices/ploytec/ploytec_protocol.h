@@ -78,11 +78,21 @@ enum ploytec_aj_input_flags {
 #define PLOYTEC_AJ_DIGITAL_LOCK_MASK   0x05
 #define PLOYTEC_AJ_DIGITAL_LOCK_VALUE  0x04
 
-/* ESU-specific composite states (observed fixed patterns, not individual flags) */
+/*
+ * ESI U-series selector states (updateAjInputSelector_Esu186): the byte keeps the
+ * PRESERVE_MASK bits it reads and gets one of three states, from the driver's
+ * clock setting (AjExtData+4): 2 -> STATE_A, 1 -> STATE_B, else STATE_C. STATE_B
+ * also sends the 'A' request with bit 0 set. Which state is which clock source
+ * ("Internal (Analoge audio only)" / "External SPDIF" in ESI's 2.0 driver) is open;
+ * STATE_A is the one the driver reports as its default (*param_1 = 0x32).
+ */
 #define PLOYTEC_AJ_ESU_PRESERVE_MASK   0x4C
 #define PLOYTEC_AJ_ESU_STATE_A         0x32
 #define PLOYTEC_AJ_ESU_STATE_B         0xB0
 #define PLOYTEC_AJ_ESU_STATE_C         0xB2
+
+/* ESI CPLD byte ('I' wIndex 1, setEsuCpldByte): wValue = setting | 0xE7, setting 0 at start */
+#define PLOYTEC_ESI_CPLD_BASE          0xE7
 
 /*
  * struct ploytec_aj_input_status - Decoded AJ Input Selector register (wIndex=0).

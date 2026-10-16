@@ -96,7 +96,7 @@ bool PloytecEngine::Start() {
     LogPloytec("model: %s, %u in / %u out", mModel->name, mModel->in_channels, mModel->out_channels);
     
     // 2. Hardware Handshake Sequence
-    if (ploytec_handshake(&kPloytecHostOps, mBus, mSampleRate, nullptr) < 0)
+    if (ploytec_handshake(&kPloytecHostOps, mBus, mSampleRate, mModel->quirks, nullptr) < 0)
         return false;
     ploytec_midi_init(&mMidi, mSampleRate, mPcmInInt1024);
     

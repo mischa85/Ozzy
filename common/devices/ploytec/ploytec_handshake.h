@@ -24,6 +24,7 @@
 #endif
 
 #include "ploytec_protocol.h"
+#include "../../ozzy_quirks.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -71,10 +72,12 @@ extern const struct ploytec_rate_endpoints ploytec_isoc_rate_endpoints;  /* 0x86
 
 /*
  * ploytec_handshake - Arm a Xone (bulk/interrupt out) device for streaming at @rate Hz.
- * @info may be NULL. Returns 0 on success, negative errno on failure.
+ * @quirks: the device's enum ozzy_quirk bits (the handshake uses OZZY_QUIRK_NO_AJ_SELECTOR,
+ * OZZY_QUIRK_ESI and OZZY_QUIRK_ESI_U168). @info may be NULL. Returns 0 on success,
+ * negative errno on failure.
  */
 int ploytec_handshake(const struct ploytec_host_ops *ops, void *ctx, uint32_t rate,
-		      struct ploytec_handshake_info *info);
+		      uint32_t quirks, struct ploytec_handshake_info *info);
 
 /*
  * ploytec_handshake_eps - The same sequence with the rate requests sent to @eps.
@@ -83,7 +86,7 @@ int ploytec_handshake(const struct ploytec_host_ops *ops, void *ctx, uint32_t ra
  * it would hit are not the EIE's PCM pipes).
  */
 int ploytec_handshake_eps(const struct ploytec_host_ops *ops, void *ctx, uint32_t rate,
-			  const struct ploytec_rate_endpoints *eps,
+			  const struct ploytec_rate_endpoints *eps, uint32_t quirks,
 			  struct ploytec_handshake_info *info);
 
 #ifdef __cplusplus

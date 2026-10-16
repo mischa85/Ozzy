@@ -232,7 +232,7 @@ static int ploytec_init(struct ozzy_chip *chip)
 	priv = chip->private_data;
 
 	ret = ploytec_handshake(&ploytec_host_ops, chip,
-				chip->info->rates[chip->requested_rate], NULL);
+				chip->info->rates[chip->requested_rate], priv->quirks, NULL);
 	if (ret < 0)
 		return ret;
 
@@ -408,7 +408,7 @@ static int ploytec_isoc_init(struct ozzy_chip *chip)
 
 	rate = chip->info->rates[chip->requested_rate];
 	ret = ploytec_handshake_eps(&ploytec_isoc_host_ops, chip, rate,
-				    &ploytec_isoc_rate_endpoints, NULL);
+				    &ploytec_isoc_rate_endpoints, priv->quirks, NULL);
 	if (ret < 0)
 		return ret;
 

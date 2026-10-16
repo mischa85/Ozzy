@@ -160,6 +160,10 @@ For ESU (0x2573) and 0x0A92/0x0111 only:
 - Writes to vendor request 'I', wIndex=1 with the masked value
 - Stops bulk audio before writing, resumes after
 - Stored in `this[0x55D8]`
+- `configurationDone` calls it with the stored byte and resets the store to 0 first, so the
+  write always goes out; the stored byte starts at 0, so the first write is wValue 0xE7. Only
+  the control panel (user client dispatch 5) changes the byte (bits 3/4, the ones 0xE7 leaves
+  free; meaning open)
 
 ### readUS3XXChannelConfig — confirmed index 1 read (from Ghidra)
 

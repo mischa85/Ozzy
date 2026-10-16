@@ -79,6 +79,12 @@ extern "C" {
 #define PLOYTEC_CMD_SET_RATE_TYPE   0x22  /* bmRequestType for SET_CUR sample rate */
 #define PLOYTEC_CMD_GET_RATE_REQ    0x81  /* bRequest for GET_CUR sample rate */
 #define PLOYTEC_CMD_GET_RATE_TYPE   0xA2  /* bmRequestType for GET_CUR sample rate */
+#define PLOYTEC_CMD_ESI_A           0x41  /* 'A' - ESI write (sendEsuARequest), vendor OUT */
+
+/* ESI 'A' request: wIndex, wValue = (setting & 0x34F) | 0x348 */
+#define PLOYTEC_ESI_A_INDEX         0x0101
+#define PLOYTEC_ESI_A_BASE          0x0348
+#define PLOYTEC_ESI_A_U168          0x0349  /* configurationDone, U168 XT only */
 
 /* SET_CUR sample rate endpoint addresses (wIndex field) */
 #define PLOYTEC_EP_RATE_IN          0x0086

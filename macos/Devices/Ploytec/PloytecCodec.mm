@@ -70,9 +70,11 @@ WriteOutputFunc PloytecOutputWriter(bool bulkLayout, uint32_t channels) {
 
 ReadInputFunc PloytecInputReader(uint32_t channels) {
     switch (channels) {
+    case 2: return ReadInput<2, ploytec_decode_frame_2ch>;
     case 4: return ReadInput<4, ploytec_decode_frame_4ch>;
     case 6: return ReadInput<6, ploytec_decode_frame_6ch>;
     case 8: return ReadInput<8, ploytec_decode_frame_8ch>;
+    case 10: return ReadInput<10, ploytec_decode_frame_10ch>;
     case 16: return ReadInput<16, ploytec_decode_frame_16ch>;
     default: return nullptr;
     }

@@ -37,10 +37,10 @@ rates and a few vendor extras (listed per device).
 | 200C:1009 | Reloop Digital Jockey 2 ME | 6 / 4 | 44.1k | Reloop INF, PR #80 | Ozzy | in Ozzy |
 | 200C:1019 | Reloop Jockey 3 Master Edition | 6 / 4 | 44.1–96k | plist (flags = DB2/DB4, kInACR 1) | fvdpol/alsa-jockey3 (GPL, out of tree; upstream patch pending) | in Ozzy (experimental); no AJ selector requests (`updateAjInputSelector` returns early for it) |
 | 200C:1037 | Reloop Jockey 3 Remix | 6 / 4 | 44.1–96k (fvdpol) | fallback | fvdpol/alsa-jockey3 | in Ozzy (experimental) |
-| 200C:1005 | Reloop IQ2 MIDI | 4 / 4 | 24/96 (spec) | fallback | none | model row |
-| 200C:100A | Reloop Contour Interface Edition | 2 / **10** | ? | fallback | none | 10-lane output frame (`dmaEncode10_*`) |
+| 200C:1005 | Reloop IQ2 MIDI | 4 / 4 | 24/96 (spec) | fallback | none | in Ozzy (experimental) |
+| 200C:100A | Reloop Contour Interface Edition | 2 / **10** | 44.1k boot rate, others ? | fallback | none | in Ozzy (experimental, 44.1k only; 10-lane encoder `dmaEncode10` added) |
 | 200C:1006 | unidentified Reloop | 6 / 6 | | fallback | | identify |
-| 0A92:0111 | ESI ESU1808 | 16 / 8 (**10-lane** output: S/PDIF mirrors a selectable pair) | 44.1–96k (spec) | fallback | none | 10-lane output, ESI CPLD write ('I', wIndex 1, wValue byte\|0xE7) |
+| 0A92:0111 | ESI ESU1808 | 16 / 8 (**10-lane** output: S/PDIF mirrors a selectable pair) | 44.1–96k (spec) | fallback | none | in Ozzy (experimental): CPLD byte, S/PDIF mirror of pair 1/2 (the default); the pair selection (`_34/_56/_78`) is not offered |
 | 2573:0012 | ESI U168 XT | 16 / 8 | 44.1–96k (spec) | fallback | none | in Ozzy (experimental): ESI selector, 'A' requests (0x349, then 0x348), CPLD byte; ESI's own 2.0.0b90 beta runs on Apple Silicon (user-space, analog only, macOS ≤ 14.3) |
 | 2573:0013 | ESI U86 XT | 8 / 6 | 44.1–96k (spec) | fallback | none | in Ozzy (experimental): ESI selector, 'A' 0x348, CPLD byte; 6-lane output (`dmaEncode06`) added |
 | 2573:002A | ESI U108 PRE | 10 / 8 | 44.1–96k (spec) | fallback | none | in Ozzy (experimental): as the U86 XT; 10-lane input |
@@ -150,10 +150,10 @@ quirk). Details in `findings_other_and_projects.md`.
 - **Missing pieces, in order of how many devices need them:**
   1. Per-device handshake extras: done as quirks (`common/ozzy_quirks.h`, Tascam S/PDIF 'A'
      registers, generic selector, waits, digital out selector). Still missing: following an
-     external (S/PDIF) clock, Lexicon/ESI clock source (Ozzy fixes the ESI selector at STATE_A). The ESI steps are done
-     (`ozzy_quirks.h`, `hs_esi_setup`); ESU1808 shares them but needs the 10-lane output.
-  2. Frame codecs for more lane counts: 10-lane output with the S/PDIF mirror (ESU1808, Contour IE), 16-lane output
-     (Realiser A16).
+     external (S/PDIF) clock, Lexicon/ESI clock source (Ozzy fixes the ESI selector at STATE_A).
+     The ESU1808 gets only the CPLD byte (`OZZY_QUIRK_ESI_CPLD`): ESI's selector and 'A'
+     request are VID 0x2573 only.
+  2. Frame codecs: 16-lane output (Realiser A16). 10-lane output and the ESU1808 mirror are done.
   3. Input post-processing quirks (MPC Renaissance zeroes inputs 3/4, US-366).
   4. Rarer: isoc in + isoc out (MPC Renaissance bcdDevice 0x0300), rate-dependent channel counts
      (Dotec, SPL Crimson), `kMsWait` 200 (NS7, NS6, MixDeck; not in the V7/4Trak plists) is a 200 ms sleep at the start of
@@ -171,7 +171,6 @@ v3 (June 2026) used 0x1009 for the Jockey 3 ME, which this suggests is wrong (?)
 - Identify: 1ACC:0102, 1D03:005C, 200C:1006, 0A4A AFFE/CF00/CF04/DA01/0003/1016/6A02/F1A0/0014/5B01,
   0644:8048, 0644:8012 ("US-144 Pro"), the extra Numark PIDs.
 - Decode the remaining flag bytes 0x143, 0x145, 0x146, 0x14a, 0x14b, 0x14e.
-- Decompile `dmaEncode10_*` (10-lane output packing).
 - Alesis MultiMix real format; Dynacord original revision layout.
 - Is `ah4d_akm_v132.bin` (in the Jockey 3 firmware updaters) Xone:4D firmware 1.32?
 - ESI's 2.0.0b90 user-space driver: its init sequence and why "analog only".

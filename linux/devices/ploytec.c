@@ -46,12 +46,21 @@ struct ploytec_private {
 	unsigned char xfer_buf[16];     /* DMA-safe bounce buffer for control transfers */
 	struct ozzy_device_info info;   /* ploytec_info with this model's channels and rates */
 	const struct ozzy_device_info *base_info;
+	struct ozzy_device_ops ops;     /* the family's ops with this model's packet codec, if it differs */
+	const struct ozzy_device_ops *base_ops;
+	uint8_t spdif_prev[24];         /* last frame's even half, for the S/PDIF mirror (ESU1808) */
 	ploytec_frame_fn encode;        /* frame codecs for this model, picked once */
 	ploytec_frame_fn decode;
 	struct ploytec_midi midi;       /* MIDI framing at the current rate */
 	unsigned int rates[OZZY_MAX_RATES];  /* this device's rates (common/ozzy_devices.def) */
 	u32 quirks;                     /* this device's OZZY_QUIRK_xxx bits */
 };
+
+static unsigned int ploytec_process_out_packet_spdif12(struct ozzy_chip *chip,
+							uint8_t *urb_buf, uint8_t *dma_area,
+							unsigned int dma_off,
+							unsigned int pcm_buffer_size);
+static enum ploytec_out_layout ploytec_out_layout(const struct ozzy_chip *chip);
 
 /* Placeholder until ploytec_init() applies the device's rates (common/ozzy_devices.def) */
 static const unsigned int ploytec_rates[] = { 44100, 48000, 88200, 96000 };
@@ -89,6 +98,15 @@ static int ploytec_apply_model(struct ozzy_chip *chip, struct ploytec_private *p
 	priv->decode = ploytec_frame_decoder(dev->in_channels);
 
 	chip->info = &priv->info;
+
+	/* ESU1808: its own packet codec (S/PDIF mirror), picked here so the I/O path doesn't branch */
+	if ((dev->quirks & OZZY_QUIRK_SPDIF_MIRROR_12) && dev->out_channels == 8 &&
+	    ploytec_out_layout(chip) == PLOYTEC_OUT_LAYOUT_BULK) {
+		priv->base_ops = chip->ops;
+		priv->ops = *chip->ops;
+		priv->ops.process_out_packet = ploytec_process_out_packet_spdif12;
+		chip->ops = &priv->ops;
+	}
 	chip->requested_rate = n - 1;
 
 	ploytec_log(&chip->dev->dev, "model: %s, %u in / %u out%s\n", dev->name,
@@ -252,6 +270,8 @@ static void ploytec_free(struct ozzy_chip *chip)
 	if (!priv)
 		return;
 	chip->info = priv->base_info;
+	if (priv->base_ops)
+		chip->ops = priv->base_ops;
 	kfree(priv);
 	chip->private_data = NULL;
 }
@@ -293,6 +313,37 @@ static unsigned int ploytec_process_out_packet(struct ozzy_chip *chip,
 
 		priv->encode(urb_buf + ploytec_out_frame_offset(layout, f), dma_area + src_off);
 	}
+
+	return PLOYTEC_FRAMES_PER_PKT * frame_bytes;
+}
+
+/*
+ * ploytec_process_out_packet_spdif12 - ploytec_process_out_packet for the ESU1808 (bulk
+ * layout): 8 channels plus the S/PDIF mirror of pair 1/2 in lanes 9/10, which takes
+ * channel 2 from the frame before (the previous packet's last frame for the first one).
+ */
+static unsigned int ploytec_process_out_packet_spdif12(struct ozzy_chip *chip,
+							uint8_t *urb_buf, uint8_t *dma_area,
+							unsigned int dma_off,
+							unsigned int pcm_buffer_size)
+{
+	struct ploytec_private *priv = chip->private_data;
+	unsigned int frame_bytes = 8 * ALSA_BYTES_PER_SAMPLE;
+	const uint8_t *prev = priv->spdif_prev;
+	unsigned int f, src_off;
+	uint8_t *dest;
+
+	for (f = 0; f < PLOYTEC_FRAMES_PER_PKT; f++) {
+		src_off = dma_off + f * frame_bytes;
+		if (src_off >= pcm_buffer_size)
+			src_off -= pcm_buffer_size;
+
+		dest = urb_buf + ploytec_out_frame_offset(PLOYTEC_OUT_LAYOUT_BULK, f);
+		ploytec_encode_frame_8ch(dest, dma_area + src_off);
+		ploytec_spdif_mirror_12(dest, prev);
+		prev = dest + PLOYTEC_OUT_FRAME_SIZE / 2;
+	}
+	memcpy(priv->spdif_prev, prev, sizeof(priv->spdif_prev));
 
 	return PLOYTEC_FRAMES_PER_PKT * frame_bytes;
 }

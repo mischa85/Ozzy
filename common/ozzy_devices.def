@@ -198,21 +198,32 @@ OZZY_DEVICE(ReloopJockey3Remix, 0x200C, 0x1037, "Reloop Jockey 3 Remix", PLOYTEC
 #ifndef OZZY_DISABLE_EsiU168XT
 OZZY_DEVICE(EsiU168XT, 0x2573, 0x0012, "ESI U168 XT", PLOYTEC_XONE, 16, 8,
 	    OZZY_RATE_44K1 | OZZY_RATE_48K | OZZY_RATE_88K2 | OZZY_RATE_96K, EXPERIMENTAL,
-	    OZZY_QUIRK_ESI | OZZY_QUIRK_ESI_U168)
+	    OZZY_QUIRK_ESI | OZZY_QUIRK_ESI_U168 | OZZY_QUIRK_ESI_CPLD)
 #endif
 
 /* ESI U86 XT: 8 in / 6 out */
 #ifndef OZZY_DISABLE_EsiU86XT
 OZZY_DEVICE(EsiU86XT, 0x2573, 0x0013, "ESI U86 XT", PLOYTEC_XONE, 8, 6,
 	    OZZY_RATE_44K1 | OZZY_RATE_48K | OZZY_RATE_88K2 | OZZY_RATE_96K, EXPERIMENTAL,
-	    OZZY_QUIRK_ESI)
+	    OZZY_QUIRK_ESI | OZZY_QUIRK_ESI_CPLD)
 #endif
 
 /* ESI U108 PRE: 10 in / 8 out */
 #ifndef OZZY_DISABLE_EsiU108PRE
 OZZY_DEVICE(EsiU108PRE, 0x2573, 0x002A, "ESI U108 PRE", PLOYTEC_XONE, 10, 8,
 	    OZZY_RATE_44K1 | OZZY_RATE_48K | OZZY_RATE_88K2 | OZZY_RATE_96K, EXPERIMENTAL,
-	    OZZY_QUIRK_ESI)
+	    OZZY_QUIRK_ESI | OZZY_QUIRK_ESI_CPLD)
+#endif
+
+/*
+ * ESI ESU1808 3.4.10 kext (no kConfigurationData): 16 in / 8 out from the fallback table, rates
+ * from ESI's spec (24-bit/96k). S/PDIF out mirrors output pair 1/2 in lanes 9/10 (dmaEncode10_12);
+ * the CPLD byte, but neither ESI's selector nor its 'A' request (those are VID 0x2573 only).
+ */
+#ifndef OZZY_DISABLE_EsiESU1808
+OZZY_DEVICE(EsiESU1808, 0x0A92, 0x0111, "ESI ESU1808", PLOYTEC_XONE, 16, 8,
+	    OZZY_RATE_44K1 | OZZY_RATE_48K | OZZY_RATE_88K2 | OZZY_RATE_96K, EXPERIMENTAL,
+	    OZZY_QUIRK_ESI_CPLD | OZZY_QUIRK_SPDIF_MIRROR_12)
 #endif
 
 /*
@@ -281,4 +292,21 @@ OZZY_DEVICE(TascamUS1800, 0x0644, 0x8030, "Tascam US-1800", PLOYTEC_ISOC, 16, 4,
 OZZY_DEVICE(TascamUS2000, 0x0644, 0x8025, "Tascam US-2000", PLOYTEC_ISOC, 16, 4,
 	    OZZY_RATE_44K1 | OZZY_RATE_48K | OZZY_RATE_88K2 | OZZY_RATE_96K, EXPERIMENTAL,
 	    OZZY_QUIRK_AJ_BIT0 | OZZY_QUIRK_SPDIF_OUT | OZZY_QUIRK_DIGITAL_OUT_SEL)
+#endif
+
+/*
+ * Reloop devices without kConfigurationData in their kexts: channels and boot rate from the
+ * fallback table (PGDevice::findInterfacesInConfig), no device-specific requests.
+ */
+
+/* Reloop Contour Interface Edition: 2 in / 10 out (dmaEncode10). Only the boot rate is known */
+#ifndef OZZY_DISABLE_ReloopContourIE
+OZZY_DEVICE(ReloopContourIE, 0x200C, 0x100A, "Reloop Contour Interface Edition", PLOYTEC_XONE, 2, 10,
+	    OZZY_RATE_44K1, EXPERIMENTAL, 0)
+#endif
+
+/* Reloop IQ2 MIDI: 4 in / 4 out, rates from Reloop's spec (24-bit/96k) */
+#ifndef OZZY_DISABLE_ReloopIQ2MIDI
+OZZY_DEVICE(ReloopIQ2MIDI, 0x200C, 0x1005, "Reloop IQ2 MIDI", PLOYTEC_XONE, 4, 4,
+	    OZZY_RATE_44K1 | OZZY_RATE_48K | OZZY_RATE_88K2 | OZZY_RATE_96K, EXPERIMENTAL, 0)
 #endif

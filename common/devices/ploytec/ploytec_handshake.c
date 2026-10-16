@@ -265,15 +265,14 @@ static int hs_esi_a_request(const struct ploytec_host_ops *ops, void *ctx, uint1
 }
 
 /*
- * hs_esi_setup - The ESI U-series requests of the official configurationDone, which
- * runs before startStreaming sets the rate:
+ * hs_esi_setup - The ESI U-series selector requests of the official configurationDone,
+ * which runs before startStreaming sets the rate:
  *   - U168 XT only: 'A' 0x349
  *   - ESI input selector (updateAjInputSelector_Esu186) in place of hs_selector:
  *     read 'I' wIndex 0 (again after 20 ms while the lock bit is set), keep the
  *     PRESERVE_MASK bits, set STATE_A (the driver's default), send 'A' 0x348, and
  *     write the byte back only if it changed, then wait 200 ms (the device
  *     re-clocks; the official driver reads the rate back next, as the handshake does)
- *   - the CPLD byte: 'I' wIndex 1, wValue 0xE7 (setEsuCpldByte(0))
  * The second 'A' request overrides the first, as in the official driver, which
  * runs the selector again after the U168 write.
  */
@@ -306,13 +305,22 @@ static int hs_esi_setup(const struct ploytec_host_ops *ops, void *ctx, uint32_t 
 		ops->sleep_ms(ctx, 200);
 	}
 	hs_log(ops, ctx, false, "ESI selector: read 0x%02X, now 0x%02X", buf[0], want);
+	return 0;
+}
+
+/*
+ * hs_esi_cpld - The CPLD byte, 'I' wIndex 1, wValue 0xE7 (setEsuCpldByte(0)), late in
+ * the official configurationDone, after the selectors (ESI U-series and ESU1808).
+ */
+static int hs_esi_cpld(const struct ploytec_host_ops *ops, void *ctx)
+{
+	int ret;
 
 	ret = ops->control(ctx, PLOYTEC_REQTYPE_VENDOR_OUT, PLOYTEC_CMD_STATUS,
 			   PLOYTEC_ESI_CPLD_BASE, PLOYTEC_REG_US3XX_CONFIG, 0, 0);
-	if (ret < 0)
-		return ret;
-	hs_log(ops, ctx, false, "ESI CPLD byte 0x%02X written", PLOYTEC_ESI_CPLD_BASE);
-	return 0;
+	if (ret >= 0)
+		hs_log(ops, ctx, false, "ESI CPLD byte 0x%02X written", PLOYTEC_ESI_CPLD_BASE);
+	return ret;
 }
 
 /*
@@ -384,7 +392,7 @@ int ploytec_handshake_eps(const struct ploytec_host_ops *ops, void *ctx, uint32_
 
 	/* configurationDone: the input selector, then the digital output selector */
 	if (quirks & OZZY_QUIRK_ESI) {
-		hs_log(ops, ctx, false, "ESI selector, 'A' request and CPLD byte...");
+		hs_log(ops, ctx, false, "ESI selector and 'A' request...");
 		ret = hs_esi_setup(ops, ctx, quirks);
 	} else if (!(quirks & OZZY_QUIRK_NO_AJ_SELECTOR)) {
 		ret = hs_selector(ops, ctx, quirks);
@@ -393,6 +401,11 @@ int ploytec_handshake_eps(const struct ploytec_host_ops *ops, void *ctx, uint32_
 		goto err;
 	if (quirks & OZZY_QUIRK_DIGITAL_OUT_SEL) {
 		ret = hs_digital_out_sel(ops, ctx);
+		if (ret < 0)
+			goto err;
+	}
+	if (quirks & OZZY_QUIRK_ESI_CPLD) {
+		ret = hs_esi_cpld(ops, ctx);
 		if (ret < 0)
 			goto err;
 	}

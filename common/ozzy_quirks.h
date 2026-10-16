@@ -30,8 +30,7 @@ enum ozzy_quirk {
 	/*
 	 * ESI U-series (U168 XT, U86 XT, U108 PRE): ESI's input selector
 	 * (updateAjInputSelector_Esu186) with the 'A' request in place of the generic
-	 * one, and the CPLD byte write ('I' wIndex 1, setEsuCpldByte), before the
-	 * rate is set (ploytec_handshake.c).
+	 * one, before the rate is set (ploytec_handshake.c).
 	 */
 	OZZY_QUIRK_ESI = 1u << 2,
 
@@ -76,6 +75,20 @@ enum ozzy_quirk {
 	 * US-2000.
 	 */
 	OZZY_QUIRK_DIGITAL_OUT_SEL = 1u << 8,
+
+	/*
+	 * The CPLD byte write ('I' wIndex 1 = 0xE7, setEsuCpldByte) before the rate is set:
+	 * ESI U-series and ESI ESU1808 (0A92:0111).
+	 */
+	OZZY_QUIRK_ESI_CPLD = 1u << 9,
+
+	/*
+	 * ESI ESU1808: output lanes 9/10 carry the S/PDIF mirror of output pair 1/2 (official
+	 * dmaEncode10_12 at its default selection; ploytec_spdif_mirror_12). Only with the
+	 * bulk output layout: on interrupt (964-byte) output the official driver uses the
+	 * plain 8-channel encoder.
+	 */
+	OZZY_QUIRK_SPDIF_MIRROR_12 = 1u << 10,
 };
 
 #endif /* OZZY_QUIRKS_H */

@@ -73,8 +73,8 @@ extern const struct ploytec_rate_endpoints ploytec_isoc_rate_endpoints;  /* 0x86
 /*
  * ploytec_handshake - Arm a Xone (bulk/interrupt out) device for streaming at @rate Hz.
  * @quirks: the device's enum ozzy_quirk bits (the handshake uses the ones that add,
- * replace or skip setup requests: NO_AJ_SELECTOR, ESI, ESI_U168, WAIT_200MS, WAIT_100MS,
- * AJ_BIT0, SPDIF_OUT, DIGITAL_OUT_SEL). @info may be NULL. Returns 0 on success,
+ * replace or skip setup requests: NO_AJ_SELECTOR, ESI, ESI_U168, ESI_CPLD, WAIT_200MS,
+ * WAIT_100MS, AJ_BIT0, SPDIF_OUT, DIGITAL_OUT_SEL). @info may be NULL. Returns 0 on success,
  * negative errno on failure.
  */
 int ploytec_handshake(const struct ploytec_host_ops *ops, void *ctx, uint32_t rate,

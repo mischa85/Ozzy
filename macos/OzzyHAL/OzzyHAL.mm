@@ -211,7 +211,8 @@ void OzzyHALDevice::ApplyDeviceConfig() {
     uint32_t flags = shm->audio.deviceFlags;
     bool isBulk = flags & kOzzyDeviceFlagPloytecBulk;
     bool plain = flags & kOzzyDeviceFlagPlainOutput;
-    mWriteOutput = plain ? PlainOutputWriter(mOutputChannels) : PloytecOutputWriter(isBulk, mOutputChannels);
+    bool mirror = flags & kOzzyDeviceFlagSpdifMirror12;
+    mWriteOutput = plain ? PlainOutputWriter(mOutputChannels) : PloytecOutputWriter(isBulk, mOutputChannels, mirror);
     mReadInput = PloytecInputReader(mInputChannels);
     if (!mWriteOutput || !mReadInput) {
         LogOzzyHALError("no codec for %{public}u in / %{public}u out, falling back to 8 / 8",

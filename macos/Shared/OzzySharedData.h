@@ -54,6 +54,7 @@
 // OzzyAudioBuffer::deviceFlags
 #define kOzzyDeviceFlagPloytecBulk  (1u << 0)  // Ploytec 512-byte "bulk" output layout, else 482-byte "interrupt"
 #define kOzzyDeviceFlagPlainOutput  (1u << 1)  // outputBuffer is a ring of plain interleaved frames (see below)
+#define kOzzyDeviceFlagSpdifMirror12 (1u << 2) // Ploytec bulk, 8 out: lanes 9/10 mirror pair 1/2 (ESU1808)
 
 // Isochronous IN transfers (feedback): 2 in flight, up to 32 packets of up to 256 bytes each
 #define kOzzyIsocInBufferSize       (2 * 32 * 256)

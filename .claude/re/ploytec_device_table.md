@@ -49,6 +49,17 @@ PIDs checked in `setFreqOnOutPipe` via switch on `(PID + 0x7FC0)`: cases 0 (0x80
 | < 0x002B | ESU family | Sub-IDs below 0x2B with certain bit patterns → `updateAjInputSelector_Esu186()` |
 
 ESI's ESU devices (VID 0x2573 is ESI Audiotechnik; "ESU" is its product line, e.g. ESU1808, which `Esu186` probably refers to) have a completely separate `updateAjInputSelector_Esu186` code path. 0x0A92 (EGO SYStems, ESI's parent) shares some of it (`setEsuCpldByte`).
+
+10-lane output (DB2 kext decompile):
+- `dmaEncode10` (10 host channels, Contour IE): the 8-lane frame plus a fifth lane in bit 4, odd
+  channels 1..9 in bytes 0x00..0x17, even 2..10 in 0x18..0x2F, MSB first.
+- `dmaEncode10_12` (ESU1808, 8 host channels; `_34/_56/_78` per the selected pair, AjExtData+0x10,
+  default 0 = pair 1/2): lanes 1..8 as `dmaEncode08`, lane 10 = channel 1 of the frame, lane 9 =
+  channel 2 of the **previous** frame (carried across calls in `param_1[2]`). Probably the S/PDIF
+  serialiser takes lane 9 one frame late, keeping L/R aligned (inferred). On a 964-byte interrupt
+  output `chooseDMAEncoder` replaces it with the plain `dmaEncode08_Int964` (no mirror).
+  Ozzy: `ploytec_encode_frame_10ch`, `ploytec_spdif_mirror_12` (from the previous encoded frame,
+  so no state on macOS; Linux keeps the last frame's even half per packet).
 See [ESU-specific protocol](#esu-specific-protocol-updateajinputselector_esu186) below.
 
 ## VID 0x0499 (Yamaha?)

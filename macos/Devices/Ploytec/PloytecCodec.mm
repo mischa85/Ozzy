@@ -40,6 +40,22 @@ static void WriteOutput(uint8_t* ringBuffer, const float* srcFrames, uint64_t sa
     }
 }
 
+// The ESU1808 (bulk layout, 8 channels): the 8-channel frame plus the S/PDIF mirror of pair 1/2,
+// whose lane 9 is channel 2 of the frame before. That frame is in the ring already (written
+// just before, or by the previous I/O cycle), so the mirror takes it from there.
+static void WriteOutputSpdif12(uint8_t* ringBuffer, const float* srcFrames, uint64_t sampleTime, uint32_t frameCount, uint32_t ringSize, uint32_t bytesPerFrame) {
+    for (uint32_t i = 0; i < frameCount; i++) {
+        uint32_t sampleOffset = (uint32_t)((sampleTime + i) % ringSize);
+        uint32_t prevOffset = (sampleOffset ? sampleOffset : ringSize) - 1;
+        uint8_t* dst = ringBuffer + (sampleOffset / PLOYTEC_FRAMES_PER_PKT) * kOzzyMaxPacketSize
+                     + ploytec_out_frame_offset(PLOYTEC_OUT_LAYOUT_BULK, sampleOffset % PLOYTEC_FRAMES_PER_PKT);
+        const uint8_t* prev = ringBuffer + (prevOffset / PLOYTEC_FRAMES_PER_PKT) * kOzzyMaxPacketSize
+                            + ploytec_out_frame_offset(PLOYTEC_OUT_LAYOUT_BULK, prevOffset % PLOYTEC_FRAMES_PER_PKT);
+        EncodeFrame<8, ploytec_encode_frame_8ch>(dst, srcFrames + (i * 8));
+        ploytec_spdif_mirror_12(dst, prev + PLOYTEC_OUT_FRAME_SIZE / 2);
+    }
+}
+
 // Read input samples from ring buffer
 // Ring buffer layout: logical packets at kOzzyMaxPacketSize stride, no MIDI in input
 template <uint32_t Channels, ploytec_frame_fn Decode>
@@ -56,8 +72,12 @@ static void ReadInput(float* dstFrames, const uint8_t* ringBuffer, uint64_t samp
     }
 }
 
-WriteOutputFunc PloytecOutputWriter(bool bulkLayout, uint32_t channels) {
+WriteOutputFunc PloytecOutputWriter(bool bulkLayout, uint32_t channels, bool spdifMirror12) {
+    if (spdifMirror12 && bulkLayout && channels == 8)
+        return WriteOutputSpdif12;
     switch (channels) {
+    case 10: return bulkLayout ? WriteOutput<PLOYTEC_OUT_LAYOUT_BULK, 10, ploytec_encode_frame_10ch>
+                               : WriteOutput<PLOYTEC_OUT_LAYOUT_INT, 10, ploytec_encode_frame_10ch>;
     case 8: return bulkLayout ? WriteOutput<PLOYTEC_OUT_LAYOUT_BULK, 8, ploytec_encode_frame_8ch>
                               : WriteOutput<PLOYTEC_OUT_LAYOUT_INT, 8, ploytec_encode_frame_8ch>;
     case 6: return bulkLayout ? WriteOutput<PLOYTEC_OUT_LAYOUT_BULK, 6, ploytec_encode_frame_6ch>

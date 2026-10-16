@@ -62,7 +62,7 @@ public:
     AudioStreamRangedDescription GetStreamRangedDescription(bool isOutput) const;
 
     UInt32 GetLatency() const { return 0; }
-    UInt32 GetSafetyOffset() const { return 2 * mFramesPerPacket; }  // 2 URBs worth of frames
+    UInt32 GetSafetyOffset() const { return mSafetyOffset; }  // frames the engine reads ahead (ApplyDeviceConfig)
     UInt32 GetZeroTimestampPeriod() const { return kOzzyTimestampPackets * mFramesPerPacket; }  // spacing of the kext's timestamp anchors
 
     AudioChannelLayout* GetPreferredChannelLayout(AudioObjectPropertyScope inScope);
@@ -83,6 +83,7 @@ private:
     // Cached frame format for real-time I/O (updated on connect)
     uint32_t mFramesPerPacket = 80;
     uint32_t mRingSize = 10240; // kOzzyNumPackets * mFramesPerPacket
+    uint32_t mSafetyOffset = 160; // frames the engine reads output ahead of the clock
     uint32_t mOutputBytesPerFrame = 48;
     uint32_t mInputBytesPerFrame = 64;
     uint32_t mInputChannels = 8;    // published by the kext per model (16 for the WZ4)

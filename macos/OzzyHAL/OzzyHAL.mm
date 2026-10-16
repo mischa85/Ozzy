@@ -1,5 +1,6 @@
 #include "OzzyHAL.h"
 #include "../Devices/Ploytec/PloytecCodec.h"
+#include "../Shared/OzzyPlainCodec.h"
 #include "../Devices/Ploytec/PloytecProtocol.h"
 #include "../Shared/OzzyLog.h"
 #include "../Shared/OzzyKextClient.h"
@@ -195,6 +196,8 @@ void OzzyHALDevice::ApplyDeviceConfig() {
     mFramesPerPacket = shm->audio.framesPerPacket;  // e.g., 80 frames per logical packet
     // Ring buffer size in FRAMES: 128 logical packets * 80 frames = 10,240 frames
     mRingSize = kOzzyNumPackets * mFramesPerPacket;
+    // The engine reads output this far ahead; default: the 2 Ploytec packets in flight
+    mSafetyOffset = shm->audio.safetyOffsetFrames ? shm->audio.safetyOffsetFrames : 2 * mFramesPerPacket;
     mOutputBytesPerFrame = shm->audio.outputBytesPerFrame;
     mInputBytesPerFrame = shm->audio.inputBytesPerFrame;
 
@@ -202,22 +205,25 @@ void OzzyHALDevice::ApplyDeviceConfig() {
     mInputChannels = shm->audio.inputChannels;
     mOutputChannels = shm->audio.outputChannels;
 
-    // Bit 0: 512-byte "bulk" output layout (follows wMaxPacketSize, not transfer type).
+    // Ploytec bulk layout: 512-byte output packets (follows wMaxPacketSize, not transfer type).
+    // Plain output: a ring of interleaved S24 frames that isochronous transfers read as is.
     // Writer and reader are picked here once; the I/O path doesn't branch on layout or channels.
-    bool isBulk = (shm->audio.deviceFlags & 1);
-    mWriteOutput = PloytecOutputWriter(isBulk, mOutputChannels);
+    uint32_t flags = shm->audio.deviceFlags;
+    bool isBulk = flags & kOzzyDeviceFlagPloytecBulk;
+    bool plain = flags & kOzzyDeviceFlagPlainOutput;
+    mWriteOutput = plain ? PlainOutputWriter(mOutputChannels) : PloytecOutputWriter(isBulk, mOutputChannels);
     mReadInput = PloytecInputReader(mInputChannels);
     if (!mWriteOutput || !mReadInput) {
         LogOzzyHALError("no codec for %{public}u in / %{public}u out, falling back to 8 / 8",
                         mInputChannels, mOutputChannels);
         mInputChannels = mOutputChannels = 8;
-        mWriteOutput = PloytecOutputWriter(isBulk, 8);
+        mWriteOutput = plain ? PlainOutputWriter(8) : PloytecOutputWriter(isBulk, 8);
         mReadInput = PloytecInputReader(8);
     }
-    mClearOutput = isBulk ? PloytecClearOutputBulk : PloytecClearOutputInterrupt;
+    mClearOutput = plain ? PlainClearOutput : isBulk ? PloytecClearOutputBulk : PloytecClearOutputInterrupt;
     RebuildStreamConfigs();
-    LogOzzyHAL("device %{public}u: Ploytec codec (%{public}s layout, %{public}u in / %{public}u out) for VID:0x%{public}04X",
-               mSlot, isBulk ? "bulk" : "interrupt", mInputChannels, mOutputChannels, shm->vendorID);
+    LogOzzyHAL("device %{public}u: Ploytec codec (%{public}s output, %{public}u in / %{public}u out) for VID:0x%{public}04X",
+               mSlot, plain ? "plain" : isBulk ? "bulk" : "interrupt", mInputChannels, mOutputChannels, shm->vendorID);
 
     uint32_t rate = shm->audio.sampleRate.load();
     if (rate == 0) rate = 96000;

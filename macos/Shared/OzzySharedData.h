@@ -37,7 +37,7 @@
 #define kOzzyMethodMidiOutPending   0          // OzzyMIDI queued bytes in midiOut
 #define kOzzyAudioPropertyKey       "OzzyAudio" // true if the device has audio channels
 
-#define kOzzySharedVersion          3          // bump when OzzySharedMemory changes layout
+#define kOzzySharedVersion          4          // bump when OzzySharedMemory changes layout
 
 // Sizing: 8KB covers High Speed USB max packet size, devices use what they need
 #define kOzzyMaxPacketSize          8192
@@ -51,6 +51,13 @@
 // 40 packets (3200 frames) allows buffers up to 1200 frames. Must stay below kOzzyNumPackets.
 #define kOzzyTimestampPackets       40
 
+// OzzyAudioBuffer::deviceFlags
+#define kOzzyDeviceFlagPloytecBulk  (1u << 0)  // Ploytec 512-byte "bulk" output layout, else 482-byte "interrupt"
+#define kOzzyDeviceFlagPlainOutput  (1u << 1)  // outputBuffer is a ring of plain interleaved frames (see below)
+
+// Isochronous IN transfers (feedback): 2 in flight, up to 32 packets of up to 256 bytes each
+#define kOzzyIsocInBufferSize       (2 * 32 * 256)
+
 #define kOzzyMidiRingSize           1024 
 #define kOzzyMidiRingMask           (kOzzyMidiRingSize - 1)
 
@@ -60,7 +67,7 @@ struct OzzyAudioBuffer {
     AtomicBool driverReady;
     AtomicU32  sampleRate;
     
-    // Generic flags (Bit 0: Ploytec 512-byte "bulk" output layout, else 482-byte "interrupt" layout)
+    // kOzzyDeviceFlagXxx
     AtomicU32  deviceFlags; 
 
     // Frame format info set by device engine
@@ -70,6 +77,7 @@ struct OzzyAudioBuffer {
     uint32_t inputBytesPerFrame;  // Encoded bytes per frame for input (e.g., 64)
     uint32_t inputChannels;       // Audio channels the device sends (e.g., 8, or 16 for the WZ4)
     uint32_t outputChannels;      // Audio channels the device receives (e.g., 8, or 2 for the WZ4)
+    uint32_t safetyOffsetFrames;  // How far ahead of the clock the engine reads output (0 = 2 packets)
 
     struct {
         AtomicU32 sequence; 
@@ -82,6 +90,9 @@ struct OzzyAudioBuffer {
     uint8_t _pad2[64];
 
     // The Engine writes raw data here. The HAL uses VID/PID to decide how to decode it.
+    // Output: logical packets at kOzzyMaxPacketSize stride in the device's packet layout, or with
+    // kOzzyDeviceFlagPlainOutput a ring of kOzzyNumPackets * framesPerPacket plain frames of
+    // outputBytesPerFrame bytes (interleaved S24_3LE), which isochronous transfers read directly.
     uint8_t inputBuffer[kOzzyMaxPacketSize * kOzzyNumPackets];
     uint8_t outputBuffer[kOzzyMaxPacketSize * kOzzyNumPackets];
 };
@@ -120,8 +131,11 @@ struct OzzySharedMemory {
     // Size must match endpoint's max packet size (512 bytes for bulk endpoints)
     uint8_t midiInUSBBuffer[512];
 
-    // USB MIDI output buffer for devices with a MIDI OUT endpoint (USB MIDI class event packets)
+    // USB MIDI output buffer for devices with a MIDI OUT endpoint
     uint8_t midiOutUSBBuffer[64];
+
+    // Isochronous IN transfers (feedback endpoint)
+    uint8_t isocInUSBBuffer[kOzzyIsocInBufferSize];
     
     CACHE_ALIGN OzzyAudioBuffer audio;
 };

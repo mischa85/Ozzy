@@ -2,6 +2,7 @@
 #include "PloytecProtocol.h"
 #include "../../../common/devices/ploytec/ploytec_codec.h"
 #include "../../Shared/OzzySharedData.h"
+#include "../../Shared/OzzyPlainCodec.h"
 #include <cstring>
 #include <cmath>
 #include <utility>
@@ -9,32 +10,8 @@
 // The bit-interleaving itself is the shared codec (common/devices/ploytec/ploytec_codec.c),
 // which works on S24_3LE. The HAL works in float, so convert around it. The channel count and
 // frame codec are template parameters: the per-channel conversion is unrolled at compile time
-// and the codec call is direct, so the I/O path never branches on the channel count.
-// One sample, without branches: clamp with fminf/fmaxf (min/max instructions), sign-extend
-// with a shift pair.
-static inline void StoreS24(uint8_t* dst, float sample) {
-    int32_t s = (int32_t)(fmaxf(-1.0f, fminf(sample, 8388607.0f / 8388608.0f)) * 8388608.0f);
-    dst[0] = s & 0xFF;
-    dst[1] = (s >> 8) & 0xFF;
-    dst[2] = (s >> 16) & 0xFF;
-}
-
-static inline float LoadS24(const uint8_t* src) {
-    int32_t s = (int32_t)((uint32_t)(src[0] | (src[1] << 8) | (src[2] << 16)) << 8) >> 8;
-    return (float)s / 8388608.0f;
-}
-
-// Per-channel conversion, unrolled at compile time by a fold over the channel indices
-template <size_t... I>
-static inline void FloatToS24(uint8_t* s24, const float* src, std::index_sequence<I...>) {
-    (StoreS24(s24 + I * 3, src[I]), ...);
-}
-
-template <size_t... I>
-static inline void S24ToFloat(float* dst, const uint8_t* s24, std::index_sequence<I...>) {
-    ((dst[I] = LoadS24(s24 + I * 3)), ...);
-}
-
+// and the codec call is direct, so the I/O path never branches on the channel count. The
+// sample conversion is shared with the plain codec (Shared/OzzyPlainCodec.h).
 template <uint32_t Channels, ploytec_frame_fn Encode>
 static inline void EncodeFrame(uint8_t* dst, const float* src) {
     uint8_t s24[Channels * 3];
@@ -93,6 +70,7 @@ WriteOutputFunc PloytecOutputWriter(bool bulkLayout, uint32_t channels) {
 
 ReadInputFunc PloytecInputReader(uint32_t channels) {
     switch (channels) {
+    case 4: return ReadInput<4, ploytec_decode_frame_4ch>;
     case 6: return ReadInput<6, ploytec_decode_frame_6ch>;
     case 8: return ReadInput<8, ploytec_decode_frame_8ch>;
     case 16: return ReadInput<16, ploytec_decode_frame_16ch>;

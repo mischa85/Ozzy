@@ -373,8 +373,8 @@ Items 2 and 3 are the bulk of the work: Ozzy has no isochronous code at all.
 
 ### Implementation status (2026-10-16, untested on hardware)
 
-**Linux: written. It builds with no W=1 warnings on 6.12. macOS: not yet** (the kext doesn't
-match 09E8:0010).
+**Linux: written. It builds with no W=1 warnings on 6.12. macOS: written. The kext, HAL and
+MIDI driver build with no warnings.** Both are untested on hardware.
 
 The generic parts, for any isochronous-out device:
 - `common/isoc_feedback.h`: the pacing ring (frames per microframe, filled by feedback, played back
@@ -401,6 +401,36 @@ The Ploytec parts:
   transfers), both checked in `tools/ploytec_midi_test.c`.
 - `linux/devices/ploytec.c`: `ploytec_isoc_ops` is only the handshake, MIDI framing and the info
   table. It refuses Full Speed.
+
+macOS (the same shape as Linux):
+- **Shared with Linux:**
+  - `common/ozzy_ep.h`: one endpoint spec type and matching rule.
+  - The EIE's endpoints and feedback format, once, as `PLOYTEC_ISOC_EP_*` / `PLOYTEC_ISOC_FEEDBACK`
+    in `ploytec_defs.h`.
+  - `isoc_fb_layout()` and the transfer constants in `isoc_feedback.h`.
+  - The handshake and the MIDI framing.
+- **Generic kext pieces:**
+  - `OzzyCore/OzzyIsocOutput`: the macOS counterpart of the Linux core's isochronous output. It
+    owns the ring, the OUT and feedback transfers, and the timestamps, so any isochronous device
+    can use it.
+  - `KextBus::SubmitIsoc`: `IOUSBHostPipe::io()` with an `IOUSBHostIsochronousTransaction` per
+    microframe (first frame 0 = ASAP, XHCI). It is zero copy: the OUT transactions point into the
+    shared frame ring, and `kIsochronousTransactionOptionsWrap` covers the ring's end.
+  - Pipes found by type: `StandardUSB::getNextEndpointDescriptor` + `ozzy_ep_matches`, with every
+    endpoint logged.
+  - A bus timer (`thread_call`, re-armed on an absolute deadline) → `OzzyEngine::OnTimer`.
+  - MIDI ring helpers (`OzzyMidiRingPush/Pop`) used by all three engines.
+- **Shared memory v4:**
+  - `kOzzyDeviceFlagPlainOutput`: outputBuffer is a ring of `kOzzyNumPackets × 80` plain S24
+    frames. The HAL writes it with `Shared/OzzyPlainCodec.h`.
+  - `safetyOffsetFrames`: 3 × 4 ms read ahead.
+  - `isocInUSBBuffer`: the feedback transfers.
+- **`PloytecIsocEngine`:** only the EIE-specific parts.
+  - The handshake on the endpoints found.
+  - PCM in and MIDI in through `PloytecIO.h`, which it shares with the Xone engine.
+  - 9-byte MIDI in reads.
+  - MIDI out: one 9-byte transfer per timer tick (1 ms) when the previous one is done, the same
+    pacing as Linux.
 
 Differences from the kext, on purpose:
 - Too many bad feedback packets → log and run at the nominal rate, instead of stopping the

@@ -198,6 +198,7 @@ SOURCES=(
     "OzzyCore/OzzyEngine.cpp"
     "OzzyCore/OzzyIsocOutput.cpp"
     "Devices/Ploytec/PloytecEngine.cpp"
+    "Devices/Ploytec/PloytecIsocEngine.cpp"
     "Devices/UsbMidi/UsbMidiEngine.cpp"
     "../common/devices/ploytec/ploytec_handshake.c"
     "../common/usb_midi.c"

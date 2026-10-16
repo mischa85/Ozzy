@@ -30,8 +30,8 @@ static void HostLog(void* ctx, bool error, const char* fmt, va_list args) {
 }
 
 // No clear_halt: the official macOS driver never clears the PCM endpoint halt
-// (only the Windows driver does, see ploytec_handshake.c).
-static const struct ploytec_host_ops kHostOps = { HostControl, nullptr, HostSleep, HostLog };
+// (only the Windows driver does, see ploytec_handshake.c). Shared with PloytecIsocEngine.
+const struct ploytec_host_ops kPloytecHostOps = { HostControl, nullptr, HostSleep, HostLog };
 
 PloytecEngine::PloytecEngine(uint16_t vid, uint16_t pid) {
 
@@ -96,7 +96,7 @@ bool PloytecEngine::Start() {
     LogPloytec("model: %s, %u in / %u out", mModel->name, mModel->in_channels, mModel->out_channels);
     
     // 2. Hardware Handshake Sequence
-    if (ploytec_handshake(&kHostOps, mBus, mSampleRate, nullptr) < 0)
+    if (ploytec_handshake(&kPloytecHostOps, mBus, mSampleRate, nullptr) < 0)
         return false;
     ploytec_midi_init(&mMidi, mSampleRate, mPcmInInt1024);
     

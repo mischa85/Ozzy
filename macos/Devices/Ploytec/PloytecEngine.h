@@ -7,6 +7,9 @@
 #include "../../../common/devices/ploytec/ploytec_models.h"
 #include "../../../common/devices/ploytec/ploytec_midi.h"
 
+struct ploytec_host_ops;
+extern const struct ploytec_host_ops kPloytecHostOps;   // handshake host services over IOzzyBus
+
 class PloytecEngine : public OzzyEngine {
     uint64_t mHwSampleTime = 0;
     enum ploytec_out_layout mOutLayout = PLOYTEC_OUT_LAYOUT_INT;

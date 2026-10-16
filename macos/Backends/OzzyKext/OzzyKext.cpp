@@ -1,6 +1,7 @@
 #include "OzzyKext.h"
 #include "KextBus.h"
 #include "../../Devices/Ploytec/PloytecEngine.h"
+#include "../../Devices/Ploytec/PloytecIsocEngine.h"
 #include "../../Devices/UsbMidi/UsbMidiEngine.h"
 #include "../../Shared/OzzySharedData.h"
 #include "../../Shared/OzzyLog.h"
@@ -88,15 +89,18 @@ IOReturn OzzyKext::newUserClient(task_t owningTask, void* securityID,
     return kIOReturnSuccess;
 }
 
-/* The Xone:1D is a USB MIDI class device; everything else speaks the Ploytec protocol.
+/* The Xone:1D is a USB MIDI class device, the Akai EIE Pro a Ploytec bulk in / isochronous
+ * out device; everything else speaks the Ploytec (Xone) protocol.
  * @size returns the allocation size for SafeKernelDelete. */
 OzzyEngine* CreateEngine(uint16_t vid, uint16_t pid, size_t* size) {
     bool usbMidi = (vid == PLOYTEC_VENDOR_ID && pid == PLOYTEC_PID_XONE_1D);
-    *size = usbMidi ? sizeof(UsbMidiEngine) : sizeof(PloytecEngine);
+    bool isoc = (vid == AKAI_VENDOR_ID && pid == AKAI_PID_EIE_PRO);
+    *size = usbMidi ? sizeof(UsbMidiEngine) : isoc ? sizeof(PloytecIsocEngine) : sizeof(PloytecEngine);
     void* raw = IOMalloc(*size);
     if (!raw) return nullptr;
     memset(raw, 0, *size);
     if (usbMidi) return new(raw) UsbMidiEngine();
+    if (isoc) return new(raw) PloytecIsocEngine(vid, pid);
     return new(raw) PloytecEngine(vid, pid);
 }
 

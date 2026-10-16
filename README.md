@@ -10,6 +10,7 @@ This is an open-source, reverse-engineered driver supporting non-class compliant
 
 **Currently Supported Devices:**
 * **Allen & Heath Xone:DB4, DB2, DX, 4D** (Ploytec-based protocol)
+* **Experimental:** 30+ more Ploytec-based interfaces and DJ controllers from Allen & Heath, Reloop, ESI, Midiplus, Smyth Research, Akai, M-Audio, Lexicon, Numark and Tascam ([full list](#️-supported-devices))
 
 More devices can be added—the architecture separates the audio engine from device protocols.
 
@@ -32,16 +33,66 @@ Ozzy reverses the protocol and provides modern drivers—so your equipment keeps
 
 ## 🎚️ Supported Devices
 
-| Device | Channels | Sample Rates | Status |
+Every device below comes from one list in [`common/ozzy_devices.def`](common/ozzy_devices.def), which both the Linux module and the macOS driver are built from.
+
+### ✅ Supported (tested on hardware)
+
+| Device | In / out | Sample rates |
+| :--- | :--- | :--- |
+| **Allen & Heath Xone:DB4** | 8 / 8 | 44.1–96 kHz |
+| **Allen & Heath Xone:DB2** | 8 / 8 | 48 kHz |
+| **Allen & Heath Xone:DX** | 8 / 8 | 44.1–96 kHz |
+| **Allen & Heath Xone:4D** | 8 / 8 | 44.1–96 kHz |
+
+### 🧪 Experimental (needs testers)
+
+These use the same Ploytec chip. Their channels, rates and setup requests come from the manufacturers' own drivers, but they haven't been confirmed working with Ozzy yet. If you own one, please [try it and report back](#-testing-an-experimental-device).
+
+| Device | In / out | Sample rates | Notes |
 | :--- | :--- | :--- | :--- |
-| **Allen & Heath Xone:DB4** | 8×8 | 44.1/48/88.2/96 kHz | ✅ Perfect |
-| **Allen & Heath Xone:DB2** | 8×8 | 48 kHz | ✅ Perfect |
-| **Allen & Heath Xone:DX** | 8×8 | 44.1/48/88.2/96 kHz | ✅ Perfect |
-| **Allen & Heath Xone:4D** | 8×8 | 44.1/48/88.2/96 kHz | ✅ Perfect |
-| **Allen & Heath Xone:2D** | 6×8 | 44.1/48/88.2/96 kHz | 🧪 Experimental, needs testers |
-| **Allen & Heath MixWizard WZ4 USB** | 16 in / 2 out | 44.1/48/88.2/96 kHz | 🧪 Experimental, needs testers |
-| **Reloop Digital Jockey 2 Master Edition** | 6 in / 4 out | 44.1 kHz | 🧪 Experimental |
-| **Allen & Heath Xone:1D** | MIDI only | – | 🧪 Experimental (macOS), needs testers. On Linux the kernel's own USB MIDI driver handles it, no Ozzy needed |
+| **Akai EIE Pro** | 4 / 4 | 44.1–96 kHz |  |
+| **Akai MPC Renaissance** | 2 / 4 | 44.1–96 kHz | First MIDI port only |
+| **Allen & Heath MixWizard WZ4 USB** | 16 / 2 | 44.1–96 kHz |  |
+| **Allen & Heath Xone:2D** | 8 / 8 | 44.1–96 kHz |  |
+| **ESI ESU1808** | 16 / 8 | 44.1–96 kHz | S/PDIF out mirrors outputs 1/2 |
+| **ESI U86 XT** | 8 / 6 | 44.1–96 kHz |  |
+| **ESI U108 PRE** | 10 / 8 | 44.1–96 kHz |  |
+| **ESI U168 XT** | 16 / 8 | 44.1–96 kHz |  |
+| **Lexicon I-ONIX U22 / IO22** | 2 / 2 | 44.1–96 kHz |  |
+| **Lexicon I-ONIX U42S / IO42** | 6 / 4 | 44.1–96 kHz |  |
+| **Lexicon I-ONIX U82S / IO82** | 10 / 4 | 44.1–96 kHz |  |
+| **M-Audio M-Track Quad** | 4 / 4 | 44.1–96 kHz |  |
+| **Midiplus AudioLink PLUS 4x4** | 6 / 6 | 44.1–96 kHz |  |
+| **Numark 4Trak** | 2 / 4 | 44.1 kHz |  |
+| **Numark MixDeck** | 4 / 4 | 44.1/88.2 kHz |  |
+| **Numark NS6** | 4 / 4 | 44.1 kHz |  |
+| **Numark NS7** | 4 / 4 | 44.1 kHz |  |
+| **Numark V7** | 4 / 4 | 44.1 kHz |  |
+| **Reloop Contour Interface Edition** | 2 / 10 | 44.1 kHz |  |
+| **Reloop Digital Jockey 2 Master Edition** | 6 / 4 | 44.1 kHz |  |
+| **Reloop IQ2 MIDI** | 4 / 4 | 44.1–96 kHz |  |
+| **Reloop Jockey 3 Master Edition** | 6 / 4 | 44.1–96 kHz |  |
+| **Reloop Jockey 3 Remix** | 6 / 4 | 44.1–96 kHz |  |
+| **Smyth Research Realiser A16** | 2 / 16 | 44.1 kHz |  |
+| **Tascam US-144** | 4 / 4 | 44.1–96 kHz | macOS only by default: Linux has its own drivers |
+| **Tascam US-144MKII** | 4 / 4 | 44.1–96 kHz | macOS only by default: Linux has its own driver |
+| **Tascam US-200** | 2 / 4 | 44.1–96 kHz |  |
+| **Tascam US-600** | 6 / 4 | 44.1–96 kHz |  |
+| **Tascam US-1641** | 16 / 4 | 44.1–96 kHz |  |
+| **Tascam US-1800** | 16 / 4 | 44.1–96 kHz |  |
+| **Tascam US-2000** | 16 / 4 | 44.1–96 kHz |  |
+
+**MIDI only:** Allen & Heath Xone:1D, on macOS. On Linux the kernel's own USB MIDI driver handles it, no Ozzy needed.
+
+### 🔍 Wanted: devices we need information about
+
+We can't work these out from the drivers alone. If you own one, the linked issue says what would help:
+
+* Alesis MultiMix 8 / 8 FX / 16 USB 2.0: [#90](https://github.com/mischa85/Ozzy/issues/90)
+* Dynacord PowerMate-3 / CMS-3: [#15](https://github.com/mischa85/Ozzy/issues/15)
+* Reloop, older interfaces (Digital Jockey IE / 2 IE, Spin 2, 10tion, Mixage IE, Play): [#92](https://github.com/mischa85/Ozzy/issues/92)
+* Tascam US-322, US-366, US-1200, UH-7000: [#91](https://github.com/mischa85/Ozzy/issues/91)
+* Unidentified Ploytec USB IDs: [#93](https://github.com/mischa85/Ozzy/issues/93)
 
 ---
 
@@ -53,7 +104,7 @@ Ozzy provides **native kernel-mode drivers** for maximum performance and compati
 Flexible architecture supporting three backend implementations:
 
 **Current: Kernel Extension (Kext)** - *Recommended*
-* **Audio:** 8×8 channels via CoreAudio HAL
+* **Audio:** up to 16 in / 16 out, per device, via CoreAudio HAL
 * **MIDI:** Full CoreMIDI support with lock-free ring buffers
 * **Latency:** Sub-millisecond performance via zero-copy ring buffers
 * **Requirements:** macOS 11+, SIP modified for kext loading (`csrutil enable --without kext`)
@@ -77,9 +128,9 @@ All backends share the same CoreAudio HAL and CoreMIDI drivers—only the USB co
 
 ### 🐧 Linux (ALSA Kernel Module)
 Standard ALSA kernel module with automatic transfer mode detection.
-* **Audio:** 8×8 channels (PCM)
+* **Audio:** up to 16 in / 16 out, per device (PCM)
 * **MIDI:** ALSA Sequencer In/Out
-* **Modes:** Automatic BULK/INTERRUPT transfer detection
+* **Modes:** Automatic BULK/INTERRUPT transfer detection, isochronous output with feedback
 * **Integration:** Works seamlessly with JACK, PulseAudio, PipeWire
 * **Location:** [`linux/`](linux/)
 
@@ -114,6 +165,8 @@ The installer automatically:
 - SIP modification: Run `csrutil enable --without kext` in Recovery Mode
 - Apple Developer certificate in Keychain (free Apple ID works)
 
+**Leaving devices out:** `OZZY_DISABLE="TascamUS144 NumarkNS7" ./install.command` builds without those devices (names are the keys in [`common/ozzy_devices.def`](common/ozzy_devices.def)), so another driver can keep them.
+
 **Uninstall:** Run `macos/uninstall.command`
 
 **Troubleshooting:** Run `macos/debuglogs.command` to collect diagnostic logs
@@ -133,6 +186,22 @@ For detailed information, see [macos/README.md](macos/README.md)
     ```bash
     sudo modprobe snd-usb-ozzy
     ```
+
+**Leaving devices out:** `make OZZY_DISABLE="NumarkNS7 ReloopIQ2MIDI"` builds without those devices (names are the keys in [`common/ozzy_devices.def`](common/ozzy_devices.def)). By default the Linux build leaves out the Tascam US-144 and US-144MKII, which the kernel's own drivers handle; `make OZZY_DISABLE=` builds them in.
+
+---
+
+## 🧪 Testing an Experimental Device
+
+If your device is in the experimental list, you can help get it to "supported":
+
+1. Install Ozzy as above and plug the device in.
+2. Try playback, recording and (if it has any) MIDI, at each sample rate it offers.
+3. Open an issue with the result, whether it works or not, and include the log:
+   * **Linux:** `sudo dmesg | grep -i ozzy` and `lsusb -v -d <vid:pid>`
+   * **macOS:** the output of `macos/debuglogs.command`
+
+Even "it works" is useful: it's what moves a device to the supported list.
 
 ---
 
@@ -290,6 +359,7 @@ Ozzy provides a **clean, open-source example** of how to:
 ### Architecture Highlights
 
 - **Device-agnostic core:** The audio engine (`OzzyCore`) is separated from device protocol implementations, making it easy to support additional vendors
+- **One device list:** [`common/ozzy_devices.def`](common/ozzy_devices.def) has one row per device (IDs, channels, rates, protocol family, quirks). The Linux USB ID table and the macOS kext's matching are generated from it, so adding a device that fits an existing family is one row; per-device differences are quirk flags ([`common/ozzy_quirks.h`](common/ozzy_quirks.h))
 - **Platform-portable:** Linux and macOS implementations share the USB protocol code
 - **Performance-first:** No unnecessary data copies, context switches, or latency-inducing abstractions
 - **Lock-free design:** Ring buffers use atomic operations for thread-safe, real-time audio
@@ -299,6 +369,8 @@ Ozzy provides a **clean, open-source example** of how to:
 ```
 Ozzy/
 ├── common/         # Shared protocol code (platform-independent)
+│   ├── ozzy_devices.def  # The device list (one row per device)
+│   ├── ozzy_quirks.h     # Per-device differences
 │   └── devices/    # Device-specific protocol definitions and codecs
 ├── linux/          # Linux ALSA kernel module
 │   └── devices/    # Linux device-specific glue
@@ -327,7 +399,7 @@ Whether you need to support your own legacy hardware or understand how professio
 - Check Audio MIDI Setup app
 
 **Linux module issues?**
-- Check kernel logs: `dmesg | grep ozzy`
+- Check kernel logs: `sudo dmesg | grep -i ozzy`
 - Verify module loaded: `lsmod | grep snd_usb_ozzy`
 
 **Reporting Issues:**

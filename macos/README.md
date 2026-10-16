@@ -54,12 +54,7 @@ This driver uses a **shared memory model** for zero-copy audio streaming:
 
 ### Supported Devices
 
-| Device | Channels | Sample Rates | Status |
-|--------|----------|--------------|--------|
-| **Allen & Heath Xone:DB4** | 8×8 | 44.1/48/96 kHz | ✅ Perfect |
-| **Allen & Heath Xone:DB2** | 8×8 | 44.1/48/96 kHz | ✅ Perfect |
-| **Allen & Heath Xone:DX** | 8×8 | 44.1/48/96 kHz | ✅ Perfect |
-| **Allen & Heath Xone:4D** | 8×8 | 44.1/48/96 kHz | ✅ Perfect |
+See the [device list in the main README](../README.md#️-supported-devices). The kext matches exactly the devices in [`common/ozzy_devices.def`](../common/ozzy_devices.def); `install.command` generates its `Info.plist` from it.
 
 ## 🔧 Manual Build
 

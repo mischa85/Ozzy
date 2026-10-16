@@ -83,9 +83,9 @@ static void ozzy_pcm_kill_urbs(struct pcm_runtime *rt)
 		usb_kill_urb(&rt->pcm_in_urbs[i].instance);
 		usb_kill_urb(&rt->pcm_out_urbs[i].instance);
 	}
-	for (i = 0; i < OZZY_PCM_N_ISO_URBS; i++)
+	for (i = 0; i < ISOC_OUT_TRANSFERS; i++)
 		usb_kill_urb(rt->pcm_iso_out_urbs[i].instance);
-	for (i = 0; i < OZZY_PCM_N_FB_URBS; i++)
+	for (i = 0; i < ISOC_FB_TRANSFERS; i++)
 		usb_kill_urb(rt->pcm_fb_urbs[i].instance);
 }
 
@@ -106,9 +106,9 @@ static void ozzy_pcm_poison_urbs(struct pcm_runtime *rt)
 		usb_poison_urb(&rt->pcm_in_urbs[i].instance);
 		usb_poison_urb(&rt->pcm_out_urbs[i].instance);
 	}
-	for (i = 0; i < OZZY_PCM_N_ISO_URBS; i++)
+	for (i = 0; i < ISOC_OUT_TRANSFERS; i++)
 		usb_poison_urb(rt->pcm_iso_out_urbs[i].instance);
-	for (i = 0; i < OZZY_PCM_N_FB_URBS; i++)
+	for (i = 0; i < ISOC_FB_TRANSFERS; i++)
 		usb_poison_urb(rt->pcm_fb_urbs[i].instance);
 }
 
@@ -251,11 +251,12 @@ static unsigned int ozzy_pcm_fill_iso_out(struct pcm_runtime *rt, struct urb *ur
 					  unsigned int pcm_buffer_size)
 {
 	uint8_t *buf = urb->transfer_buffer;
+	uint32_t frames[ISOC_TRANSFER_UFRAMES];
 	unsigned int p, bytes, first, off = 0;
 
+	isoc_fb_layout(&rt->fb, urb->number_of_packets, rt->iso_uframes, rt->iso_max_frames, frames);
 	for (p = 0; p < urb->number_of_packets; p++) {
-		bytes = min(isoc_fb_out_frames(&rt->fb, rt->iso_uframes), rt->iso_max_frames) *
-			rt->iso_frame_bytes;
+		bytes = frames[p] * rt->iso_frame_bytes;
 		urb->iso_frame_desc[p].offset = off;
 		urb->iso_frame_desc[p].length = bytes;
 		off += bytes;
@@ -386,7 +387,7 @@ static int ozzy_pcm_open(struct snd_pcm_substream *alsa_sub)
 	unsigned int channels = playback ? info->playback_channels : info->capture_channels;
 	/* Isochronous out: one URB at the highest rate */
 	unsigned int frames_per_packet = !playback ? info->frames_per_in_packet :
-		info->out_isoc ? info->rate_max * OZZY_PCM_ISO_UFRAMES / ISOC_FB_UFRAMES_PER_SEC :
+		info->out_isoc ? info->rate_max * ISOC_TRANSFER_UFRAMES / ISOC_FB_UFRAMES_PER_SEC :
 		info->frames_per_out_packet;
 	unsigned int alsa_pkt_bytes = frames_per_packet * channels * info->bytes_per_sample;
 
@@ -704,12 +705,12 @@ static int ozzy_pcm_init_in_urb(struct pcm_urb *urb, struct ozzy_chip *chip)
 }
 
 /*
- * ozzy_pcm_iso_packets - Packets per isochronous URB on @epd: OZZY_PCM_ISO_UFRAMES
+ * ozzy_pcm_iso_packets - Packets per isochronous URB on @epd: ISOC_TRANSFER_UFRAMES
  * microframes, one packet per service interval (2^(bInterval-1) microframes).
  */
 static unsigned int ozzy_pcm_iso_packets(const struct usb_endpoint_descriptor *epd)
 {
-	return max(OZZY_PCM_ISO_UFRAMES / isoc_fb_interval_uframes(epd->bInterval), 1u);
+	return isoc_fb_packets(isoc_fb_interval_uframes(epd->bInterval));
 }
 
 /*
@@ -790,7 +791,7 @@ static int ozzy_pcm_init_iso_urbs(struct ozzy_chip *chip)
 	ozzy_pcm_log(&chip->dev->dev, "isochronous out: %u microframe(s) per packet, up to %u frames, feedback every %u microframe(s)\n",
 		     rt->iso_uframes, rt->iso_max_frames, rt->fb.uframes);
 
-	for (i = 0; i < OZZY_PCM_N_ISO_URBS; i++) {
+	for (i = 0; i < ISOC_OUT_TRANSFERS; i++) {
 		ret = ozzy_pcm_init_iso_urb(&rt->pcm_iso_out_urbs[i], chip,
 					    chip->dev->ep_out[chip->out_ep],
 					    ozzy_pcm_iso_out_urb_handler);
@@ -799,7 +800,7 @@ static int ozzy_pcm_init_iso_urbs(struct ozzy_chip *chip)
 		ozzy_pcm_fill_iso_out(rt, rt->pcm_iso_out_urbs[i].instance, NULL, 0, 0);
 	}
 
-	for (i = 0; fb_ep && i < OZZY_PCM_N_FB_URBS; i++) {
+	for (i = 0; fb_ep && i < ISOC_FB_TRANSFERS; i++) {
 		ret = ozzy_pcm_init_iso_urb(&rt->pcm_fb_urbs[i], chip, fb_ep,
 					    ozzy_pcm_fb_urb_handler);
 		if (ret < 0)
@@ -857,7 +858,7 @@ int ozzy_pcm_init_urbs(struct ozzy_chip *chip)
 	}
 
 	if (chip->info->out_isoc) {
-		for (i = 0; i < OZZY_PCM_N_FB_URBS && chip->feedback_ep; i++) {
+		for (i = 0; i < ISOC_FB_TRANSFERS && chip->feedback_ep; i++) {
 			ret = usb_submit_urb(rt->pcm_fb_urbs[i].instance, GFP_ATOMIC);
 			if (ret < 0) {
 				ozzy_pcm_stream_stop(rt);
@@ -865,7 +866,7 @@ int ozzy_pcm_init_urbs(struct ozzy_chip *chip)
 				goto error_locked;
 			}
 		}
-		for (i = 0; i < OZZY_PCM_N_ISO_URBS; i++) {
+		for (i = 0; i < ISOC_OUT_TRANSFERS; i++) {
 			ret = usb_submit_urb(rt->pcm_iso_out_urbs[i].instance, GFP_ATOMIC);
 			if (ret < 0) {
 				ozzy_pcm_stream_stop(rt);
@@ -948,13 +949,13 @@ void ozzy_pcm_free(struct ozzy_chip *chip)
 
 	if (!rt)
 		return;
-	for (i = 0; i < OZZY_PCM_N_ISO_URBS; i++) {
+	for (i = 0; i < ISOC_OUT_TRANSFERS; i++) {
 		usb_free_urb(rt->pcm_iso_out_urbs[i].instance);
 		kfree(rt->pcm_iso_out_urbs[i].buffer);
 		rt->pcm_iso_out_urbs[i].instance = NULL;
 		rt->pcm_iso_out_urbs[i].buffer = NULL;
 	}
-	for (i = 0; i < OZZY_PCM_N_FB_URBS; i++) {
+	for (i = 0; i < ISOC_FB_TRANSFERS; i++) {
 		usb_free_urb(rt->pcm_fb_urbs[i].instance);
 		kfree(rt->pcm_fb_urbs[i].buffer);
 		rt->pcm_fb_urbs[i].instance = NULL;

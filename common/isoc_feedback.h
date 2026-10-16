@@ -54,6 +54,11 @@ extern "C" {
 #define ISOC_FB_RING             128    /* microframes (16 ms), power of two */
 #define ISOC_FB_MAX_UFRAMES      8      /* feedback every 1 ms at most (bInterval 4) */
 
+/* Transfers in flight, as the official Ploytec driver queues them (both platforms) */
+#define ISOC_TRANSFER_UFRAMES    32     /* microframes per isochronous transfer (4 ms) */
+#define ISOC_OUT_TRANSFERS       3      /* OUT transfers in flight */
+#define ISOC_FB_TRANSFERS        2      /* feedback transfers in flight */
+
 enum isoc_fb_format {
 	ISOC_FB_NONE,      /* no feedback endpoint: nominal rate */
 	ISOC_FB_COUNT,     /* byte 0 = frames in the packet's interval (Ploytec) */
@@ -103,6 +108,17 @@ struct isoc_fb {
 static inline uint32_t isoc_fb_interval_uframes(uint8_t b_interval)
 {
 	return 1u << ((b_interval ? b_interval : 1) - 1);
+}
+
+/*
+ * isoc_fb_packets - Packets per transfer on an endpoint whose service interval is
+ * @uframes microframes: ISOC_TRANSFER_UFRAMES worth, at least one.
+ */
+static inline uint32_t isoc_fb_packets(uint32_t uframes)
+{
+	uint32_t n = ISOC_TRANSFER_UFRAMES / uframes;
+
+	return n + (n == 0);
 }
 
 /*
@@ -218,6 +234,26 @@ static inline uint32_t isoc_fb_out_frames(struct isoc_fb *fb, uint32_t uframes)
 		frames += n + (n == 0) * nominal;
 	}
 	return frames;
+}
+
+/*
+ * isoc_fb_layout - Frames for each packet of the next OUT transfer: @packets packets
+ * of @uframes microframes, each capped at @max_frames (what fits wMaxPacketSize).
+ * Fills @frames[] and returns their sum. Each platform then places the frames:
+ * copied into the transfer (Linux) or pointed at in a frame ring (macOS).
+ */
+static inline uint32_t isoc_fb_layout(struct isoc_fb *fb, uint32_t packets, uint32_t uframes,
+				      uint32_t max_frames, uint32_t *frames)
+{
+	uint32_t p, n, total = 0;
+
+	for (p = 0; p < packets; p++) {
+		n = isoc_fb_out_frames(fb, uframes);
+		n = n < max_frames ? n : max_frames;
+		frames[p] = n;
+		total += n;
+	}
+	return total;
 }
 
 #ifdef __cplusplus

@@ -97,24 +97,24 @@ static void ozzy_log_endpoints(struct usb_device *device, struct usb_interface *
 }
 
 /*
- * ozzy_resolve_ep - The endpoint number @spec describes (see struct ozzy_ep):
- * its fixed number, or the first endpoint of a matching type and direction on
- * its interface. 0 if there is none.
+ * ozzy_resolve_ep - The endpoint number @spec describes (common/ozzy_ep.h): its
+ * fixed address, or the first endpoint on its interface's current alt setting that
+ * ozzy_ep_matches(). 0 if there is none.
  */
-static unsigned int ozzy_resolve_ep(struct usb_device *device, const struct ozzy_ep *spec, bool in)
+static unsigned int ozzy_resolve_ep(struct usb_device *device, const struct ozzy_ep *spec)
 {
 	struct usb_interface *intf = usb_ifnum_to_if(device, spec->intf);
 	const struct usb_host_interface *alt;
 	const struct usb_endpoint_descriptor *epd;
 	unsigned int i;
 
-	if (spec->num || !spec->types || !intf)
-		return spec->num;
+	if (spec->address || !spec->types || !intf)
+		return spec->address & USB_ENDPOINT_NUMBER_MASK;
 
 	alt = intf->cur_altsetting;
 	for (i = 0; i < alt->desc.bNumEndpoints; i++) {
 		epd = &alt->endpoint[i].desc;
-		if (usb_endpoint_dir_in(epd) == in && (spec->types & BIT(usb_endpoint_type(epd))))
+		if (ozzy_ep_matches(spec, epd->bEndpointAddress, epd->bmAttributes))
 			return usb_endpoint_num(epd);
 	}
 	return 0;
@@ -252,11 +252,11 @@ static int ozzy_probe(struct usb_interface *intf,
 		ozzy_log_endpoints(device, chip->intf2);
 
 	/* Find the endpoints, then detect the output endpoint's transfer type */
-	chip->out_ep = ozzy_resolve_ep(device, &chip->info->out_ep, false);
-	chip->in_ep = ozzy_resolve_ep(device, &chip->info->in_ep, true);
-	chip->feedback_ep = ozzy_resolve_ep(device, &chip->info->feedback_ep, true);
-	chip->midi_in_ep = ozzy_resolve_ep(device, &chip->info->midi_in_ep, true);
-	chip->midi_out_ep = ozzy_resolve_ep(device, &chip->info->midi_out_ep, false);
+	chip->out_ep = ozzy_resolve_ep(device, &chip->info->out_ep);
+	chip->in_ep = ozzy_resolve_ep(device, &chip->info->in_ep);
+	chip->feedback_ep = ozzy_resolve_ep(device, &chip->info->feedback_ep);
+	chip->midi_in_ep = ozzy_resolve_ep(device, &chip->info->midi_in_ep);
+	chip->midi_out_ep = ozzy_resolve_ep(device, &chip->info->midi_out_ep);
 	ret = ozzy_check_pcm_eps(chip);
 	if (ret < 0)
 		goto err_intf2;

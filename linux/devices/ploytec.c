@@ -431,11 +431,11 @@ const struct ozzy_device_info ploytec_info = {
 	.in_packet_size        = PLOYTEC_IN_PKT_SIZE,
 	.frames_per_out_packet = PLOYTEC_FRAMES_PER_PKT,
 	.frames_per_in_packet  = PLOYTEC_FRAMES_PER_PKT,
-	.out_ep                = { .num = PLOYTEC_EP_PCM_OUT },
-	.in_ep                 = { .num = PLOYTEC_EP_PCM_IN },
+	.out_ep                = { .address = PLOYTEC_EP_PCM_OUT },
+	.in_ep                 = { .address = PLOYTEC_EP_PCM_IN | USB_DIR_IN },
 	.alsa_format           = SNDRV_PCM_FMTBIT_S24_3LE,
 	.bytes_per_sample      = 3,
-	.midi_in_ep            = { .num = PLOYTEC_EP_MIDI_IN },
+	.midi_in_ep            = { .address = PLOYTEC_EP_MIDI_IN | USB_DIR_IN },
 	.midi_out_embedded     = true,
 	.num_interfaces        = PLOYTEC_NUM_INTERFACES,
 	.alt_setting           = PLOYTEC_ALT_SETTING,
@@ -460,9 +460,8 @@ const struct ozzy_device_ops ploytec_ops = {
 
 /*
  * Bulk in / isochronous out (Akai EIE Pro); channels and rates per model, see
- * ploytec_apply_model(). Endpoints are found by type, like the official driver
- * does (on the EIE Pro: PCM out 0x02, MIDI out 0x04, MIDI in 0x83 on interface 0;
- * feedback 0x81, PCM in 0x86 on interface 1).
+ * ploytec_apply_model(). Endpoints and feedback as both platforms describe them
+ * (ploytec_defs.h).
  */
 const struct ozzy_device_info ploytec_isoc_info = {
 	.name                  = "Ploytec isochronous out",
@@ -470,15 +469,15 @@ const struct ozzy_device_info ploytec_isoc_info = {
 	.capture_channels      = 4,
 	.in_packet_size        = PLOYTEC_IN_PKT_SIZE,
 	.frames_per_in_packet  = PLOYTEC_FRAMES_PER_PKT,
-	.out_ep                = { .intf = 0, .types = OZZY_EP_ISOC },
-	.in_ep                 = { .intf = 1, .types = OZZY_EP_BULK | OZZY_EP_INT },
+	.out_ep                = PLOYTEC_ISOC_EP_PCM_OUT,
+	.in_ep                 = PLOYTEC_ISOC_EP_PCM_IN,
 	.alsa_format           = SNDRV_PCM_FMTBIT_S24_3LE,
 	.bytes_per_sample      = 3,
 	.out_isoc              = true,
-	.feedback_ep           = { .intf = 1, .types = OZZY_EP_ISOC },
-	.feedback              = { ISOC_FB_COUNT, PLOYTEC_ISOC_FB_PACKET_SIZE, PLOYTEC_ISOC_FB_MAX_ERRORS },
-	.midi_in_ep            = { .intf = 0, .types = OZZY_EP_BULK | OZZY_EP_INT },
-	.midi_out_ep           = { .intf = 0, .types = OZZY_EP_BULK | OZZY_EP_INT },
+	.feedback_ep           = PLOYTEC_ISOC_EP_FEEDBACK,
+	.feedback              = PLOYTEC_ISOC_FEEDBACK,
+	.midi_in_ep            = PLOYTEC_ISOC_EP_MIDI_IN,
+	.midi_out_ep           = PLOYTEC_ISOC_EP_MIDI_OUT,
 	.midi_out_interval_us  = PLOYTEC_MIDI_XFER_INTERVAL_US,
 	.num_interfaces        = PLOYTEC_NUM_INTERFACES,
 	.alt_setting           = PLOYTEC_ALT_SETTING,

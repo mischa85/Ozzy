@@ -11,6 +11,9 @@
 #ifndef OZZY_PLOYTEC_DEFS_H
 #define OZZY_PLOYTEC_DEFS_H
 
+#include "../../ozzy_ep.h"          /* PLOYTEC_ISOC_EP_xxx */
+#include "../../isoc_feedback.h"    /* PLOYTEC_ISOC_FEEDBACK */
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -32,12 +35,23 @@ extern "C" {
 #define AKAI_PID_EIE_PRO            0x0010   /* bulk in / isochronous out, see .claude/re/akai_eie_pro.md */
 
 /*
- * Feedback of bulk in / isoc out devices (common/isoc_feedback.h): 3-byte packets,
- * byte 0 = frames played in the interval. More than 40 wrong-length packets without
- * a clean ring lap stop the official driver.
+ * Bulk in / isoc out devices (Akai EIE Pro), as both platforms describe them.
+ * Endpoints are found by type like the official driver does (struct ozzy_ep); on the
+ * EIE Pro: PCM out 0x02, MIDI out 0x04, MIDI in 0x83 on interface 0, PCM in 0x86 and
+ * feedback 0x81 on interface 1.
+ * Feedback (common/isoc_feedback.h): 3-byte packets, byte 0 = frames played in the
+ * interval. More than 40 wrong-length packets without a clean ring lap stop the
+ * official driver.
  */
 #define PLOYTEC_ISOC_FB_PACKET_SIZE 3
 #define PLOYTEC_ISOC_FB_MAX_ERRORS  40
+
+#define PLOYTEC_ISOC_EP_PCM_OUT   { 0, 0, OZZY_EP_ISOC, OZZY_EP_DIR_OUT }
+#define PLOYTEC_ISOC_EP_MIDI_OUT  { 0, 0, OZZY_EP_BULK | OZZY_EP_INT, OZZY_EP_DIR_OUT }
+#define PLOYTEC_ISOC_EP_MIDI_IN   { 0, 0, OZZY_EP_BULK | OZZY_EP_INT, OZZY_EP_DIR_IN }
+#define PLOYTEC_ISOC_EP_PCM_IN    { 1, 0, OZZY_EP_BULK | OZZY_EP_INT, OZZY_EP_DIR_IN }
+#define PLOYTEC_ISOC_EP_FEEDBACK  { 1, 0, OZZY_EP_ISOC, OZZY_EP_DIR_IN }
+#define PLOYTEC_ISOC_FEEDBACK     { ISOC_FB_COUNT, PLOYTEC_ISOC_FB_PACKET_SIZE, PLOYTEC_ISOC_FB_MAX_ERRORS }
 
 /* USB endpoint addresses (low nibble) */
 #define PLOYTEC_EP_PCM_OUT          0x05

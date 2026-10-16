@@ -17,27 +17,11 @@
 #include <sound/pcm.h>
 
 #include "../common/isoc_feedback.h"
+#include "../common/ozzy_ep.h"
 
 struct ozzy_chip;
 struct pcm_runtime;
 struct midi_runtime;
-
-/*
- * struct ozzy_ep - How to find one endpoint (direction implied by its use).
- * With @num set, the endpoint is that number, as is. With @num 0 and @types set,
- * it is the first endpoint on interface @intf (current alt setting) whose transfer
- * type is in @types, the way the official Ploytec driver finds pipes. All zero
- * means the device has no such endpoint. Resolved once at probe (ozzy_chip).
- */
-struct ozzy_ep {
-	u8 intf;
-	u8 num;
-	u8 types;   /* OZZY_EP_xxx bits */
-};
-
-#define OZZY_EP_ISOC  BIT(USB_ENDPOINT_XFER_ISOC)
-#define OZZY_EP_BULK  BIT(USB_ENDPOINT_XFER_BULK)
-#define OZZY_EP_INT   BIT(USB_ENDPOINT_XFER_INT)
 
 /*
  * struct ozzy_device_info - Static hardware descriptor for a device family.

@@ -14,11 +14,6 @@ struct ozzy_chip;
 
 #define OZZY_PCM_N_URBS  4
 
-/* Isochronous output (info->out_isoc): 3 URBs of 4 ms in flight, like the official EIE Pro driver */
-#define OZZY_PCM_N_ISO_URBS   3
-#define OZZY_PCM_N_FB_URBS    2      /* feedback URBs in flight */
-#define OZZY_PCM_ISO_UFRAMES  32     /* High Speed microframes per isochronous URB (4 ms) */
-
 struct pcm_urb {
 	struct ozzy_chip *chip;
 	struct urb instance;
@@ -69,8 +64,8 @@ struct pcm_runtime {
 	struct pcm_urb pcm_in_urbs[OZZY_PCM_N_URBS];
 
 	/* Isochronous output (info->out_isoc only) */
-	struct pcm_iso_urb pcm_iso_out_urbs[OZZY_PCM_N_ISO_URBS];
-	struct pcm_iso_urb pcm_fb_urbs[OZZY_PCM_N_FB_URBS];       /* if there is a feedback EP */
+	struct pcm_iso_urb pcm_iso_out_urbs[ISOC_OUT_TRANSFERS];
+	struct pcm_iso_urb pcm_fb_urbs[ISOC_FB_TRANSFERS];       /* if there is a feedback EP */
 	struct isoc_fb fb;              /* frames per packet, filled from the feedback */
 	unsigned int iso_uframes;       /* microframes per OUT packet (2^(bInterval-1)) */
 	unsigned int iso_max_frames;    /* frames that fit one OUT packet (wMaxPacketSize) */

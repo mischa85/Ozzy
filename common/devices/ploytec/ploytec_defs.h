@@ -72,6 +72,7 @@ extern "C" {
 /* SET_CUR sample rate endpoint addresses (wIndex field) */
 #define PLOYTEC_EP_RATE_IN          0x0086
 #define PLOYTEC_EP_RATE_OUT         0x0005
+#define PLOYTEC_ISOC_EP_RATE_OUT    0x0002   /* bulk in / isoc out devices: their isoc PCM OUT EP */
 
 /* MIDI idle/sync byte (sent when no MIDI data is pending) */
 #define PLOYTEC_MIDI_IDLE_BYTE      0xFD

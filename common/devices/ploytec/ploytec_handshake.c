@@ -96,20 +96,21 @@ static int hs_read_rate(const struct ploytec_host_ops *ops, void *ctx, uint32_t 
 /*
  * hs_set_rate - UAC1 endpoint SET_CUR to the PCM IN, then the PCM OUT endpoint.
  */
-static int hs_set_rate(const struct ploytec_host_ops *ops, void *ctx, uint32_t rate)
+static int hs_set_rate(const struct ploytec_host_ops *ops, void *ctx, uint32_t rate,
+		       const struct ploytec_rate_endpoints *eps)
 {
 	uint8_t buf[3];
 	int ret;
 
 	ploytec_encode_rate(rate, buf);
 	ret = ops->control(ctx, PLOYTEC_CMD_SET_RATE_TYPE, PLOYTEC_CMD_SET_RATE_REQ,
-			   0x0100, PLOYTEC_EP_RATE_IN, buf, sizeof(buf));
+			   0x0100, eps->pcm_in, buf, sizeof(buf));
 	if (ret < 0)
 		return ret;
 
 	ploytec_encode_rate(rate, buf);
 	return ops->control(ctx, PLOYTEC_CMD_SET_RATE_TYPE, PLOYTEC_CMD_SET_RATE_REQ,
-			    0x0100, PLOYTEC_EP_RATE_OUT, buf, sizeof(buf));
+			    0x0100, eps->pcm_out, buf, sizeof(buf));
 }
 
 /*
@@ -161,8 +162,19 @@ static int hs_clear_pcm_halt(const struct ploytec_host_ops *ops, void *ctx)
 	return ret;
 }
 
+/* Positional: the macOS kext compiles this file as C++11 */
+const struct ploytec_rate_endpoints ploytec_xone_rate_endpoints = { PLOYTEC_EP_RATE_IN, PLOYTEC_EP_RATE_OUT };
+const struct ploytec_rate_endpoints ploytec_isoc_rate_endpoints = { PLOYTEC_EP_RATE_IN, PLOYTEC_ISOC_EP_RATE_OUT };
+
 int ploytec_handshake(const struct ploytec_host_ops *ops, void *ctx, uint32_t rate,
 		      struct ploytec_handshake_info *info)
+{
+	return ploytec_handshake_eps(ops, ctx, rate, &ploytec_xone_rate_endpoints, info);
+}
+
+int ploytec_handshake_eps(const struct ploytec_host_ops *ops, void *ctx, uint32_t rate,
+			  const struct ploytec_rate_endpoints *eps,
+			  struct ploytec_handshake_info *info)
 {
 	struct ploytec_handshake_info local;
 	uint32_t verify_rate = 0;
@@ -190,7 +202,7 @@ int ploytec_handshake(const struct ploytec_host_ops *ops, void *ctx, uint32_t ra
 		goto err;
 
 	hs_log(ops, ctx, false, "[%d/7] setting sample rate to %u Hz...", ++step, rate);
-	ret = hs_set_rate(ops, ctx, rate);
+	ret = hs_set_rate(ops, ctx, rate, eps);
 	if (ret < 0)
 		goto err;
 

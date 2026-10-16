@@ -57,11 +57,34 @@ struct ploytec_handshake_info {
 };
 
 /*
- * ploytec_handshake - Arm the device for streaming at @rate Hz.
+ * struct ploytec_rate_endpoints - wIndex of the two UAC1 SET_CUR rate requests:
+ * the PCM IN and PCM OUT endpoint addresses. The official driver sends them to
+ * whichever pipes it streams on (PGDevice::startStreaming).
+ */
+struct ploytec_rate_endpoints {
+	uint16_t pcm_in;
+	uint16_t pcm_out;
+};
+
+extern const struct ploytec_rate_endpoints ploytec_xone_rate_endpoints;  /* 0x86, 0x05 */
+extern const struct ploytec_rate_endpoints ploytec_isoc_rate_endpoints;  /* 0x86, 0x02 */
+
+/*
+ * ploytec_handshake - Arm a Xone (bulk/interrupt out) device for streaming at @rate Hz.
  * @info may be NULL. Returns 0 on success, negative errno on failure.
  */
 int ploytec_handshake(const struct ploytec_host_ops *ops, void *ctx, uint32_t rate,
 		      struct ploytec_handshake_info *info);
+
+/*
+ * ploytec_handshake_eps - The same sequence with the rate requests sent to @eps.
+ * Bulk in / isoc out devices (Akai EIE Pro) use ploytec_isoc_rate_endpoints and
+ * no clear_halt (the official driver doesn't clear halts, and the Xone endpoints
+ * it would hit are not the EIE's PCM pipes).
+ */
+int ploytec_handshake_eps(const struct ploytec_host_ops *ops, void *ctx, uint32_t rate,
+			  const struct ploytec_rate_endpoints *eps,
+			  struct ploytec_handshake_info *info);
 
 #ifdef __cplusplus
 }

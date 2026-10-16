@@ -329,8 +329,10 @@ m_pcInterruptInPipe       → this+0xaa0
 m_pcInterruptOutPipe      → this+0xaa8
 ```
 
-For Ploytec bulk: endpoint 0x05 is found via `getPipeByAddress('\x05')`. If the pipe
-has type 0x04, falls back to interrupt out pipe.
+For Ploytec bulk: endpoint 0x05 is found via `getPipeByAddress('\x05')`. If there is no
+EP 0x05, or its **bInterval** is 4 (`pipe+0x16`; `PGPipeDescriptor::scan` @0x209b2 stores
+bInterval there, the transfer type is `bmAttributes & 3` at `+0xe`), it falls back to
+`getInterruptOutPipe()`. An earlier version of this file read `+0x16 == 4` as a type check.
 
 ---
 

@@ -8,6 +8,7 @@
  * Handles: vendor request handshake, sample rate control, Ploytec
  * bit-interleaved PCM codec, packet framing with padding gaps, and
  * MIDI byte embedding in PCM output packets.
+
  *
  * Copyright (C) 2024 Marcel Bierling <marcel@hackerman.art>
  */
@@ -168,9 +169,34 @@ static const struct ploytec_host_ops ploytec_host_ops = {
  */
 static bool ploytec_pcm_in_int_1024(struct ozzy_chip *chip)
 {
-	struct usb_host_endpoint *ep = chip->dev->ep_in[chip->info->in_ep];
+	struct usb_host_endpoint *ep = chip->dev->ep_in[chip->in_ep];
 
 	return ep && usb_endpoint_xfer_int(&ep->desc) && usb_endpoint_maxp(&ep->desc) == 1024;
+}
+
+/*
+ * ploytec_private_init - On the first init: allocate private data and apply the
+ * model (channels, rates, frame codecs). Kept on failure because chip->info
+ * points into it; ploytec_free() releases it.
+ */
+static int ploytec_private_init(struct ozzy_chip *chip)
+{
+	struct ploytec_private *priv;
+
+	if (chip->private_data)
+		return 0;
+
+	priv = kzalloc(sizeof(*priv), GFP_KERNEL);
+	if (!priv)
+		return -ENOMEM;
+	chip->private_data = priv;
+	ploytec_apply_model(chip, priv);
+	if (!priv->encode || !priv->decode) {
+		ploytec_err(&chip->dev->dev, "no frame codec for %u in / %u out\n",
+			    chip->info->capture_channels, chip->info->playback_channels);
+		return -EINVAL;
+	}
+	return 0;
 }
 
 /*
@@ -181,21 +207,13 @@ static bool ploytec_pcm_in_int_1024(struct ozzy_chip *chip)
  */
 static int ploytec_init(struct ozzy_chip *chip)
 {
-	struct ploytec_private *priv = chip->private_data;
+	struct ploytec_private *priv;
 	int ret;
 
-	if (!priv) {
-		priv = kzalloc(sizeof(*priv), GFP_KERNEL);
-		if (!priv)
-			return -ENOMEM;
-		chip->private_data = priv;
-		ploytec_apply_model(chip, priv);
-		if (!priv->encode || !priv->decode) {
-			ploytec_err(&chip->dev->dev, "no frame codec for %u in / %u out\n",
-				    chip->info->capture_channels, chip->info->playback_channels);
-			return -EINVAL;
-		}
-	}
+	ret = ploytec_private_init(chip);
+	if (ret < 0)
+		return ret;
+	priv = chip->private_data;
 
 	ret = ploytec_handshake(&ploytec_host_ops, chip,
 				chip->info->rates[chip->requested_rate], NULL);
@@ -351,11 +369,11 @@ const struct ozzy_device_info ploytec_info = {
 	.in_packet_size        = PLOYTEC_IN_PKT_SIZE,
 	.frames_per_out_packet = PLOYTEC_FRAMES_PER_PKT,
 	.frames_per_in_packet  = PLOYTEC_FRAMES_PER_PKT,
-	.out_ep                = PLOYTEC_EP_PCM_OUT,
-	.in_ep                 = PLOYTEC_EP_PCM_IN,
+	.out_ep                = { .num = PLOYTEC_EP_PCM_OUT },
+	.in_ep                 = { .num = PLOYTEC_EP_PCM_IN },
 	.alsa_format           = SNDRV_PCM_FMTBIT_S24_3LE,
 	.bytes_per_sample      = 3,
-	.midi_in_ep            = PLOYTEC_EP_MIDI_IN,
+	.midi_in_ep            = { .num = PLOYTEC_EP_MIDI_IN },
 	.midi_out_embedded     = true,
 	.num_interfaces        = PLOYTEC_NUM_INTERFACES,
 	.alt_setting           = PLOYTEC_ALT_SETTING,

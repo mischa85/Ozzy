@@ -126,10 +126,7 @@ static void ozzy_pcm_in_urb_handler(struct urb *usb_urb)
 	if (rt->panic || rt->stream_state == STREAM_STOPPING)
 		return;
 
-	if (unlikely(usb_urb->status == -ENOENT ||
-		     usb_urb->status == -ENODEV ||
-		     usb_urb->status == -ECONNRESET ||
-		     usb_urb->status == -ESHUTDOWN))
+	if (unlikely(ozzy_urb_gone(usb_urb->status)))
 		goto in_fail;
 
 	sub = &rt->capture;
@@ -188,10 +185,7 @@ static void ozzy_pcm_out_urb_handler(struct urb *usb_urb)
 	if (rt->panic || rt->stream_state == STREAM_STOPPING)
 		return;
 
-	if (unlikely(usb_urb->status == -ENOENT ||
-		     usb_urb->status == -ENODEV ||
-		     usb_urb->status == -ECONNRESET ||
-		     usb_urb->status == -ESHUTDOWN))
+	if (unlikely(ozzy_urb_gone(usb_urb->status)))
 		goto out_fail;
 
 	sub = &rt->playback;
@@ -513,15 +507,15 @@ static int ozzy_pcm_init_out_urb(struct pcm_urb *urb, struct ozzy_chip *chip)
 
 	if (chip->is_bulk) {
 		usb_fill_bulk_urb(&urb->instance, chip->dev,
-				  usb_sndbulkpipe(chip->dev, info->out_ep),
+				  usb_sndbulkpipe(chip->dev, chip->out_ep),
 				  urb->buffer, pkt_size,
 				  ozzy_pcm_out_urb_handler, urb);
 	} else {
 		usb_fill_int_urb(&urb->instance, chip->dev,
-				 usb_sndintpipe(chip->dev, info->out_ep),
+				 usb_sndintpipe(chip->dev, chip->out_ep),
 				 urb->buffer, pkt_size,
 				 ozzy_pcm_out_urb_handler, urb,
-				 chip->dev->ep_out[info->out_ep]->desc.bInterval);
+				 chip->dev->ep_out[chip->out_ep]->desc.bInterval);
 	}
 
 	if (usb_urb_ep_type_check(&urb->instance)) {
@@ -548,18 +542,18 @@ static int ozzy_pcm_init_in_urb(struct pcm_urb *urb, struct ozzy_chip *chip)
 	if (!urb->buffer)
 		return -ENOMEM;
 
-	if ((chip->dev->ep_in[info->in_ep]->desc.bmAttributes &
+	if ((chip->dev->ep_in[chip->in_ep]->desc.bmAttributes &
 	     USB_ENDPOINT_XFERTYPE_MASK) == USB_ENDPOINT_XFER_BULK) {
 		usb_fill_bulk_urb(&urb->instance, chip->dev,
-				  usb_rcvbulkpipe(chip->dev, info->in_ep),
+				  usb_rcvbulkpipe(chip->dev, chip->in_ep),
 				  urb->buffer, info->in_packet_size,
 				  ozzy_pcm_in_urb_handler, urb);
 	} else {
 		usb_fill_int_urb(&urb->instance, chip->dev,
-				 usb_rcvintpipe(chip->dev, info->in_ep),
+				 usb_rcvintpipe(chip->dev, chip->in_ep),
 				 urb->buffer, info->in_packet_size,
 				 ozzy_pcm_in_urb_handler, urb,
-				 chip->dev->ep_in[info->in_ep]->desc.bInterval);
+				 chip->dev->ep_in[chip->in_ep]->desc.bInterval);
 	}
 
 	if (usb_urb_ep_type_check(&urb->instance)) {

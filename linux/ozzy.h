@@ -21,6 +21,23 @@ struct pcm_runtime;
 struct midi_runtime;
 
 /*
+ * struct ozzy_ep - How to find one endpoint (direction implied by its use).
+ * With @num set, the endpoint is that number, as is. With @num 0 and @types set,
+ * it is the first endpoint on interface @intf (current alt setting) whose transfer
+ * type is in @types, the way the official Ploytec driver finds pipes. All zero
+ * means the device has no such endpoint. Resolved once at probe (ozzy_chip).
+ */
+struct ozzy_ep {
+	u8 intf;
+	u8 num;
+	u8 types;   /* OZZY_EP_xxx bits */
+};
+
+#define OZZY_EP_ISOC  BIT(USB_ENDPOINT_XFER_ISOC)
+#define OZZY_EP_BULK  BIT(USB_ENDPOINT_XFER_BULK)
+#define OZZY_EP_INT   BIT(USB_ENDPOINT_XFER_INT)
+
+/*
  * struct ozzy_device_info - Static hardware descriptor for a device family.
  *
  * One const instance per device family (or per model if they differ).
@@ -37,13 +54,13 @@ struct ozzy_device_info {
 	unsigned int in_packet_size;      /* input URB size in bytes */
 	unsigned int frames_per_out_packet; /* audio frames per output USB transfer */
 	unsigned int frames_per_in_packet;  /* audio frames per input USB transfer */
-	unsigned int out_ep;              /* output endpoint number (e.g. 5) */
-	unsigned int in_ep;               /* input endpoint number (e.g. 6) */
+	struct ozzy_ep out_ep;            /* PCM output endpoint */
+	struct ozzy_ep in_ep;             /* PCM input endpoint */
 	u64 alsa_format;                  /* SNDRV_PCM_FMTBIT_xxx */
 	unsigned int bytes_per_sample;    /* bytes per ALSA sample (e.g. 3 for S24_3LE) */
 
 	/* MIDI topology */
-	unsigned int midi_in_ep;          /* dedicated MIDI input endpoint (0 = none) */
+	struct ozzy_ep midi_in_ep;        /* dedicated MIDI input endpoint */
 	bool midi_out_embedded;           /* true if MIDI out is embedded in PCM out packets */
 
 	/* USB interface configuration */
@@ -188,6 +205,11 @@ struct ozzy_chip {
 	unsigned int current_rate;        /* rate index currently active on hardware */
 	unsigned int requested_rate;      /* rate index requested by ALSA */
 	bool is_bulk;                     /* true if output EP uses bulk transfers */
+
+	/* Endpoint numbers resolved from info at probe (0 = none) */
+	unsigned int out_ep;
+	unsigned int in_ep;
+	unsigned int midi_in_ep;
 	uint16_t out_maxpacket;           /* output EP wMaxPacketSize */
 
 	struct usb_interface *intf;       /* primary USB interface */
@@ -195,5 +217,15 @@ struct ozzy_chip {
 
 	void *private_data;               /* device-specific runtime data */
 };
+
+/*
+ * ozzy_urb_gone - The URB completed because it was unlinked or the device is
+ * gone, so it must not be resubmitted.
+ */
+static inline bool ozzy_urb_gone(int status)
+{
+	return status == -ENOENT || status == -ENODEV ||
+	       status == -ECONNRESET || status == -ESHUTDOWN;
+}
 
 #endif /* OZZY_H */

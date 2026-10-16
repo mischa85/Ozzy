@@ -138,10 +138,7 @@ static void ozzy_midi_in_urb_handler(struct urb *usb_urb)
 	unsigned long flags;
 	int ret;
 
-	if (unlikely(usb_urb->status == -ENOENT ||
-		     usb_urb->status == -ENODEV ||
-		     usb_urb->status == -ECONNRESET ||
-		     usb_urb->status == -ESHUTDOWN))
+	if (unlikely(ozzy_urb_gone(usb_urb->status)))
 		goto in_fail;
 
 	if (chip->ops->decode_midi_in) {
@@ -253,10 +250,17 @@ static int ozzy_midi_init_bulk_in_urb(struct midi_urb *urb,
 	if (!urb->buffer)
 		return -ENOMEM;
 
-	usb_fill_bulk_urb(&urb->instance, chip->dev,
-			  usb_rcvbulkpipe(chip->dev, ep),
-			  urb->buffer, 9,
-			  ozzy_midi_in_urb_handler, urb);
+	if (chip->dev->ep_in[ep] && usb_endpoint_xfer_int(&chip->dev->ep_in[ep]->desc))
+		usb_fill_int_urb(&urb->instance, chip->dev,
+				 usb_rcvintpipe(chip->dev, ep),
+				 urb->buffer, 9,
+				 ozzy_midi_in_urb_handler, urb,
+				 chip->dev->ep_in[ep]->desc.bInterval);
+	else
+		usb_fill_bulk_urb(&urb->instance, chip->dev,
+				  usb_rcvbulkpipe(chip->dev, ep),
+				  urb->buffer, 9,
+				  ozzy_midi_in_urb_handler, urb);
 
 	if (usb_urb_ep_type_check(&urb->instance)) {
 		ozzy_midi_err(&chip->dev->dev, "MIDI URB endpoint sanity check failed\n");
@@ -282,14 +286,14 @@ int ozzy_midi_init_urbs(struct ozzy_chip *chip)
 
 	rt->chip = chip;
 
-	for (i = 0; i < OZZY_MIDI_N_URBS; i++) {
+	for (i = 0; i < OZZY_MIDI_N_URBS && chip->midi_in_ep; i++) {
 		ret = ozzy_midi_init_bulk_in_urb(&rt->midi_in_urbs[i], chip,
-						 chip->info->midi_in_ep);
+						 chip->midi_in_ep);
 		if (ret < 0)
 			goto error;
 	}
 
-	for (i = 0; i < OZZY_MIDI_N_URBS; i++) {
+	for (i = 0; i < OZZY_MIDI_N_URBS && chip->midi_in_ep; i++) {
 		usb_anchor_urb(&rt->midi_in_urbs[i].instance,
 			       &rt->midi_in_urbs[i].submitted);
 		ret = usb_submit_urb(&rt->midi_in_urbs[i].instance, GFP_ATOMIC);
@@ -314,7 +318,8 @@ static void ozzy_midi_kill_urbs(struct midi_runtime *rt)
 {
 	int i, time;
 
-	for (i = 0; i < OZZY_MIDI_N_URBS; i++) {
+	/* The in URBs (and their anchors) only exist with a MIDI IN endpoint */
+	for (i = 0; i < OZZY_MIDI_N_URBS && rt->chip->midi_in_ep; i++) {
 		time = usb_wait_anchor_empty_timeout(
 			&rt->midi_in_urbs[i].submitted, 100);
 		if (!time)
@@ -389,7 +394,7 @@ int ozzy_midi_init(struct ozzy_chip *chip)
 	rt->active = true;
 
 	/* Set up and submit MIDI URBs */
-	if (chip->info->midi_in_ep) {
+	if (chip->midi_in_ep) {
 		ret = ozzy_midi_init_urbs(chip);
 		if (ret < 0) {
 			ozzy_midi_err(&chip->dev->dev, "MIDI URB setup failed\n");

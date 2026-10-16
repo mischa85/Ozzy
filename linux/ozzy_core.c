@@ -68,6 +68,68 @@ MODULE_DEVICE_TABLE(usb, ozzy_id_table);
  * ======================================================================== */
 
 /*
+ * ozzy_log_endpoints - Log every endpoint of an interface's current alt setting,
+ * so a debug log doubles as the descriptor dump for devices nobody captured yet.
+ */
+static void ozzy_log_endpoints(struct usb_device *device, struct usb_interface *intf)
+{
+	static const char * const types[] = { "control", "isoc", "bulk", "interrupt" };
+	const struct usb_host_interface *alt = intf->cur_altsetting;
+	const struct usb_endpoint_descriptor *epd;
+	unsigned int i;
+
+	ozzy_log(&device->dev, "  interface %u alt %u: class 0x%02x, %u endpoints\n",
+		 alt->desc.bInterfaceNumber, alt->desc.bAlternateSetting,
+		 alt->desc.bInterfaceClass, alt->desc.bNumEndpoints);
+	for (i = 0; i < alt->desc.bNumEndpoints; i++) {
+		epd = &alt->endpoint[i].desc;
+		ozzy_log(&device->dev, "    EP 0x%02x %-3s %-9s wMaxPacketSize %u x%u bInterval %u\n",
+			 epd->bEndpointAddress, usb_endpoint_dir_in(epd) ? "IN" : "OUT",
+			 types[usb_endpoint_type(epd)], usb_endpoint_maxp(epd),
+			 usb_endpoint_maxp_mult(epd), epd->bInterval);
+	}
+}
+
+/*
+ * ozzy_resolve_ep - The endpoint number @spec describes (see struct ozzy_ep):
+ * its fixed number, or the first endpoint of a matching type and direction on
+ * its interface. 0 if there is none.
+ */
+static unsigned int ozzy_resolve_ep(struct usb_device *device, const struct ozzy_ep *spec, bool in)
+{
+	struct usb_interface *intf = usb_ifnum_to_if(device, spec->intf);
+	const struct usb_host_interface *alt;
+	const struct usb_endpoint_descriptor *epd;
+	unsigned int i;
+
+	if (spec->num || !spec->types || !intf)
+		return spec->num;
+
+	alt = intf->cur_altsetting;
+	for (i = 0; i < alt->desc.bNumEndpoints; i++) {
+		epd = &alt->endpoint[i].desc;
+		if (usb_endpoint_dir_in(epd) == in && (spec->types & BIT(usb_endpoint_type(epd))))
+			return usb_endpoint_num(epd);
+	}
+	return 0;
+}
+
+/*
+ * ozzy_check_pcm_eps - Both PCM endpoints exist.
+ */
+static int ozzy_check_pcm_eps(struct ozzy_chip *chip)
+{
+	struct usb_host_endpoint *out = chip->out_ep ? chip->dev->ep_out[chip->out_ep] : NULL;
+	struct usb_host_endpoint *in = chip->in_ep ? chip->dev->ep_in[chip->in_ep] : NULL;
+
+	if (!out || !in) {
+		ozzy_err(&chip->dev->dev, "PCM %s endpoint not found\n", out ? "in" : "out");
+		return -ENODEV;
+	}
+	return 0;
+}
+
+/*
  * ozzy_probe - USB interface probe callback.
  *
  * Only handles the primary interface (bInterfaceNumber == 0). Secondary
@@ -173,23 +235,30 @@ static int ozzy_probe(struct usb_interface *intf,
 		}
 	}
 
-	/* Detect output endpoint transfer type */
-	if (device->ep_out[chip->info->out_ep]) {
-		const struct usb_endpoint_descriptor *epd = &device->ep_out[chip->info->out_ep]->desc;
+	ozzy_log_endpoints(device, intf);
+	if (chip->intf2)
+		ozzy_log_endpoints(device, chip->intf2);
 
-		chip->is_bulk = usb_endpoint_xfer_bulk(epd);
-		chip->out_maxpacket = usb_endpoint_maxp(epd);
-	}
+	/* Find the endpoints, then detect the output endpoint's transfer type */
+	chip->out_ep = ozzy_resolve_ep(device, &chip->info->out_ep, false);
+	chip->in_ep = ozzy_resolve_ep(device, &chip->info->in_ep, true);
+	chip->midi_in_ep = ozzy_resolve_ep(device, &chip->info->midi_in_ep, true);
+	ret = ozzy_check_pcm_eps(chip);
+	if (ret < 0)
+		goto err_intf2;
+	chip->is_bulk = usb_endpoint_xfer_bulk(&device->ep_out[chip->out_ep]->desc);
+	chip->out_maxpacket = usb_endpoint_maxp(&device->ep_out[chip->out_ep]->desc);
 
 	ozzy_log(&device->dev, "  interfaces claimed: %u (alt setting %u)\n",
 		 chip->info->num_interfaces, chip->info->alt_setting);
 	ozzy_log(&device->dev, "  PCM out: EP %u (%s, wMaxPacketSize %u)\n",
-		 chip->info->out_ep, chip->is_bulk ? "bulk" : "interrupt",
+		 chip->out_ep,
+		 chip->is_bulk ? "bulk" : "interrupt",
 		 chip->out_maxpacket);
-	ozzy_log(&device->dev, "  PCM in:  EP %u\n", chip->info->in_ep);
-	if (chip->info->midi_in_ep)
+	ozzy_log(&device->dev, "  PCM in:  EP %u\n", chip->in_ep);
+	if (chip->midi_in_ep)
 		ozzy_log(&device->dev, "  MIDI in: EP %u%s\n",
-			 chip->info->midi_in_ep,
+			 chip->midi_in_ep,
 			 chip->info->midi_out_embedded ? " (out embedded in PCM)" : "");
 
 	/* Device-specific initialization (vendor handshake) */
@@ -209,7 +278,7 @@ static int ozzy_probe(struct usb_interface *intf,
 	}
 
 	/* Initialize MIDI subsystem (if device has MIDI) */
-	if (chip->info->midi_in_ep || chip->info->midi_out_embedded) {
+	if (chip->midi_in_ep || chip->info->midi_out_embedded) {
 		ret = ozzy_midi_init(chip);
 		if (ret < 0) {
 			ozzy_err(&device->dev, "MIDI initialization failed\n");
@@ -321,7 +390,7 @@ static int ozzy_post_reset(struct usb_interface *intf)
 		return ret;
 	}
 
-	if (chip->info->midi_in_ep) {
+	if (chip->midi_in_ep) {
 		ret = ozzy_midi_init_urbs(chip);
 		if (ret < 0) {
 			ozzy_err(&chip->dev->dev, "Post-reset MIDI URB init failed\n");

@@ -34,6 +34,12 @@
  *
  * DB4 fw 1.4.1 sends "FD FD FD B0 FF" at 48 kHz and "FD B0" at 96 kHz.
  *
+ * Bulk in / isoc out devices (Akai EIE Pro, kInACR 3) use the 4-slot MIDI IN
+ * frame at every rate, and send MIDI out on its own endpoint instead of in the
+ * PCM packets: 9-byte transfers of 4 or 3 MIDI bytes (pattern 4,3,3,3,3,3,3,3),
+ * 0xFD padding and a control byte last (AJ::fireOutputInternal). One transfer
+ * per millisecond is 3125 bytes/s, a 31250-baud cable.
+ *
  * Copyright (C) 2024 Marcel Bierling <marcel@hackerman.art>
  */
 
@@ -50,6 +56,12 @@ extern "C" {
 #define PLOYTEC_MIDI_OUT_BYTES_PER_SEC  2500
 
 #define PLOYTEC_MIDI_IN_MAX_SLOTS       4
+
+/* MIDI out on its own endpoint (bulk in / isoc out devices) */
+#define PLOYTEC_MIDI_XFER_SIZE          9      /* bytes per transfer */
+#define PLOYTEC_MIDI_XFER_INTERVAL_US   1000   /* one transfer per millisecond */
+#define PLOYTEC_MIDI_XFER_PATTERN       8      /* entries in the byte-count pattern */
+#define PLOYTEC_MIDI_XFER_CONTROL_IDLE  0xE0   /* last byte of a transfer (seen in captures) */
 #define PLOYTEC_OUT_SUBPKTS             (PLOYTEC_FRAMES_PER_PKT / PLOYTEC_FRAMES_PER_OUT_SUBPKT)
 
 /*
@@ -61,19 +73,31 @@ struct ploytec_midi {
 	uint32_t out_step;   /* added per sub-packet: bytes/s * frames per sub-packet */
 	uint32_t out_rate;   /* sample rate: a slot opens each time the sum passes it */
 	uint32_t out_acc;    /* pacing accumulator, always < out_rate */
+	uint32_t xfer_idx;   /* MIDI out transfer pattern position (own endpoint) */
 };
 
 /*
- * ploytec_midi_init - Set up MIDI framing for a stream.
+ * ploytec_midi_init_slots - Set up MIDI framing with @in_slots MIDI byte slots
+ * per MIDI IN transfer (bulk in / isoc out devices: PLOYTEC_MIDI_IN_MAX_SLOTS).
+ * @rate: sample rate in Hz
+ */
+static inline void ploytec_midi_init_slots(struct ploytec_midi *m, uint32_t rate, uint32_t in_slots)
+{
+	m->in_slots = in_slots;
+	m->out_step = PLOYTEC_MIDI_OUT_BYTES_PER_SEC * PLOYTEC_FRAMES_PER_OUT_SUBPKT;
+	m->out_rate = rate;
+	m->out_acc = 0;
+	m->xfer_idx = 0;
+}
+
+/*
+ * ploytec_midi_init - Set up MIDI framing for a Xone stream (slots by rate).
  * @rate:            sample rate in Hz
  * @pcm_in_int_1024: PCM IN endpoint is interrupt with wMaxPacketSize 1024
  */
 static inline void ploytec_midi_init(struct ploytec_midi *m, uint32_t rate, bool pcm_in_int_1024)
 {
-	m->in_slots = rate <= 48000 ? 4 : (pcm_in_int_1024 ? 2 : 1);
-	m->out_step = PLOYTEC_MIDI_OUT_BYTES_PER_SEC * PLOYTEC_FRAMES_PER_OUT_SUBPKT;
-	m->out_rate = rate;
-	m->out_acc = 0;
+	ploytec_midi_init_slots(m, rate, rate <= 48000 ? 4 : (pcm_in_int_1024 ? 2 : 1));
 }
 
 /*
@@ -115,6 +139,24 @@ static inline void ploytec_midi_out_place(enum ploytec_out_layout layout, uint8_
 							       : PLOYTEC_MIDI_IDLE_BYTE;
 		i += open;
 	}
+}
+
+/*
+ * ploytec_midi_xfer_begin - Start the next MIDI out transfer on its own endpoint.
+ * Fills @buf with 0xFD and the control byte, and returns how many MIDI bytes go
+ * at its start (4 or 3). Bytes left over stay 0xFD.
+ */
+static inline uint32_t ploytec_midi_xfer_begin(struct ploytec_midi *m,
+					       uint8_t buf[PLOYTEC_MIDI_XFER_SIZE])
+{
+	uint32_t i;
+
+	for (i = 0; i < PLOYTEC_MIDI_XFER_SIZE - 1; i++)
+		buf[i] = PLOYTEC_MIDI_IDLE_BYTE;
+	buf[PLOYTEC_MIDI_XFER_SIZE - 1] = PLOYTEC_MIDI_XFER_CONTROL_IDLE;
+
+	/* _USBMidiPattern_USB1: 4,3,3,3,3,3,3,3 */
+	return 3 + ((m->xfer_idx++ & (PLOYTEC_MIDI_XFER_PATTERN - 1)) == 0);
 }
 
 /*

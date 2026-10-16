@@ -35,16 +35,16 @@ rates and a few vendor extras (listed per device).
 |---|---|---|---|---|---|---|
 | 0A4A:FFDB/FFD2/FFDD/FF4D/FF01/FFAD | Xone:DB4/DB2/DX/4D/2D, WZ4 | see `common/ozzy_devices.def` | | plist | Ozzy | in Ozzy |
 | 200C:1009 | Reloop Digital Jockey 2 ME | 6 / 4 | 44.1k | Reloop INF, PR #80 | Ozzy | in Ozzy |
-| 200C:1019 | Reloop Jockey 3 Master Edition | 6 / 4 | 44.1–96k | plist (flags = DB2/DB4, kInACR 1) | fvdpol/alsa-jockey3 (GPL, out of tree; upstream patch pending) | in Ozzy (experimental) |
+| 200C:1019 | Reloop Jockey 3 Master Edition | 6 / 4 | 44.1–96k | plist (flags = DB2/DB4, kInACR 1) | fvdpol/alsa-jockey3 (GPL, out of tree; upstream patch pending) | in Ozzy (experimental); no AJ selector requests (`updateAjInputSelector` returns early for it) |
 | 200C:1037 | Reloop Jockey 3 Remix | 6 / 4 | 44.1–96k (fvdpol) | fallback | fvdpol/alsa-jockey3 | in Ozzy (experimental) |
 | 200C:1005 | Reloop IQ2 MIDI | 4 / 4 | 24/96 (spec) | fallback | none | model row |
 | 200C:100A | Reloop Contour Interface Edition | 2 / **10** | ? | fallback | none | 10-lane output frame (`dmaEncode10_*`) |
 | 200C:1006 | unidentified Reloop | 6 / 6 | | fallback | | identify |
 | 0A92:0111 | ESI ESU1808 | 16 / 8 (**10-lane** output: S/PDIF mirrors a selectable pair) | 44.1–96k (spec) | fallback | none | 10-lane output, ESI CPLD write ('I', wIndex 1, wValue byte\|0xE7) |
-| 2573:0012 | ESI U168 XT | 16 / 8 | 44.1–96k (spec) | fallback | none | ESI CPLD write + 'A' request (0x349, wIndex 0x101); ESI's own 2.0.0b90 beta runs on Apple Silicon (user-space, analog only, macOS ≤ 14.3) |
-| 2573:0013 | ESI U86 XT | 8 / 6 | 44.1–96k (spec) | fallback | none | ESI CPLD write; 6-lane output codec |
-| 2573:002A | ESI U108 PRE | 10 / 8 | 44.1–96k (spec) | fallback | none | ESI CPLD write; 10-lane input codec |
-| 1ACC:0103 | Midiplus AudioLink PLUS 4x4 ("Plus II") | 6 / 6 | 24/96 (spec) | fallback | none | 6-lane output codec; class-compliant mode? (?); Interspock's Ozzy fork adds it |
+| 2573:0012 | ESI U168 XT | 16 / 8 | 44.1–96k (spec) | fallback | none | in Ozzy (experimental): ESI selector, 'A' requests (0x349, then 0x348), CPLD byte; ESI's own 2.0.0b90 beta runs on Apple Silicon (user-space, analog only, macOS ≤ 14.3) |
+| 2573:0013 | ESI U86 XT | 8 / 6 | 44.1–96k (spec) | fallback | none | in Ozzy (experimental): ESI selector, 'A' 0x348, CPLD byte; 6-lane output (`dmaEncode06`) added |
+| 2573:002A | ESI U108 PRE | 10 / 8 | 44.1–96k (spec) | fallback | none | in Ozzy (experimental): as the U86 XT; 10-lane input |
+| 1ACC:0103 | Midiplus AudioLink PLUS 4x4 ("Plus II") | 6 / 6 | 24/96 (spec) | fallback | none | in Ozzy (experimental; no device-specific requests); class-compliant mode? (?); Interspock's Ozzy fork adds it |
 | 1ACC:0102 | unidentified Midiplus | 4 / 4 | | fallback | | identify |
 | 1D03:005C | unidentified iCON | 2 / 2 | 44.1k | fallback | | identify |
 | 0A4A:5A16 | Smyth Research Realiser A16 | 2 / 16 | ? | fallback, Revival page | ? | 16-lane output (?) |
@@ -136,13 +136,15 @@ quirk). Details in `findings_other_and_projects.md`.
 ## What the inventory says about Ozzy's architecture
 - Two families cover nearly everything: most devices are a model row (channels, rates).
 - **Missing pieces, in order of how many devices need them:**
-  1. Per-device handshake extras: Tascam 'A' register writes (≥7 devices), ESI CPLD byte and 'A'
-     request (4 devices), Lexicon/ESI S/PDIF clock source.
-  2. Frame codecs for more lane counts: 6-lane output (U86 XT, AudioLink), 10-lane output with the S/PDIF mirror (ESU1808, Contour IE), 16-lane output
+  1. Per-device handshake extras: Tascam 'A' register writes (≥7 devices), Lexicon/ESI S/PDIF
+     clock source (Ozzy fixes the ESI selector at STATE_A). The ESI steps are done
+     (`ozzy_quirks.h`, `hs_esi_setup`); ESU1808 shares them but needs the 10-lane output.
+  2. Frame codecs for more lane counts: 10-lane output with the S/PDIF mirror (ESU1808, Contour IE), 16-lane output
      (Realiser A16).
   3. Input post-processing quirks (MPC Renaissance zeroes inputs 3/4, US-366).
   4. Rarer: isoc in + isoc out (MPC Renaissance bcdDevice 0x0300), rate-dependent channel counts
-     (Dotec, SPL Crimson), the Numarks' `kMsWait` 200 (not implemented; its effect is open).
+     (Dotec, SPL Crimson), the Numarks' `kMsWait` 200 (a 200 ms sleep at the start of `configurationDone`, before any
+     setup request; not implemented yet).
 - The central device list `common/ozzy_devices.def` (one row per device: VID, PID, name, family,
   in/out, rates, status, quirks) is where a device is added; the Linux ID table, the
   kext's personalities and the engine choice are generated from it.

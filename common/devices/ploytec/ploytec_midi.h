@@ -46,8 +46,9 @@
  *     millisecond is 3125 bytes/s, a 31250-baud cable.
  *   NS7 (kInACR 8, Numark NS7/V7/NS6/4Trak):
  *     42-byte transfers (0x2a); MIDI IN: all 41 bytes before the control byte
- *     (inACR_NS7); MIDI out: up to 39 bytes per transfer (initNS7 fills the
- *     pattern with 0x27). The MIDI goes to the controller itself, not a cable.
+ *     (inACR_NS7); MIDI out: the official driver allows up to 39 bytes per
+ *     transfer (initNS7 fills the pattern with 0x27). Ozzy keeps the M4_C1
+ *     pattern instead, so MIDI out never exceeds 31250 baud on any device.
  *
  * Copyright (C) 2024 Marcel Bierling <marcel@hackerman.art>
  */
@@ -90,7 +91,6 @@ struct ploytec_midi {
 	uint32_t out_acc;    /* pacing accumulator, always < out_rate */
 	uint32_t xfer_idx;   /* MIDI out transfer pattern position (own endpoint) */
 	uint32_t xfer_size;  /* bytes per MIDI IN / OUT transfer on own endpoints */
-	uint32_t xfer_bytes; /* MIDI out bytes per transfer, 0 = the M4_C1 pattern */
 };
 
 /*
@@ -104,7 +104,6 @@ static inline void ploytec_midi_init_common(struct ploytec_midi *m, uint32_t rat
 	m->out_acc = 0;
 	m->xfer_idx = 0;
 	m->xfer_size = 9;
-	m->xfer_bytes = 0;
 }
 
 /*
@@ -119,7 +118,6 @@ static inline void ploytec_midi_init_xfer(struct ploytec_midi *m, uint32_t rate,
 
 	ploytec_midi_init_common(m, rate, ns7 ? PLOYTEC_MIDI_XFER_MAX - 1 : 4);
 	m->xfer_size = ns7 ? PLOYTEC_MIDI_XFER_MAX : 9;
-	m->xfer_bytes = ns7 ? 0x27 : 0;
 }
 
 /*
@@ -176,20 +174,20 @@ static inline void ploytec_midi_out_place(enum ploytec_out_layout layout, uint8_
 /*
  * ploytec_midi_xfer_begin - Start the next MIDI out transfer on its own endpoint
  * (xfer_size bytes). Fills @buf with 0xFD and the control byte, and returns how
- * many MIDI bytes go at its start (M4_C1: 4 or 3, NS7: 39). Bytes left over stay 0xFD.
+ * many MIDI bytes go at its start: 4 or 3 in every framing, one transfer per
+ * millisecond is 3125 bytes/s (31250 baud). Bytes left over stay 0xFD.
  */
 static inline uint32_t ploytec_midi_xfer_begin(struct ploytec_midi *m,
 					       uint8_t buf[PLOYTEC_MIDI_XFER_MAX])
 {
-	uint32_t i, pattern;
+	uint32_t i;
 
 	for (i = 0; i < m->xfer_size - 1; i++)
 		buf[i] = PLOYTEC_MIDI_IDLE_BYTE;
 	buf[m->xfer_size - 1] = PLOYTEC_MIDI_XFER_CONTROL_IDLE;
 
-	/* _USBMidiPattern_USB1: 4,3,3,3,3,3,3,3; NS7: a fixed count */
-	pattern = 3 + ((m->xfer_idx++ & (PLOYTEC_MIDI_XFER_PATTERN - 1)) == 0);
-	return m->xfer_bytes ? m->xfer_bytes : pattern;
+	/* _USBMidiPattern_USB1: 4,3,3,3,3,3,3,3 */
+	return 3 + ((m->xfer_idx++ & (PLOYTEC_MIDI_XFER_PATTERN - 1)) == 0);
 }
 
 /*

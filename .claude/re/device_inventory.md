@@ -112,7 +112,9 @@ at `PGDevice+0x810`; `AJ::configurationDone` sets the transfer size):
 | 0xFF (none) | `inACR_M4_M4_C1`, two ports (second at offset 4) | 9 | MPC Renaissance; overrides: Dynacord 0562:03EB and 170B:0020/0021 → `M4_C1`, Tascam 8040/8041 → `inACR_US366`, 8046/8048 → `inACR_UH7000`, Dotec 0A4A:D064 → its own |
 
 Ozzy implements `M4_C1` (default) and NS7 (`OZZY_QUIRK_MIDI_NS7`, `common/devices/ploytec/ploytec_midi.h`);
-for `M4_M4_C1` it reads the first port only.
+for `M4_M4_C1` it reads the first port only. MIDI out uses the 4,3,3,3,3,3,3,3 pattern (3125 bytes/s,
+31250 baud) for every framing, NS7 included: the official driver's 39 bytes per transfer would be
+about 39000 bytes/s.
 
 ## Not Ploytec, still candidates
 

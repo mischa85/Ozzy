@@ -140,4 +140,34 @@ struct OzzySharedMemory {
     CACHE_ALIGN OzzyAudioBuffer audio;
 };
 
+#ifdef KERNEL
+// --- MIDI rings, kext side: it fills midiIn and drains midiOut ---
+
+// Append @count bytes to @ring; what doesn't fit is dropped. Returns how many went in.
+static inline uint32_t OzzyMidiRingPush(volatile OzzyMidiBuffer* ring, const uint8_t* bytes, uint32_t count) {
+    uint32_t w = ring->writeIndex;
+    uint32_t r = OzzyLoadAcquire(&ring->readIndex);
+    uint32_t i;
+    for (i = 0; i < count && ((w + 1) & kOzzyMidiRingMask) != r; i++) {
+        ring->buffer[w] = bytes[i];
+        w = (w + 1) & kOzzyMidiRingMask;
+    }
+    OzzyStoreRelease(&ring->writeIndex, w);   // release: the bytes before the index
+    return i;
+}
+
+// Take up to @max bytes from @ring into @dst. Returns how many.
+static inline uint32_t OzzyMidiRingPop(volatile OzzyMidiBuffer* ring, uint8_t* dst, uint32_t max) {
+    uint32_t r = ring->readIndex;
+    uint32_t w = OzzyLoadAcquire(&ring->writeIndex);   // acquire: the bytes before the index
+    uint32_t i;
+    for (i = 0; i < max && r != w; i++) {
+        dst[i] = ring->buffer[r];
+        r = (r + 1) & kOzzyMidiRingMask;
+    }
+    OzzyStoreRelease(&ring->readIndex, r);
+    return i;
+}
+#endif
+
 #endif

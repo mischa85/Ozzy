@@ -76,13 +76,7 @@ void UsbMidiEngine::ProcessRead(uint32_t slot, uint32_t bytes) {
     for (uint32_t offset = 0; offset + USB_MIDI_PACKET_SIZE <= bytes; offset += USB_MIDI_PACKET_SIZE) {
         uint8_t midi[3];
         unsigned int len = usb_midi_decode_packet(packets + offset, midi);
-        for (unsigned int i = 0; i < len; i++) {
-            uint32_t w = shm->midiIn.writeIndex;
-            uint32_t nextW = (w + 1) & kOzzyMidiRingMask;
-            if (nextW == OzzyLoadAcquire(&shm->midiIn.readIndex)) return;  // ring full: drop the rest
-            shm->midiIn.buffer[w] = midi[i];
-            OzzyStoreRelease(&shm->midiIn.writeIndex, nextW);
-        }
+        if (OzzyMidiRingPush(&shm->midiIn, midi, len) < len) return;  // ring full: drop the rest
     }
 }
 

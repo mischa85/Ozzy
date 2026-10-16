@@ -1,10 +1,12 @@
 #include "PloytecEngine.h"
 #include "PloytecProtocol.h"
+#include "PloytecIO.h"
 #include "../../../common/devices/ploytec/ploytec_handshake.h"
 #include "../../../common/devices/ploytec/ploytec_models.h"
 #include "../../Shared/OzzyLog.h"
 #include <libkern/libkern.h>
 #include <sys/errno.h>
+#include <string.h>
 
 // --- CONSTANTS ---
 // Endpoints (direction bit OR'd with base address from ploytec_defs.h)
@@ -138,21 +140,13 @@ void PloytecEngine::ProcessMIDIOutput(uint32_t packetIdx) {
     auto* shm = GetSHM();
     if (!shm) return;
     
-    // Take as many bytes from the midiOut ring as the MIDI out pace allows in this packet
-    // (acquire: the bytes before the index)
+    // Take as many bytes from the midiOut ring as the MIDI out pace allows in this packet;
+    // slots without data stay idle
     uint32_t mask;
     uint32_t count = ploytec_midi_out_slots(&mMidi, &mask);
     uint8_t bytes[PLOYTEC_OUT_SUBPKTS];
-    uint32_t r = shm->midiOut.readIndex;
-    uint32_t w = OzzyLoadAcquire(&shm->midiOut.writeIndex);
-    for (uint32_t i = 0; i < count; i++) {
-        bytes[i] = PLOYTEC_MIDI_IDLE_BYTE;
-        if (r != w) {
-            bytes[i] = shm->midiOut.buffer[r];
-            r = (r + 1) & kOzzyMidiRingMask;
-        }
-    }
-    OzzyStoreRelease(&shm->midiOut.readIndex, r);
+    memset(bytes, PLOYTEC_MIDI_IDLE_BYTE, sizeof(bytes));
+    OzzyMidiRingPop(&shm->midiOut, bytes, count);
 
     uint8_t* packet = (uint8_t*)shm->audio.outputBuffer + (packetIdx % kOzzyNumPackets) * kOzzyMaxPacketSize;
     ploytec_midi_out_place(mOutLayout, packet, mask, bytes);
@@ -162,25 +156,9 @@ void PloytecEngine::ProcessMIDIInput(uint32_t bytesReceived) {
     auto* shm = GetSHM();
     if (!shm || bytesReceived == 0) return;
     
-    // Only the MIDI bytes of the frame (ploytec_midi.h)
-    uint8_t midi[PLOYTEC_MIDI_IN_MAX_SLOTS];
-    uint32_t count = ploytec_midi_in(&mMidi, (const uint8_t*)shm->midiInUSBBuffer,
-                                     bytesReceived < sizeof(shm->midiInUSBBuffer) ? bytesReceived
-                                                                                 : sizeof(shm->midiInUSBBuffer),
-                                     midi);
-
-    // Write them to the midiIn ring buffer (release: the byte before the index)
-    for (uint32_t i = 0; i < count; i++) {
-        uint32_t w = shm->midiIn.writeIndex;
-        uint32_t r = OzzyLoadAcquire(&shm->midiIn.readIndex);
-        uint32_t nextW = (w + 1) & kOzzyMidiRingMask;
-        
-        // Check if ring buffer has space
-        if (nextW != r) {
-            shm->midiIn.buffer[w] = midi[i];
-            OzzyStoreRelease(&shm->midiIn.writeIndex, nextW);
-        }
-    }
+    // Only the MIDI bytes of the frame (ploytec_midi.h), into the midiIn ring
+    PloytecMidiIn(&mMidi, shm, (const uint8_t*)shm->midiInUSBBuffer,
+                  bytesReceived < sizeof(shm->midiInUSBBuffer) ? bytesReceived : sizeof(shm->midiInUSBBuffer));
 }
 
 void PloytecEngine::OnPacketComplete(uint8_t pipeID, void* ctx, int status, uint32_t bytes) {
@@ -208,14 +186,8 @@ void PloytecEngine::OnPacketComplete(uint8_t pipeID, void* ctx, int status, uint
         }
     }
     else if (pipeID == kEpPcmIn) {
-        // Use modulo to wrap around the full ring buffer (128 packets)
-        uint32_t packetIdx = nextIdx % kOzzyNumPackets;
-        uint32_t offset = packetIdx * kOzzyMaxPacketSize;
-        uint8_t* buf = (uint8_t*)GetSHM()->audio.inputBuffer + offset;
-
-        if (!mBus->SubmitUSBPacket(kEpPcmIn, buf, PLOYTEC_IN_PKT_SIZE, (void*)(uintptr_t)nextIdx)) {
-            LogPloytec("input submission failed (idx: %d, offset: %u)", nextIdx, offset);
-        }
+        if (!PloytecSubmitPCMIn(mBus, GetSHM(), kEpPcmIn, nextIdx))
+            LogPloytec("input submission failed (idx: %u)", nextIdx);
     }
     else if (pipeID == kEpMidiIn) {
         // Process MIDI input packet
@@ -255,16 +227,7 @@ void PloytecEngine::SubmitPCMOut(uint32_t packetIdx) {
 }
 
 void PloytecEngine::SubmitPCMIn(uint32_t packetIdx) {
-    auto* shm = GetSHM();
-    // Use modulo to wrap around the full ring buffer (128 packets)
-    uint32_t pIdx = packetIdx % kOzzyNumPackets;
-    
-    // We assume 'inputBuffer' exists in shared memory mirroring outputBuffer.
-    // If your struct is named differently, update this line.
-    uint8_t* buffer = (uint8_t*)shm->audio.inputBuffer + (pIdx * kOzzyMaxPacketSize);
-    
-    // 0x86 & 0x80 = In, handled by KextBus logic
-    mBus->SubmitUSBPacket(kEpPcmIn, buffer, PLOYTEC_IN_PKT_SIZE, (void*)(uintptr_t)packetIdx);
+    PloytecSubmitPCMIn(mBus, GetSHM(), kEpPcmIn, packetIdx);
 }
 
 void PloytecEngine::SubmitMIDIIn(uint32_t idx) {

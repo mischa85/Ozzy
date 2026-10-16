@@ -171,8 +171,6 @@ The installer automatically:
 
 **Troubleshooting:** Run `macos/debuglogs.command` to collect diagnostic logs
 
-For detailed information, see [macos/README.md](macos/README.md)
-
 ### 🐧 Linux
 
 1.  Clone and build:

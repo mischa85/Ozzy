@@ -41,14 +41,14 @@ every VID/PID the driver supports.
 All 0x644 devices use the read-modify-write with masks `0x18` / `0xE7` on index 0.
 PIDs checked in `setFreqOnOutPipe` via switch on `(PID + 0x7FC0)`: cases 0 (0x8040), 1 (0x8041), 6 (0x8046).
 
-## ESU (VID 0x2573)
+## ESI Audiotechnik (VID 0x2573, ESU product line)
 
 | USB PID | Device Name | Notes |
 |---------|-------------|-------|
 | 0x0012  | ?           | Sends vendor request 'A' (0x41) in `configurationDone` |
 | < 0x002B | ESU family | Sub-IDs below 0x2B with certain bit patterns → `updateAjInputSelector_Esu186()` |
 
-ESU devices have a completely separate `updateAjInputSelector_Esu186` code path.
+ESI's ESU devices (VID 0x2573 is ESI Audiotechnik; "ESU" is its product line, e.g. ESU1808, which `Esu186` probably refers to) have a completely separate `updateAjInputSelector_Esu186` code path. 0x0A92 (EGO SYStems, ESI's parent) shares some of it (`setEsuCpldByte`).
 See [ESU-specific protocol](#esu-specific-protocol-updateajinputselector_esu186) below.
 
 ## VID 0x0499 (Yamaha?)

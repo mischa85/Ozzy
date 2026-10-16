@@ -66,7 +66,7 @@ type difference comes from the firmware's endpoint descriptors, not from this fl
 - 0x1ACC: 0x0102, 0x0103
 - 0x1D03: 0x005C
 - 0x200C: range 0x1005–0x1037 (bitmask)
-- 0x2573 (ESU): PID < 0x2B (bitmask)
+- 0x2573 (ESI Audiotechnik, ESU product line): 0x0012, 0x0013, 0x002A (bitmask)
 
 ## What bulk vs interrupt actually changes (official driver)
 

@@ -31,7 +31,7 @@ Returns 15-byte firmware version. Known fields:
 - byte[0]: chip ID
 - byte[2]: version (decimal encoded: v1.{byte/10}.{byte%10})
 
-### 'A' (0x41) — ESU Clock Source Config (ESU/product 0x2573 only)
+### 'A' (0x41) — ESU Clock Source Config (ESI, VID 0x2573, ESU product line only)
 
 Called via `sendEsuARequest(device, param)` during ESU's `updateAjInputSelector_Esu186`.
 Also called from `configurationDone` for product 0x2573/0x12.

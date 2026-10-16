@@ -13,4 +13,8 @@
 extern const struct ozzy_device_info ploytec_info;
 extern const struct ozzy_device_ops ploytec_ops;
 
+/* Bulk in / isochronous out (Akai EIE Pro) */
+extern const struct ozzy_device_info ploytec_isoc_info;
+extern const struct ozzy_device_ops ploytec_isoc_ops;
+
 #endif /* OZZY_PLOYTEC_H */

@@ -62,6 +62,8 @@ static inline const struct ploytec_model *ploytec_model_for_ids(uint16_t vid, ui
 		 * test showed Line In 1/2 on in 1-4 and the mic on in 5/6. Its firmware ignores MIDI
 		 * running status, which the Linux MIDI path expands. Found by julled in PR #80. */
 		{ RELOOP_VENDOR_ID, RELOOP_PID_DIGITAL_JOCKEY_2, "Reloop Digital Jockey 2 ME", 6, 4, 1, { 44100 } },
+		/* AKAI_EIE.kext 3.3.17 (kConfigurationData, High Speed): 4 in / 4 out. Bulk in / isoc out */
+		{ AKAI_VENDOR_ID, AKAI_PID_EIE_PRO, "Akai EIE Pro", 4, 4, 4, { 44100, 48000, 88200, 96000 } },
 	};
 	unsigned int i;
 

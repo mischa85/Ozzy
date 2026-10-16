@@ -51,6 +51,11 @@ static const struct ozzy_device_desc ploytec_desc = {
 	.ops  = &ploytec_ops,
 };
 
+static const struct ozzy_device_desc ploytec_isoc_desc = {
+	.info = &ploytec_isoc_info,
+	.ops  = &ploytec_isoc_ops,
+};
+
 static const struct usb_device_id ozzy_id_table[] = {
 	{ USB_DEVICE(PLOYTEC_VENDOR_ID, PLOYTEC_PID_XONE_DB4),       .driver_info = (kernel_ulong_t)&ploytec_desc },
 	{ USB_DEVICE(PLOYTEC_VENDOR_ID, PLOYTEC_PID_XONE_DB2),       .driver_info = (kernel_ulong_t)&ploytec_desc },
@@ -59,6 +64,7 @@ static const struct usb_device_id ozzy_id_table[] = {
 	{ USB_DEVICE(PLOYTEC_VENDOR_ID, PLOYTEC_PID_XONE_2D),        .driver_info = (kernel_ulong_t)&ploytec_desc }, /* experimental */
 	{ USB_DEVICE(PLOYTEC_VENDOR_ID, PLOYTEC_PID_WIZARD_4),       .driver_info = (kernel_ulong_t)&ploytec_desc }, /* experimental */
 	{ USB_DEVICE(RELOOP_VENDOR_ID, RELOOP_PID_DIGITAL_JOCKEY_2), .driver_info = (kernel_ulong_t)&ploytec_desc }, /* experimental */
+	{ USB_DEVICE(AKAI_VENDOR_ID, AKAI_PID_EIE_PRO),              .driver_info = (kernel_ulong_t)&ploytec_isoc_desc }, /* experimental */
 	{}
 };
 MODULE_DEVICE_TABLE(usb, ozzy_id_table);

@@ -28,6 +28,16 @@ extern "C" {
 /* Other vendors' Ploytec-based devices */
 #define RELOOP_VENDOR_ID            0x200C
 #define RELOOP_PID_DIGITAL_JOCKEY_2 0x1009   /* Digital Jockey 2 Master Edition */
+#define AKAI_VENDOR_ID              0x09E8
+#define AKAI_PID_EIE_PRO            0x0010   /* bulk in / isochronous out, see .claude/re/akai_eie_pro.md */
+
+/*
+ * Feedback of bulk in / isoc out devices (common/isoc_feedback.h): 3-byte packets,
+ * byte 0 = frames played in the interval. More than 40 wrong-length packets without
+ * a clean ring lap stop the official driver.
+ */
+#define PLOYTEC_ISOC_FB_PACKET_SIZE 3
+#define PLOYTEC_ISOC_FB_MAX_ERRORS  40
 
 /* USB endpoint addresses (low nibble) */
 #define PLOYTEC_EP_PCM_OUT          0x05

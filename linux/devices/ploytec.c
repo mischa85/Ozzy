@@ -8,7 +8,11 @@
  * Handles: vendor request handshake, sample rate control, Ploytec
  * bit-interleaved PCM codec, packet framing with padding gaps, and
  * MIDI byte embedding in PCM output packets.
-
+ *
+ * Also the bulk in / isochronous out variant (Akai EIE Pro, ploytec_isoc_ops):
+ * same handshake, PCM in and MIDI in, but plain S24_3LE PCM out on an
+ * isochronous endpoint paced by a feedback endpoint (run by the core, see
+ * common/isoc_feedback.h), and MIDI out on its own endpoint (ploytec_midi.h).
  *
  * Copyright (C) 2024 Marcel Bierling <marcel@hackerman.art>
  */
@@ -358,6 +362,64 @@ static unsigned int ploytec_get_out_packet_size(struct ozzy_chip *chip, bool is_
 }
 
 /* ========================================================================
+ * Bulk In / Isochronous Out (Akai EIE Pro)
+ * ======================================================================== */
+
+/* Host ops without clear_halt: the official driver doesn't clear halts on these devices */
+static const struct ploytec_host_ops ploytec_isoc_host_ops = {
+	.control  = ploytec_host_control,
+	.sleep_ms = ploytec_host_sleep_ms,
+	.vlog     = ploytec_host_vlog,
+};
+
+/*
+ * ploytec_isoc_init - Bulk in / isoc out device after probe or reset: the
+ * handshake with the rate on EP 0x86 / 0x02, and MIDI framing at the rate.
+ * The core runs the isochronous output.
+ */
+static int ploytec_isoc_init(struct ozzy_chip *chip)
+{
+	struct ploytec_private *priv;
+	uint32_t rate;
+	int ret;
+
+	/* The 4-channel format table is the High Speed one (the Full Speed one is 2 channels) */
+	if (chip->dev->speed != USB_SPEED_HIGH) {
+		ploytec_err(&chip->dev->dev, "needs a USB 2.0 High Speed port\n");
+		return -ENODEV;
+	}
+
+	ret = ploytec_private_init(chip);
+	if (ret < 0)
+		return ret;
+	priv = chip->private_data;
+
+	rate = chip->info->rates[chip->requested_rate];
+	ret = ploytec_handshake_eps(&ploytec_isoc_host_ops, chip, rate,
+				    &ploytec_isoc_rate_endpoints, NULL);
+	if (ret < 0)
+		return ret;
+
+	chip->current_rate = chip->requested_rate;
+	/* kInACR 3: the 4-slot MIDI IN frame (inACR_M4_C1) at every rate */
+	ploytec_midi_init_slots(&priv->midi, rate, PLOYTEC_MIDI_IN_MAX_SLOTS);
+	return 0;
+}
+
+/*
+ * ploytec_fill_midi_out_xfer - The next MIDI OUT transfer on its own endpoint
+ * (ploytec_midi.h).
+ */
+static unsigned int ploytec_fill_midi_out_xfer(struct ozzy_chip *chip, uint8_t *buf)
+{
+	struct ploytec_private *priv = chip->private_data;
+	unsigned int n = ploytec_midi_xfer_begin(&priv->midi, buf);
+
+	ozzy_midi_consume(chip->midi, buf, n, PLOYTEC_MIDI_IDLE_BYTE);
+	return PLOYTEC_MIDI_XFER_SIZE;
+}
+
+/* ========================================================================
  * Exported Device Descriptor and Operations
  * ======================================================================== */
 
@@ -394,4 +456,44 @@ const struct ozzy_device_ops ploytec_ops = {
 	.fill_midi_out       = ploytec_fill_midi_out,
 	.decode_midi_in      = ploytec_decode_midi_in,
 	.get_out_packet_size = ploytec_get_out_packet_size,
+};
+
+/*
+ * Bulk in / isochronous out (Akai EIE Pro); channels and rates per model, see
+ * ploytec_apply_model(). Endpoints are found by type, like the official driver
+ * does (on the EIE Pro: PCM out 0x02, MIDI out 0x04, MIDI in 0x83 on interface 0;
+ * feedback 0x81, PCM in 0x86 on interface 1).
+ */
+const struct ozzy_device_info ploytec_isoc_info = {
+	.name                  = "Ploytec isochronous out",
+	.playback_channels     = 4,
+	.capture_channels      = 4,
+	.in_packet_size        = PLOYTEC_IN_PKT_SIZE,
+	.frames_per_in_packet  = PLOYTEC_FRAMES_PER_PKT,
+	.out_ep                = { .intf = 0, .types = OZZY_EP_ISOC },
+	.in_ep                 = { .intf = 1, .types = OZZY_EP_BULK | OZZY_EP_INT },
+	.alsa_format           = SNDRV_PCM_FMTBIT_S24_3LE,
+	.bytes_per_sample      = 3,
+	.out_isoc              = true,
+	.feedback_ep           = { .intf = 1, .types = OZZY_EP_ISOC },
+	.feedback              = { ISOC_FB_COUNT, PLOYTEC_ISOC_FB_PACKET_SIZE, PLOYTEC_ISOC_FB_MAX_ERRORS },
+	.midi_in_ep            = { .intf = 0, .types = OZZY_EP_BULK | OZZY_EP_INT },
+	.midi_out_ep           = { .intf = 0, .types = OZZY_EP_BULK | OZZY_EP_INT },
+	.midi_out_interval_us  = PLOYTEC_MIDI_XFER_INTERVAL_US,
+	.num_interfaces        = PLOYTEC_NUM_INTERFACES,
+	.alt_setting           = PLOYTEC_ALT_SETTING,
+	.rates                 = ploytec_rates,
+	.num_rates             = ARRAY_SIZE(ploytec_rates),
+	.rates_mask            = SNDRV_PCM_RATE_44100 | SNDRV_PCM_RATE_48000 | SNDRV_PCM_RATE_88200 | SNDRV_PCM_RATE_96000,
+	.rate_min              = 44100,
+	.rate_max              = 96000,
+};
+
+const struct ozzy_device_ops ploytec_isoc_ops = {
+	.init                = ploytec_isoc_init,
+	.free                = ploytec_free,
+	.reset               = ploytec_reset,
+	.process_in_packet   = ploytec_process_in_packet,
+	.decode_midi_in      = ploytec_decode_midi_in,
+	.fill_midi_out_xfer  = ploytec_fill_midi_out_xfer,
 };

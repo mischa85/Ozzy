@@ -318,6 +318,30 @@ void ploytec_encode_frame_4ch(uint8_t *dest, const uint8_t *src)
 }
 
 /*
+ * ploytec_decode_frame_4ch - 4 channels (official dmaDecode16To04At32Bit, Akai EIE Pro): bits 0..1
+ * of each byte. Generated; checked against the generic reference in tools/ploytec_lanes_test.c.
+ */
+void ploytec_decode_frame_4ch(uint8_t *dest, const uint8_t *src)
+{
+	/* channel 1 */
+	dest[0x00] = (((src[0x17] >> 0) & 1) << 0) | (((src[0x16] >> 0) & 1) << 1) | (((src[0x15] >> 0) & 1) << 2) | (((src[0x14] >> 0) & 1) << 3) | (((src[0x13] >> 0) & 1) << 4) | (((src[0x12] >> 0) & 1) << 5) | (((src[0x11] >> 0) & 1) << 6) | (((src[0x10] >> 0) & 1) << 7);
+	dest[0x01] = (((src[0x0F] >> 0) & 1) << 0) | (((src[0x0E] >> 0) & 1) << 1) | (((src[0x0D] >> 0) & 1) << 2) | (((src[0x0C] >> 0) & 1) << 3) | (((src[0x0B] >> 0) & 1) << 4) | (((src[0x0A] >> 0) & 1) << 5) | (((src[0x09] >> 0) & 1) << 6) | (((src[0x08] >> 0) & 1) << 7);
+	dest[0x02] = (((src[0x07] >> 0) & 1) << 0) | (((src[0x06] >> 0) & 1) << 1) | (((src[0x05] >> 0) & 1) << 2) | (((src[0x04] >> 0) & 1) << 3) | (((src[0x03] >> 0) & 1) << 4) | (((src[0x02] >> 0) & 1) << 5) | (((src[0x01] >> 0) & 1) << 6) | (((src[0x00] >> 0) & 1) << 7);
+	/* channel 2 */
+	dest[0x03] = (((src[0x37] >> 0) & 1) << 0) | (((src[0x36] >> 0) & 1) << 1) | (((src[0x35] >> 0) & 1) << 2) | (((src[0x34] >> 0) & 1) << 3) | (((src[0x33] >> 0) & 1) << 4) | (((src[0x32] >> 0) & 1) << 5) | (((src[0x31] >> 0) & 1) << 6) | (((src[0x30] >> 0) & 1) << 7);
+	dest[0x04] = (((src[0x2F] >> 0) & 1) << 0) | (((src[0x2E] >> 0) & 1) << 1) | (((src[0x2D] >> 0) & 1) << 2) | (((src[0x2C] >> 0) & 1) << 3) | (((src[0x2B] >> 0) & 1) << 4) | (((src[0x2A] >> 0) & 1) << 5) | (((src[0x29] >> 0) & 1) << 6) | (((src[0x28] >> 0) & 1) << 7);
+	dest[0x05] = (((src[0x27] >> 0) & 1) << 0) | (((src[0x26] >> 0) & 1) << 1) | (((src[0x25] >> 0) & 1) << 2) | (((src[0x24] >> 0) & 1) << 3) | (((src[0x23] >> 0) & 1) << 4) | (((src[0x22] >> 0) & 1) << 5) | (((src[0x21] >> 0) & 1) << 6) | (((src[0x20] >> 0) & 1) << 7);
+	/* channel 3 */
+	dest[0x06] = (((src[0x17] >> 1) & 1) << 0) | (((src[0x16] >> 1) & 1) << 1) | (((src[0x15] >> 1) & 1) << 2) | (((src[0x14] >> 1) & 1) << 3) | (((src[0x13] >> 1) & 1) << 4) | (((src[0x12] >> 1) & 1) << 5) | (((src[0x11] >> 1) & 1) << 6) | (((src[0x10] >> 1) & 1) << 7);
+	dest[0x07] = (((src[0x0F] >> 1) & 1) << 0) | (((src[0x0E] >> 1) & 1) << 1) | (((src[0x0D] >> 1) & 1) << 2) | (((src[0x0C] >> 1) & 1) << 3) | (((src[0x0B] >> 1) & 1) << 4) | (((src[0x0A] >> 1) & 1) << 5) | (((src[0x09] >> 1) & 1) << 6) | (((src[0x08] >> 1) & 1) << 7);
+	dest[0x08] = (((src[0x07] >> 1) & 1) << 0) | (((src[0x06] >> 1) & 1) << 1) | (((src[0x05] >> 1) & 1) << 2) | (((src[0x04] >> 1) & 1) << 3) | (((src[0x03] >> 1) & 1) << 4) | (((src[0x02] >> 1) & 1) << 5) | (((src[0x01] >> 1) & 1) << 6) | (((src[0x00] >> 1) & 1) << 7);
+	/* channel 4 */
+	dest[0x09] = (((src[0x37] >> 1) & 1) << 0) | (((src[0x36] >> 1) & 1) << 1) | (((src[0x35] >> 1) & 1) << 2) | (((src[0x34] >> 1) & 1) << 3) | (((src[0x33] >> 1) & 1) << 4) | (((src[0x32] >> 1) & 1) << 5) | (((src[0x31] >> 1) & 1) << 6) | (((src[0x30] >> 1) & 1) << 7);
+	dest[0x0A] = (((src[0x2F] >> 1) & 1) << 0) | (((src[0x2E] >> 1) & 1) << 1) | (((src[0x2D] >> 1) & 1) << 2) | (((src[0x2C] >> 1) & 1) << 3) | (((src[0x2B] >> 1) & 1) << 4) | (((src[0x2A] >> 1) & 1) << 5) | (((src[0x29] >> 1) & 1) << 6) | (((src[0x28] >> 1) & 1) << 7);
+	dest[0x0B] = (((src[0x27] >> 1) & 1) << 0) | (((src[0x26] >> 1) & 1) << 1) | (((src[0x25] >> 1) & 1) << 2) | (((src[0x24] >> 1) & 1) << 3) | (((src[0x23] >> 1) & 1) << 4) | (((src[0x22] >> 1) & 1) << 5) | (((src[0x21] >> 1) & 1) << 6) | (((src[0x20] >> 1) & 1) << 7);
+}
+
+/*
  * ploytec_decode_frame_6ch - 6 channels (official dmaDecode16To06): bits 0..2 of each byte.
  * Generated; checked against the generic reference in tools/ploytec_lanes_test.c.
  */
@@ -362,6 +386,7 @@ ploytec_frame_fn ploytec_frame_encoder(unsigned int channels)
 ploytec_frame_fn ploytec_frame_decoder(unsigned int channels)
 {
 	switch (channels) {
+	case 4: return ploytec_decode_frame_4ch;
 	case 6: return ploytec_decode_frame_6ch;
 	case 8: return ploytec_decode_frame_8ch;
 	case 16: return ploytec_decode_frame_16ch;

@@ -86,6 +86,14 @@ extern "C" {
 #define PLOYTEC_ESI_A_BASE          0x0348
 #define PLOYTEC_ESI_A_U168          0x0349  /* configurationDone, U168 XT only */
 
+/*
+ * 'A' registers of the S/PDIF output (writeDigitalOutMode; the same wIndex as the ESI
+ * write): bmRequestType 0xC0 reads PLOYTEC_SPDIF_REGS bytes from register 0x0D on,
+ * 0x40 writes one register, wValue = (register << 8) | value.
+ */
+#define PLOYTEC_SPDIF_REG_FIRST     0x0D
+#define PLOYTEC_SPDIF_REGS          5
+
 /* SET_CUR sample rate endpoint addresses (wIndex field) */
 #define PLOYTEC_EP_RATE_IN          0x0086
 #define PLOYTEC_EP_RATE_OUT         0x0005

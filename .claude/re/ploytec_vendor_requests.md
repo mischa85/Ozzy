@@ -60,6 +60,14 @@ overrides the 0x349), ..., then `setEsuCpldByte`. Ozzy (`hs_esi_setup` in
 'A' 0x349 (U168 XT), the ESI selector with STATE_A and 'A' 0x348, then the CPLD byte 0xE7, all
 before SET_CUR, and skips the Xone status confirm. Untested on hardware.
 
+### 'A' (0x41) — S/PDIF output registers (writeDigitalOutMode, wIndex 0x0101)
+
+Plist flag 0x7a6 (Tascams but the US-200, MPC Renaissance) or Tascam 0x8041/0x8048: read 5 bytes
+(0xC0, wValue 0x0D00), then write registers 0x0D..0x11 that differ (wValue `reg << 8 | val`).
+Mode 0 (default): 04, 00 (0x0E written only if non-zero), 00, `(old & 0xF0) | rate code`, 0B.
+Mode 1: 0x0D 0xC1/0x41/0x81/0x01 by rate, 0x0F 0x2C, 0x11 rate-dependent. Runs in `startStreaming`
+after SET_CUR. Ozzy: `hs_spdif_out`, `OZZY_QUIRK_SPDIF_OUT`.
+
 ### 'A' (0x41) — Wolfson Codec Register Write (devices with Wolfson DAC/ADC)
 
 From `writeWolfsonRegister(this, chipIndex, registerIndex, value)`:

@@ -135,13 +135,16 @@ static inline void ploytec_decode_aj_input(uint8_t raw, struct ploytec_aj_input_
  * ploytec_confirm_wvalue - Compute wValue for the status confirm write-back.
  * @status: raw byte read from vendor request 'I', wIndex=0
  *
- * Sets bit 5 (MODE5/LegacyActive) and sign-extends to 16 bits,
+ * The official setAJDMAInputChannels (bulkAudioRun, every stream start): sets
+ * bit 5 (16-lane input DMA, for up to 16 inputs, which every Ozzy device has) and
+ * bit 4 (MODE4/StreamingArmed; the Xones already report it at power-up, so for
+ * them only bit 5 changes), and sign-extends to 16 bits,
  * matching the official Ploytec driver's (short)(char)byte cast.
  * The high byte is 0xFF when bit 7 is set, 0x00 when clear.
  */
 static inline uint16_t ploytec_confirm_wvalue(uint8_t status)
 {
-	int8_t modified = (int8_t)(status | PLOYTEC_AJ_MODE5_BIT);
+	int8_t modified = (int8_t)(status | PLOYTEC_AJ_MODE5_BIT | PLOYTEC_AJ_MODE4_BIT);
 	return (uint16_t)(int16_t)modified;
 }
 

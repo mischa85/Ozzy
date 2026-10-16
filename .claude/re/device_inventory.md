@@ -72,13 +72,13 @@ independently confirming Ozzy's isochronous path.
 | 09E8:0010 | Akai EIE Pro | 4 / 4 | 44.1–96k | plist | out-of-tree (EmaP77 and others) | in Ozzy (experimental) |
 | 09E8:207F | Akai MPC Renaissance ("ACV0") | 4 / 4 (2 real inputs) | 44.1–96k | plist | none | in Ozzy (experimental) as 2 in / 4 out, first MIDI port only; second MIDI port and the bcdDevice 0x0300 isoc in + isoc out variant missing |
 | 0763:4002 | M-Audio M-Track Quad | 4 / 4 | 44.1–96k | plist (flags closest to the EIE; setFreqOnOutPipe) | none (?) | in Ozzy (experimental) |
-| 0644:800F | Tascam US-144 | 4 / 4 | 44.1–96k | plist | snd-usb-us122l; us144mkii (6.18) | model row + Tascam 'A' register writes |
-| 0644:8020 | Tascam US-144MKII | 4 / 4 | 44.1–96k | plist | us144mkii (6.18) | same |
-| 0644:8034 | Tascam US-200 | 2 / 4 | 44.1–96k | plist | none | same (?) |
-| 0644:8035 | Tascam US-600 | 6 / 4 | 44.1–96k | plist | none | same (?) |
-| 0644:8017 | Tascam US-1641 | 16 / 4 | 44.1–96k | plist | none | same (?); 16-lane decoder (have it) |
-| 0644:8025 | Tascam US-2000 | 16 / 4 | 44.1–96k | plist | none | same |
-| 0644:8030 | Tascam US-1800 | 16 / 4 | 44.1–96k | plist | none | same |
+| 0644:800F | Tascam US-144 | 4 / 4 | 44.1–96k | plist | snd-usb-us122l; us144mkii (6.18) | in Ozzy (experimental); left out of the Linux build by default |
+| 0644:8020 | Tascam US-144MKII | 4 / 4 | 44.1–96k | plist | us144mkii (6.18) | in Ozzy (experimental); left out of the Linux build by default |
+| 0644:8034 | Tascam US-200 | 2 / 4 | 44.1–96k | plist | none | in Ozzy (experimental); 100 ms wait, no digital I/O |
+| 0644:8035 | Tascam US-600 | 6 / 4 | 44.1–96k | plist | none | in Ozzy (experimental) |
+| 0644:8017 | Tascam US-1641 | 16 / 4 | 44.1–96k | plist | none | in Ozzy (experimental); digital out selector |
+| 0644:8025 | Tascam US-2000 | 16 / 4 | 44.1–96k | plist | none | in Ozzy (experimental); digital out selector |
+| 0644:8030 | Tascam US-1800 | 16 / 4 | 44.1–96k | plist | none | in Ozzy (experimental); digital out selector |
 | 0644:801E | Tascam M-164UF (mixer) | ? | | 2.0 kext, no plist | none | captures |
 | 0644:8040, 8041 | Tascam US-322, US-366 | ? | | US3XX kext 3.4.13 (Ploytec-signed), no plist | none | captures; US-366 4/6-input post-processor |
 | 0644:8046, 8048 | Tascam US-1200, UH-7000 (?) | ? | | kext strings | none | identify / captures |
@@ -95,10 +95,22 @@ independently confirming Ozzy's isochronous path.
 | 15E4:002C, 0070, 0074, 0078 | further Numark PIDs in the EIE 3.3.17 kext | ? | | kext list | | identify |
 | 0A4A:0014, 5B01 | unidentified | ? | | kext list | | identify |
 
-Tascam 'A' register writes (from the us144mkii driver; facts only): bRequest 0x41, wIndex 0x0101,
-wValue 0x0d04, 0x0e00, 0x0f00, rate (0x1000 44.1k, 0x1002 48k, 0x1008 88.2k, 0x100a 96k), 0x110b;
-'I' write 0x0010 before and 0x0030 to start; 'D' (0x44) = deep sleep. Whether all Tascams need
-them is open.
+Tascam setup, from the official generic PGDevice code (EIE kext decompile; the us144mkii driver
+sends the same values, facts only):
+- 'A' 0x41, wIndex 0x0101, registers 0x0D..0x11 = 04 00 00 rate 0B: `writeDigitalOutMode` in mode 0,
+  the S/PDIF output channel status (rate code 44.1k 0, 48k 2, 88.2k 8, 96k 0xA in the low nibble of
+  0x10). Read first (0xC0, 5 bytes), each register written only if it differs, in `startStreaming`
+  after the first SET_CUR pair. Only for plist flag 0x7a6: every Tascam but the US-200, and the MPC
+  Renaissance (`OZZY_QUIRK_SPDIF_OUT`).
+- 'I' wIndex 0: the generic `updateAjInputSelector` (set bit 1; clear bit 0 on flag-0x7a8 devices;
+  write only on change, then 40 ms and GET_CUR), and the confirm `setAJDMAInputChannels` (bits 5 and
+  4 = 0x30) at every stream start. us144mkii's 0x0010/0x0030 fit that.
+- 'I' wIndex 2 = 0: `writeDigitalOutSelector`, flag 0x7ac (US-1641/1800/2000).
+- Plist kMsWait 100 for all, but `initDeviceSpecificData` clears it before `configurationDone`; only
+  the US-200 waits (100 ms, hard-coded). kInACR 3 (M4_C1 MIDI), like the EIE.
+- PCM: output plain 24-bit (`pcmTo24LSB`), input the 16-lane junction decoder. The US-144MKII /
+  US-600 routing post-processors and `pcmTo24LSB_US144_*` are off (no-op) at the default routing.
+- 'D' (0x44) = deep sleep (us144mkii).
 
 MIDI framing on the bulk in / isoc out path (EIE kext `AJ::streamingStarted` @0x2e94, `kInACR`
 at `PGDevice+0x810`; `AJ::configurationDone` sets the transfer size):
@@ -136,15 +148,16 @@ quirk). Details in `findings_other_and_projects.md`.
 ## What the inventory says about Ozzy's architecture
 - Two families cover nearly everything: most devices are a model row (channels, rates).
 - **Missing pieces, in order of how many devices need them:**
-  1. Per-device handshake extras: Tascam 'A' register writes (≥7 devices), Lexicon/ESI S/PDIF
-     clock source (Ozzy fixes the ESI selector at STATE_A). The ESI steps are done
+  1. Per-device handshake extras: done as quirks (`common/ozzy_quirks.h`, Tascam S/PDIF 'A'
+     registers, generic selector, waits, digital out selector). Still missing: following an
+     external (S/PDIF) clock, Lexicon/ESI clock source (Ozzy fixes the ESI selector at STATE_A). The ESI steps are done
      (`ozzy_quirks.h`, `hs_esi_setup`); ESU1808 shares them but needs the 10-lane output.
   2. Frame codecs for more lane counts: 10-lane output with the S/PDIF mirror (ESU1808, Contour IE), 16-lane output
      (Realiser A16).
   3. Input post-processing quirks (MPC Renaissance zeroes inputs 3/4, US-366).
   4. Rarer: isoc in + isoc out (MPC Renaissance bcdDevice 0x0300), rate-dependent channel counts
-     (Dotec, SPL Crimson), the Numarks' `kMsWait` 200 (a 200 ms sleep at the start of `configurationDone`, before any
-     setup request; not implemented yet).
+     (Dotec, SPL Crimson), `kMsWait` 200 (NS7, NS6, MixDeck; not in the V7/4Trak plists) is a 200 ms sleep at the start of
+     `configurationDone`, before any setup request: done (`OZZY_QUIRK_WAIT_200MS`).
 - The central device list `common/ozzy_devices.def` (one row per device: VID, PID, name, family,
   in/out, rates, status, quirks) is where a device is added; the Linux ID table, the
   kext's personalities and the engine choice are generated from it.

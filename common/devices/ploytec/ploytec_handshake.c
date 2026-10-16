@@ -114,9 +114,10 @@ static int hs_set_rate(const struct ploytec_host_ops *ops, void *ctx, uint32_t r
 }
 
 /*
- * hs_confirm_status - Read-modify-write the AJ input selector.
- * Writes the status byte back with bit 5 set (sign-extended into wValue),
- * which arms the device for streaming.
+ * hs_confirm_status - Read-modify-write the AJ input selector, as the official
+ * setAJDMAInputChannels does at every stream start (bulkAudioRun): writes the status
+ * byte back with bits 5 and 4 set (sign-extended into wValue), which arms the
+ * device for streaming. Sent to every device.
  */
 static int hs_confirm_status(const struct ploytec_host_ops *ops, void *ctx)
 {
@@ -141,6 +142,115 @@ static int hs_confirm_status(const struct ploytec_host_ops *ops, void *ctx)
 }
 
 /*
+ * hs_read_selector - 'I' wIndex 0, read again after 20 ms while the digital lock
+ * bit is set (both selector routines of the official driver do this).
+ */
+static int hs_read_selector(const struct ploytec_host_ops *ops, void *ctx, uint8_t *val)
+{
+	int ret;
+
+	ret = ops->control(ctx, PLOYTEC_REQTYPE_VENDOR_IN, PLOYTEC_CMD_STATUS,
+			   0, PLOYTEC_REG_AJ_INPUT_SEL, val, 1);
+	if (ret >= 0 && (*val & PLOYTEC_AJ_DIGITAL_LOCK_BIT)) {
+		ops->sleep_ms(ctx, 20);
+		ret = ops->control(ctx, PLOYTEC_REQTYPE_VENDOR_IN, PLOYTEC_CMD_STATUS,
+				   0, PLOYTEC_REG_AJ_INPUT_SEL, val, 1);
+	}
+	return ret;
+}
+
+/*
+ * hs_selector - The generic updateAjInputSelector of the official configurationDone,
+ * at its default settings: set bit 1 (input select, AjExtData[1] = 0), clear bit 0
+ * on OZZY_QUIRK_AJ_BIT0 devices, and write the byte back only if it changed, then
+ * wait 40 ms and read the rate (the device may re-clock). The Xones report bit 1 set
+ * at power-up, so they get no write. Following the device's digital lock frequency
+ * (the official driver adopts it as the rate) is not done.
+ */
+static int hs_selector(const struct ploytec_host_ops *ops, void *ctx, uint32_t quirks)
+{
+	uint8_t buf[1] = { 0 };
+	uint32_t rate;
+	uint8_t want;
+	int ret;
+
+	ops->sleep_ms(ctx, 5);
+	ret = hs_read_selector(ops, ctx, buf);
+	if (ret < 0)
+		return ret;
+
+	want = buf[0] | PLOYTEC_AJ_INPUT_SELECT_BIT;
+	if (quirks & OZZY_QUIRK_AJ_BIT0)
+		want &= (uint8_t)~PLOYTEC_AJ_MODE0_BIT;
+	if (want == buf[0])
+		return 0;
+
+	ret = ops->control(ctx, PLOYTEC_REQTYPE_VENDOR_OUT, PLOYTEC_CMD_STATUS,
+			   (uint16_t)(int16_t)(int8_t)want, PLOYTEC_REG_AJ_INPUT_SEL, 0, 0);
+	if (ret < 0)
+		return ret;
+	ops->sleep_ms(ctx, 40);
+	hs_log(ops, ctx, false, "selector: read 0x%02X, wrote 0x%02X", buf[0], want);
+	return hs_read_rate(ops, ctx, &rate);
+}
+
+/*
+ * hs_digital_out_sel - writeDigitalOutSelector: 'I' wIndex 2 = AjExtData[4] (default 0),
+ * no read first.
+ */
+static int hs_digital_out_sel(const struct ploytec_host_ops *ops, void *ctx)
+{
+	return ops->control(ctx, PLOYTEC_REQTYPE_VENDOR_OUT, PLOYTEC_CMD_STATUS,
+			    0, PLOYTEC_REG_DIGITAL_OUT_SEL, 0, 0);
+}
+
+/*
+ * hs_spdif_out - writeDigitalOutMode in mode 0 (AjExtData[3], the default): read the
+ * S/PDIF output registers 0x0D..0x11 and write each one that differs from
+ * 0x0D = 0x04, 0x0E = 0x00, 0x0F = 0x00, 0x10 = (old & 0xF0) | rate code (IEC 60958
+ * channel status: 44.1k 0, 48k 2, 88.2k 8, 96k 0xA, 176.4k 0xC, 192k 0xE), 0x11 = 0x0B.
+ * The official startStreaming does this right after the first SET_CUR pair.
+ */
+static int hs_spdif_out(const struct ploytec_host_ops *ops, void *ctx, uint32_t rate)
+{
+	uint8_t old[PLOYTEC_SPDIF_REGS] = { 0 };
+	uint8_t want[PLOYTEC_SPDIF_REGS];
+	uint8_t code;
+	int i, ret;
+
+	ret = ops->control(ctx, PLOYTEC_REQTYPE_VENDOR_IN, PLOYTEC_CMD_ESI_A,
+			   PLOYTEC_SPDIF_REG_FIRST << 8, PLOYTEC_ESI_A_INDEX, old, sizeof(old));
+	if (ret < 0)
+		return ret;
+
+	switch (rate) {
+	case 48000:  code = 0x2; break;
+	case 88200:  code = 0x8; break;
+	case 96000:  code = 0xA; break;
+	case 176400: code = 0xC; break;
+	case 192000: code = 0xE; break;
+	default:     code = 0x0; break;  /* 44.1k */
+	}
+	want[0] = 0x04;
+	want[1] = 0x00;
+	want[2] = 0x00;
+	want[3] = (old[3] & 0xF0) | code;
+	want[4] = 0x0B;
+
+	for (i = 0; i < PLOYTEC_SPDIF_REGS; i++) {
+		if (old[i] == want[i])
+			continue;
+		ret = ops->control(ctx, PLOYTEC_REQTYPE_VENDOR_OUT, PLOYTEC_CMD_ESI_A,
+				   (uint16_t)((PLOYTEC_SPDIF_REG_FIRST + i) << 8 | want[i]),
+				   PLOYTEC_ESI_A_INDEX, 0, 0);
+		if (ret < 0)
+			return ret;
+	}
+	hs_log(ops, ctx, false, "S/PDIF out registers set for %u Hz", rate);
+	return 0;
+}
+
+/*
  * hs_esi_a_request - ESI 'A' write (sendEsuARequest), no data phase.
  */
 static int hs_esi_a_request(const struct ploytec_host_ops *ops, void *ctx, uint16_t wvalue)
@@ -158,7 +268,7 @@ static int hs_esi_a_request(const struct ploytec_host_ops *ops, void *ctx, uint1
  * hs_esi_setup - The ESI U-series requests of the official configurationDone, which
  * runs before startStreaming sets the rate:
  *   - U168 XT only: 'A' 0x349
- *   - ESI input selector (updateAjInputSelector_Esu186) in place of hs_confirm_status:
+ *   - ESI input selector (updateAjInputSelector_Esu186) in place of hs_selector:
  *     read 'I' wIndex 0 (again after 20 ms while the lock bit is set), keep the
  *     PRESERVE_MASK bits, set STATE_A (the driver's default), send 'A' 0x348, and
  *     write the byte back only if it changed, then wait 200 ms (the device
@@ -179,13 +289,7 @@ static int hs_esi_setup(const struct ploytec_host_ops *ops, void *ctx, uint32_t 
 			return ret;
 	}
 
-	ret = ops->control(ctx, PLOYTEC_REQTYPE_VENDOR_IN, PLOYTEC_CMD_STATUS,
-			   0, PLOYTEC_REG_AJ_INPUT_SEL, buf, sizeof(buf));
-	if (ret >= 0 && (buf[0] & PLOYTEC_AJ_DIGITAL_LOCK_BIT)) {
-		ops->sleep_ms(ctx, 20);
-		ret = ops->control(ctx, PLOYTEC_REQTYPE_VENDOR_IN, PLOYTEC_CMD_STATUS,
-				   0, PLOYTEC_REG_AJ_INPUT_SEL, buf, sizeof(buf));
-	}
+	ret = hs_read_selector(ops, ctx, buf);
 	if (ret < 0)
 		return ret;
 
@@ -262,6 +366,12 @@ int ploytec_handshake_eps(const struct ploytec_host_ops *ops, void *ctx, uint32_
 	if (ret < 0)
 		goto err;
 
+	/* The official driver reads the firmware first (onServiceStart), then waits in configurationDone */
+	if (quirks & OZZY_QUIRK_WAIT_200MS)
+		ops->sleep_ms(ctx, 200);
+	else if (quirks & OZZY_QUIRK_WAIT_100MS)
+		ops->sleep_ms(ctx, 100);
+
 	hs_log(ops, ctx, false, "[%d/7] reading hardware status...", ++step);
 	ret = hs_read_status(ops, ctx, &info->status);
 	if (ret < 0)
@@ -272,9 +382,17 @@ int ploytec_handshake_eps(const struct ploytec_host_ops *ops, void *ctx, uint32_
 	if (ret < 0)
 		goto err;
 
+	/* configurationDone: the input selector, then the digital output selector */
 	if (quirks & OZZY_QUIRK_ESI) {
 		hs_log(ops, ctx, false, "ESI selector, 'A' request and CPLD byte...");
 		ret = hs_esi_setup(ops, ctx, quirks);
+	} else if (!(quirks & OZZY_QUIRK_NO_AJ_SELECTOR)) {
+		ret = hs_selector(ops, ctx, quirks);
+	}
+	if (ret < 0)
+		goto err;
+	if (quirks & OZZY_QUIRK_DIGITAL_OUT_SEL) {
+		ret = hs_digital_out_sel(ops, ctx);
 		if (ret < 0)
 			goto err;
 	}
@@ -283,6 +401,12 @@ int ploytec_handshake_eps(const struct ploytec_host_ops *ops, void *ctx, uint32_
 	ret = hs_set_rate(ops, ctx, rate, eps);
 	if (ret < 0)
 		goto err;
+
+	if (quirks & OZZY_QUIRK_SPDIF_OUT) {
+		ret = hs_spdif_out(ops, ctx, rate);
+		if (ret < 0)
+			goto err;
+	}
 
 	/* The official driver reads the rate back and waits 50 ms (bulkAudioRun) */
 	hs_log(ops, ctx, false, "[%d/7] verifying sample rate...", ++step);
@@ -301,15 +425,10 @@ int ploytec_handshake_eps(const struct ploytec_host_ops *ops, void *ctx, uint32_
 	if (ret < 0)
 		goto err;
 
-	/* ESI devices did their own selector write above; the Jockey 3 ME gets none */
-	if (quirks & (OZZY_QUIRK_ESI | OZZY_QUIRK_NO_AJ_SELECTOR)) {
-		hs_log(ops, ctx, false, "[%d/7] no status confirm for this device", ++step);
-	} else {
-		hs_log(ops, ctx, false, "[%d/7] confirming device status...", ++step);
-		ret = hs_confirm_status(ops, ctx);
-		if (ret < 0)
-			goto err;
-	}
+	hs_log(ops, ctx, false, "[%d/7] confirming device status...", ++step);
+	ret = hs_confirm_status(ops, ctx);
+	if (ret < 0)
+		goto err;
 
 	if (ops->clear_halt) {
 		ret = hs_clear_pcm_halt(ops, ctx);

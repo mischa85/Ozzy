@@ -24,7 +24,10 @@ $(MODULE_NAME)-y := ozzy_core.o \
                     ../common/devices/ploytec/ploytec_codec.o \
                     ../common/devices/ploytec/ploytec_handshake.o
 
-# Devices to leave out (keys from common/ozzy_devices.def), e.g. make OZZY_DISABLE="ReloopDJ2"
+# Devices to leave out (keys from common/ozzy_devices.def), e.g. make OZZY_DISABLE="ReloopDJ2".
+# By default the ones mainline drives: Tascam US-144 (snd-usb-us122l, us144mkii) and US-144MKII
+# (us144mkii); make OZZY_DISABLE= builds them in.
+OZZY_DISABLE ?= TascamUS144 TascamUS144MKII
 ccflags-y += $(addprefix -DOZZY_DISABLE_,$(OZZY_DISABLE))
 
 # Commit the module is built from: logged at probe, shown by `modinfo -F version`

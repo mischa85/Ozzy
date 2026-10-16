@@ -20,15 +20,16 @@ enum ozzy_quirk {
 	OZZY_QUIRK_MIDI_NS7 = 1u << 0,
 
 	/*
-	 * No AJ input selector read-modify-write ('I' wIndex 0) in the handshake: the
-	 * official updateAjInputSelector returns before any request for this device
-	 * (Reloop Jockey 3 ME).
+	 * No AJ input selector step ('I' wIndex 0 read-modify-write, see AJ_BIT0) in the
+	 * handshake: the official updateAjInputSelector returns before any request for
+	 * this device (Reloop Jockey 3 ME). The status confirm (setAJDMAInputChannels)
+	 * still goes out, as for every device.
 	 */
 	OZZY_QUIRK_NO_AJ_SELECTOR = 1u << 1,
 
 	/*
 	 * ESI U-series (U168 XT, U86 XT, U108 PRE): ESI's input selector
-	 * (updateAjInputSelector_Esu186) with the 'A' request in place of the Xone
+	 * (updateAjInputSelector_Esu186) with the 'A' request in place of the generic
 	 * one, and the CPLD byte write ('I' wIndex 1, setEsuCpldByte), before the
 	 * rate is set (ploytec_handshake.c).
 	 */
@@ -39,6 +40,42 @@ enum ozzy_quirk {
 	 * sends to 2573:0012 only.
 	 */
 	OZZY_QUIRK_ESI_U168 = 1u << 3,
+
+	/*
+	 * Wait 200 ms before the setup requests: the plist's kMsWait 200 (Numark NS7, NS6,
+	 * MixDeck), which the official configurationDone sleeps (PGDevice+0x18) before
+	 * any of its requests. The handshake sleeps after the firmware read.
+	 */
+	OZZY_QUIRK_WAIT_200MS = 1u << 4,
+
+	/*
+	 * Wait 100 ms before the setup requests (Tascam US-200): initDeviceSpecificData
+	 * sets PGDevice+0x18 = 100 for it. Its plist's kMsWait 100, like the other
+	 * Tascams', is cleared by initDeviceSpecificData before configurationDone runs.
+	 */
+	OZZY_QUIRK_WAIT_100MS = 1u << 5,
+
+	/*
+	 * The generic selector step also clears bit 0 of 'I' wIndex 0 (plist flag
+	 * PGDevice+0x7a8; the driver's AjExtData[2] setting, default 0, possibly a
+	 * USB 1.1 mode switch: setUSB1Mode). MPC Renaissance, Lexicon IO42/IO82, every
+	 * Tascam but the US-200.
+	 */
+	OZZY_QUIRK_AJ_BIT0 = 1u << 6,
+
+	/*
+	 * Write the S/PDIF output registers ('A' 0x0D..0x11, writeDigitalOutMode, mode 0)
+	 * after the rate is set (plist flag PGDevice+0x7a6). MPC Renaissance, every
+	 * Tascam but the US-200.
+	 */
+	OZZY_QUIRK_SPDIF_OUT = 1u << 7,
+
+	/*
+	 * Write the digital output selector, 'I' wIndex 2 = 0, before the rate is set
+	 * (writeDigitalOutSelector, plist flag PGDevice+0x7ac). Tascam US-1641, US-1800,
+	 * US-2000.
+	 */
+	OZZY_QUIRK_DIGITAL_OUT_SEL = 1u << 8,
 };
 
 #endif /* OZZY_QUIRKS_H */

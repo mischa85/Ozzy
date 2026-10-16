@@ -160,6 +160,18 @@ For ESU (0x2573) and 0x0A92/0x0111 only:
 - Writes to vendor request 'I', wIndex=1 with the masked value
 - Stops bulk audio before writing, resumes after
 - Stored in `this[0x55D8]`
+
+### Generic selector and confirm (EIE kext 3.3.17, all junction devices)
+
+- `updateAjInputSelector` (configurationDone; not for the ESU devices, which use `_Esu186`, nor
+  the Jockey 3 ME): 'I' read (again after 20 ms while bit 2 is set), new = `b | 0x02` (AjExtData[1]
+  = 0, the default), bit 0 = AjExtData[2] (default 0) when plist flag 0x7a8 is set; written
+  (sign-extended) only if it changed, then 40 ms and GET_CUR. Xones read bit 1 set, so no write.
+- `setAJDMAInputChannels` (bulkAudioRun, every stream start, every device with a bulk pipe):
+  'I' read, write `b | 0x20 | 0x10` for up to 16 inputs (`b & ~0x20 | 0x10` above; D064 keeps 0x20).
+  This is Ozzy's "confirm"; it used to set only 0x20, which is the same on the Xones (bit 4 is
+  set at power-up) but not on devices that power up with bit 4 clear.
+- 'I' wIndex 2 = AjExtData[4] (default 0): `writeDigitalOutSelector`, plist flag 0x7ac.
 - `configurationDone` calls it with the stored byte and resets the store to 0 first, so the
   write always goes out; the stored byte starts at 0, so the first write is wValue 0xE7. Only
   the control panel (user client dispatch 5) changes the byte (bits 3/4, the ones 0xE7 leaves

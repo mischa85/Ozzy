@@ -107,16 +107,18 @@ OZZY_DEVICE(LexiconIO22, 0x1210, 0x001A, "Lexicon I-ONIX U22 / IO22", PLOYTEC_IS
 	    OZZY_RATE_44K1 | OZZY_RATE_48K | OZZY_RATE_88K2 | OZZY_RATE_96K, EXPERIMENTAL, 0)
 #endif
 
-/* Same kext: U42S/IO42 6 in (4 mic/line + S/PDIF) / 4 out (main + S/PDIF) */
+/* Same kext: U42S/IO42 6 in (4 mic/line + S/PDIF) / 4 out (main + S/PDIF); plist flag 0x7a8 */
 #ifndef OZZY_DISABLE_LexiconIO42
 OZZY_DEVICE(LexiconIO42, 0x1210, 0x0018, "Lexicon I-ONIX U42S / IO42", PLOYTEC_ISOC, 6, 4,
-	    OZZY_RATE_44K1 | OZZY_RATE_48K | OZZY_RATE_88K2 | OZZY_RATE_96K, EXPERIMENTAL, 0)
+	    OZZY_RATE_44K1 | OZZY_RATE_48K | OZZY_RATE_88K2 | OZZY_RATE_96K, EXPERIMENTAL,
+	    OZZY_QUIRK_AJ_BIT0)
 #endif
 
 /* Same kext: U82S/IO82 10 in (8 mic/line + S/PDIF) / 4 out */
 #ifndef OZZY_DISABLE_LexiconIO82
 OZZY_DEVICE(LexiconIO82, 0x1210, 0x0019, "Lexicon I-ONIX U82S / IO82", PLOYTEC_ISOC, 10, 4,
-	    OZZY_RATE_44K1 | OZZY_RATE_48K | OZZY_RATE_88K2 | OZZY_RATE_96K, EXPERIMENTAL, 0)
+	    OZZY_RATE_44K1 | OZZY_RATE_48K | OZZY_RATE_88K2 | OZZY_RATE_96K, EXPERIMENTAL,
+	    OZZY_QUIRK_AJ_BIT0)
 #endif
 
 /*
@@ -124,16 +126,21 @@ OZZY_DEVICE(LexiconIO82, 0x1210, 0x0019, "Lexicon I-ONIX U82S / IO82", PLOYTEC_I
  * official driver zeroes 3/4, _postprocessACV0BugFix), so Ozzy takes 2. No kInACR: its MIDI IN
  * frame carries two ports (inACR_M4_M4_C1); Ozzy reads the first. The bcdDevice 0x0300
  * variant streams isoc in instead of bulk in and is not supported (probe fails on PCM in).
+ * Plist flags 0x7a8 and 0x7a6 (S/PDIF out registers).
  */
 #ifndef OZZY_DISABLE_MPCRenaissance
 OZZY_DEVICE(MPCRenaissance, 0x09E8, 0x207F, "Akai MPC Renaissance", PLOYTEC_ISOC, 2, 4,
-	    OZZY_RATE_44K1 | OZZY_RATE_48K | OZZY_RATE_88K2 | OZZY_RATE_96K, EXPERIMENTAL, 0)
+	    OZZY_RATE_44K1 | OZZY_RATE_48K | OZZY_RATE_88K2 | OZZY_RATE_96K, EXPERIMENTAL,
+	    OZZY_QUIRK_AJ_BIT0 | OZZY_QUIRK_SPDIF_OUT)
 #endif
 
-/* Numark 3.3.11 kexts (Ploytec-signed). NS7: 4 in / 4 out at 44.1k, kInACR 8 (NS7 MIDI framing) */
+/*
+ * Numark 3.3.11 kexts (Ploytec-signed). NS7: 4 in / 4 out at 44.1k, kInACR 8 (NS7 MIDI framing),
+ * kMsWait 200 (also NS6 and MixDeck; not in the V7 and 4Trak plists)
+ */
 #ifndef OZZY_DISABLE_NumarkNS7
 OZZY_DEVICE(NumarkNS7, 0x15E4, 0x0071, "Numark NS7", PLOYTEC_ISOC, 4, 4,
-	    OZZY_RATE_44K1, EXPERIMENTAL, OZZY_QUIRK_MIDI_NS7)
+	    OZZY_RATE_44K1, EXPERIMENTAL, OZZY_QUIRK_MIDI_NS7 | OZZY_QUIRK_WAIT_200MS)
 #endif
 
 /* V7 (kext class PGKernelDeviceNUMARKNK14): 4 in / 4 out at 44.1k, kInACR 8 */
@@ -145,7 +152,7 @@ OZZY_DEVICE(NumarkV7, 0x15E4, 0x0075, "Numark V7", PLOYTEC_ISOC, 4, 4,
 /* NS6: 4 in / 4 out at 44.1k, kInACR 8 */
 #ifndef OZZY_DISABLE_NumarkNS6
 OZZY_DEVICE(NumarkNS6, 0x15E4, 0x0079, "Numark NS6", PLOYTEC_ISOC, 4, 4,
-	    OZZY_RATE_44K1, EXPERIMENTAL, OZZY_QUIRK_MIDI_NS7)
+	    OZZY_RATE_44K1, EXPERIMENTAL, OZZY_QUIRK_MIDI_NS7 | OZZY_QUIRK_WAIT_200MS)
 #endif
 
 /* 4Trak: 2 in / 4 out at 44.1k, kInACR 8 */
@@ -157,7 +164,7 @@ OZZY_DEVICE(Numark4Trak, 0x15E4, 0x0026, "Numark 4Trak", PLOYTEC_ISOC, 2, 4,
 /* MixDeck (kext class PGKernelDeviceNUMARKNC06): 4 in / 4 out at 44.1/88.2k, kInACR 2 (M4_C1) */
 #ifndef OZZY_DISABLE_NumarkMixDeck
 OZZY_DEVICE(NumarkMixDeck, 0x15E4, 0x0040, "Numark MixDeck", PLOYTEC_ISOC, 4, 4,
-	    OZZY_RATE_44K1 | OZZY_RATE_88K2, EXPERIMENTAL, 0)
+	    OZZY_RATE_44K1 | OZZY_RATE_88K2, EXPERIMENTAL, OZZY_QUIRK_WAIT_200MS)
 #endif
 
 /*
@@ -216,4 +223,62 @@ OZZY_DEVICE(EsiU108PRE, 0x2573, 0x002A, "ESI U108 PRE", PLOYTEC_XONE, 10, 8,
 #ifndef OZZY_DISABLE_MidiplusAudioLink4x4
 OZZY_DEVICE(MidiplusAudioLink4x4, 0x1ACC, 0x0103, "Midiplus AudioLink PLUS 4x4", PLOYTEC_XONE, 6, 6,
 	    OZZY_RATE_44K1 | OZZY_RATE_48K | OZZY_RATE_88K2 | OZZY_RATE_96K, EXPERIMENTAL, 0)
+#endif
+
+/*
+ * Tascam (TEAC) bulk in / isoc out kexts by Ploytec (kConfigurationData: High Speed, 44.1-96k,
+ * kInACR 3 = M4_C1 MIDI; plist flags per row, decoded with tools/ploytec_config_decode.py).
+ * Their kMsWait 100 never takes effect (initDeviceSpecificData clears it), except on the US-200.
+ * Untested on hardware.
+ */
+
+/* US1xx kext (TASCAM_US1xx.kext): 4 in / 4 out. Linux: snd-usb-us122l and us144mkii drive it,
+ * so the Linux Makefile leaves it out by default */
+#ifndef OZZY_DISABLE_TascamUS144
+OZZY_DEVICE(TascamUS144, 0x0644, 0x800F, "Tascam US-144", PLOYTEC_ISOC, 4, 4,
+	    OZZY_RATE_44K1 | OZZY_RATE_48K | OZZY_RATE_88K2 | OZZY_RATE_96K, EXPERIMENTAL,
+	    OZZY_QUIRK_AJ_BIT0 | OZZY_QUIRK_SPDIF_OUT)
+#endif
+
+/* usb2audio 3.25.0 kext: 4 in / 4 out. Linux: us144mkii (6.18) drives it, so the Linux Makefile
+ * leaves it out by default. Its input/output routing post-processors are off at the defaults */
+#ifndef OZZY_DISABLE_TascamUS144MKII
+OZZY_DEVICE(TascamUS144MKII, 0x0644, 0x8020, "Tascam US-144MKII", PLOYTEC_ISOC, 4, 4,
+	    OZZY_RATE_44K1 | OZZY_RATE_48K | OZZY_RATE_88K2 | OZZY_RATE_96K, EXPERIMENTAL,
+	    OZZY_QUIRK_AJ_BIT0 | OZZY_QUIRK_SPDIF_OUT)
+#endif
+
+/* us200 3.22.0 kext: 2 in / 4 out, no digital I/O; the only Tascam that keeps a 100 ms wait */
+#ifndef OZZY_DISABLE_TascamUS200
+OZZY_DEVICE(TascamUS200, 0x0644, 0x8034, "Tascam US-200", PLOYTEC_ISOC, 2, 4,
+	    OZZY_RATE_44K1 | OZZY_RATE_48K | OZZY_RATE_88K2 | OZZY_RATE_96K, EXPERIMENTAL,
+	    OZZY_QUIRK_WAIT_100MS)
+#endif
+
+/* us600 3.22.0 kext: 6 in / 4 out; its input routing post-processor is a no-op at the defaults */
+#ifndef OZZY_DISABLE_TascamUS600
+OZZY_DEVICE(TascamUS600, 0x0644, 0x8035, "Tascam US-600", PLOYTEC_ISOC, 6, 4,
+	    OZZY_RATE_44K1 | OZZY_RATE_48K | OZZY_RATE_88K2 | OZZY_RATE_96K, EXPERIMENTAL,
+	    OZZY_QUIRK_AJ_BIT0 | OZZY_QUIRK_SPDIF_OUT)
+#endif
+
+/* us1641 3.22.0 kext: 16 in / 4 out */
+#ifndef OZZY_DISABLE_TascamUS1641
+OZZY_DEVICE(TascamUS1641, 0x0644, 0x8017, "Tascam US-1641", PLOYTEC_ISOC, 16, 4,
+	    OZZY_RATE_44K1 | OZZY_RATE_48K | OZZY_RATE_88K2 | OZZY_RATE_96K, EXPERIMENTAL,
+	    OZZY_QUIRK_AJ_BIT0 | OZZY_QUIRK_SPDIF_OUT | OZZY_QUIRK_DIGITAL_OUT_SEL)
+#endif
+
+/* us1800 3.25.0 kext: 16 in / 4 out */
+#ifndef OZZY_DISABLE_TascamUS1800
+OZZY_DEVICE(TascamUS1800, 0x0644, 0x8030, "Tascam US-1800", PLOYTEC_ISOC, 16, 4,
+	    OZZY_RATE_44K1 | OZZY_RATE_48K | OZZY_RATE_88K2 | OZZY_RATE_96K, EXPERIMENTAL,
+	    OZZY_QUIRK_AJ_BIT0 | OZZY_QUIRK_SPDIF_OUT | OZZY_QUIRK_DIGITAL_OUT_SEL)
+#endif
+
+/* us2000 3.22.0 kext: 16 in / 4 out */
+#ifndef OZZY_DISABLE_TascamUS2000
+OZZY_DEVICE(TascamUS2000, 0x0644, 0x8025, "Tascam US-2000", PLOYTEC_ISOC, 16, 4,
+	    OZZY_RATE_44K1 | OZZY_RATE_48K | OZZY_RATE_88K2 | OZZY_RATE_96K, EXPERIMENTAL,
+	    OZZY_QUIRK_AJ_BIT0 | OZZY_QUIRK_SPDIF_OUT | OZZY_QUIRK_DIGITAL_OUT_SEL)
 #endif

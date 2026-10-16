@@ -18,21 +18,8 @@
 extern "C" {
 #endif
 
-/* USB vendor and product IDs */
+/* Ploytec GmbH's USB vendor ID (also used for OEM boards). Devices are listed in common/ozzy_devices.def */
 #define PLOYTEC_VENDOR_ID           0x0A4A
-#define PLOYTEC_PID_XONE_DB4       0xFFDB
-#define PLOYTEC_PID_XONE_DB2       0xFFD2
-#define PLOYTEC_PID_XONE_DX        0xFFDD
-#define PLOYTEC_PID_XONE_4D        0xFF4D
-#define PLOYTEC_PID_WIZARD_4       0xFFAD
-#define PLOYTEC_PID_XONE_2D        0xFF01
-#define PLOYTEC_PID_XONE_1D        0x001E   /* MIDI only: USB MIDI class, not the Ploytec audio protocol */
-
-/* Other vendors' Ploytec-based devices */
-#define RELOOP_VENDOR_ID            0x200C
-#define RELOOP_PID_DIGITAL_JOCKEY_2 0x1009   /* Digital Jockey 2 Master Edition */
-#define AKAI_VENDOR_ID              0x09E8
-#define AKAI_PID_EIE_PRO            0x0010   /* bulk in / isochronous out, see .claude/re/akai_eie_pro.md */
 
 /*
  * Bulk in / isoc out devices (Akai EIE Pro), as both platforms describe them.

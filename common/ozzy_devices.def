@@ -1,0 +1,91 @@
+/* SPDX-License-Identifier: MIT */
+/*
+ * Ozzy Device List
+ *
+ * Every device Ozzy drives, one row each. This is the only place a device is
+ * added: the Linux USB ID table, the macOS kext's matching personalities
+ * (generated into its Info.plist at install time), the engine/ops choice and
+ * the channel counts and rates all come from here. See ozzy_devices.h for how
+ * the rows are read, and .claude/re/device_inventory.md for candidates.
+ *
+ *   OZZY_DEVICE(key, vid, pid, name, family, in, out, rates, status, quirks)
+ *
+ *   key        identifier: the kext personality name
+ *   family     PLOYTEC_XONE  Ploytec junction protocol, bulk/interrupt out (Xone mixers)
+ *              PLOYTEC_ISOC  Ploytec bulk in / isochronous out (Akai EIE Pro)
+ *              USB_MIDI      USB MIDI class device that needs Ozzy anyway
+ *   in, out    audio channels (lanes used in the device's frames)
+ *   rates      OZZY_RATE_xxx bits
+ *   status     SUPPORTED or EXPERIMENTAL (untested on hardware or by few users)
+ *   quirks     OZZY_QUIRK_xxx bits, 0 for none
+ *
+ * Each row notes where its numbers come from, and is wrapped in
+ * #ifndef OZZY_DISABLE_<key>: building with -DOZZY_DISABLE_<key> leaves the device
+ * out everywhere (Linux: make OZZY_DISABLE="<key> ...", macOS:
+ * OZZY_DISABLE="<key> ..." ./install.command). A platform only drives the
+ * families it has code for: Linux leaves USB_MIDI devices to snd-usb-audio.
+ *
+ * Copyright (C) 2024 Marcel Bierling <marcel@hackerman.art>
+ */
+
+/* XONE_DB4.kext 3.4.9 */
+#ifndef OZZY_DISABLE_XoneDB4
+OZZY_DEVICE(XoneDB4, 0x0A4A, 0xFFDB, "Xone:DB4", PLOYTEC_XONE, 8, 8,
+	    OZZY_RATE_44K1 | OZZY_RATE_48K | OZZY_RATE_88K2 | OZZY_RATE_96K, SUPPORTED, 0)
+#endif
+
+/* XONE_DB2.kext 3.4.9: 48 kHz only */
+#ifndef OZZY_DISABLE_XoneDB2
+OZZY_DEVICE(XoneDB2, 0x0A4A, 0xFFD2, "Xone:DB2", PLOYTEC_XONE, 8, 8,
+	    OZZY_RATE_48K, SUPPORTED, 0)
+#endif
+
+/* No official table yet: same as the DB4 */
+#ifndef OZZY_DISABLE_XoneDX
+OZZY_DEVICE(XoneDX, 0x0A4A, 0xFFDD, "Xone:DX", PLOYTEC_XONE, 8, 8,
+	    OZZY_RATE_44K1 | OZZY_RATE_48K | OZZY_RATE_88K2 | OZZY_RATE_96K, SUPPORTED, 0)
+#endif
+
+/* No official table yet: same as the DB4 */
+#ifndef OZZY_DISABLE_Xone4D
+OZZY_DEVICE(Xone4D, 0x0A4A, 0xFF4D, "Xone:4D", PLOYTEC_XONE, 8, 8,
+	    OZZY_RATE_44K1 | OZZY_RATE_48K | OZZY_RATE_88K2 | OZZY_RATE_96K, SUPPORTED, 0)
+#endif
+
+/* 6 analog inputs on 8 lanes (#77), no official table */
+#ifndef OZZY_DISABLE_Xone2D
+OZZY_DEVICE(Xone2D, 0x0A4A, 0xFF01, "Xone:2D", PLOYTEC_XONE, 8, 8,
+	    OZZY_RATE_44K1 | OZZY_RATE_48K | OZZY_RATE_88K2 | OZZY_RATE_96K, EXPERIMENTAL, 0)
+#endif
+
+/* WIZARD_4.kext 3.3.11: 16 in / 2 out */
+#ifndef OZZY_DISABLE_Wizard4
+OZZY_DEVICE(Wizard4, 0x0A4A, 0xFFAD, "MixWizard WZ4 USB", PLOYTEC_XONE, 16, 2,
+	    OZZY_RATE_44K1 | OZZY_RATE_48K | OZZY_RATE_88K2 | OZZY_RATE_96K, EXPERIMENTAL, 0)
+#endif
+
+/*
+ * Reloop's driver (rldj2meu.sys) sets 6 in / 4 out and hardcodes 44.1 kHz for 200c:1009 (96 kHz
+ * audibly distorts on this DAC). A loopback test showed Line In 1/2 on in 1-4 and the mic on
+ * in 5/6. Its firmware ignores MIDI running status, which the Linux MIDI path expands. Found by
+ * julled in PR #80.
+ */
+#ifndef OZZY_DISABLE_ReloopDJ2
+OZZY_DEVICE(ReloopDJ2, 0x200C, 0x1009, "Reloop Digital Jockey 2 ME", PLOYTEC_XONE, 6, 4,
+	    OZZY_RATE_44K1, EXPERIMENTAL, 0)
+#endif
+
+/* AKAI_EIE.kext 3.3.17 (kConfigurationData, High Speed): 4 in / 4 out. Bulk in / isoc out */
+#ifndef OZZY_DISABLE_AkaiEIEPro
+OZZY_DEVICE(AkaiEIEPro, 0x09E8, 0x0010, "Akai EIE Pro", PLOYTEC_ISOC, 4, 4,
+	    OZZY_RATE_44K1 | OZZY_RATE_48K | OZZY_RATE_88K2 | OZZY_RATE_96K, EXPERIMENTAL, 0)
+#endif
+
+/*
+ * USB MIDI class, but its bulk endpoints have wMaxPacketSize 4, which macOS's class driver
+ * rejects. Linux's snd-usb-audio drives it (Ozzy's Linux side has no USB_MIDI family) (#27).
+ */
+#ifndef OZZY_DISABLE_Xone1D
+OZZY_DEVICE(Xone1D, 0x0A4A, 0x001E, "Xone:1D", USB_MIDI, 0, 0,
+	    0, EXPERIMENTAL, 0)
+#endif

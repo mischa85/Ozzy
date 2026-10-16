@@ -31,7 +31,7 @@
 #include "../../common/devices/ploytec/ploytec_midi.h"
 #include "../../common/devices/ploytec/ploytec_codec.h"
 #include "../../common/devices/ploytec/ploytec_handshake.h"
-#include "../../common/devices/ploytec/ploytec_models.h"
+#include "../../common/ozzy_devices.h"
 
 /* ALSA side: S24_3LE, 3 bytes per sample */
 #define ALSA_BYTES_PER_SAMPLE 3
@@ -49,41 +49,50 @@ struct ploytec_private {
 	ploytec_frame_fn encode;        /* frame codecs for this model, picked once */
 	ploytec_frame_fn decode;
 	struct ploytec_midi midi;       /* MIDI framing at the current rate */
+	unsigned int rates[OZZY_MAX_RATES];  /* this device's rates (common/ozzy_devices.def) */
 };
 
-/* Placeholder until ploytec_init() applies the model's rates (ploytec_models.h) */
+/* Placeholder until ploytec_init() applies the device's rates (common/ozzy_devices.def) */
 static const unsigned int ploytec_rates[] = { 44100, 48000, 88200, 96000 };
 
 /*
- * ploytec_apply_model - Give this chip its own device info with the model's channel
- * counts and sample rates (from ploytec_models.h, shared with macOS).
+ * ploytec_apply_model - Give this chip its own device info with the device's channel
+ * counts and sample rates (common/ozzy_devices.def, shared with macOS).
  */
-static void ploytec_apply_model(struct ozzy_chip *chip, struct ploytec_private *priv)
+static int ploytec_apply_model(struct ozzy_chip *chip, struct ploytec_private *priv)
 {
-	const struct ploytec_model *model =
-		ploytec_model_for_ids(le16_to_cpu(chip->dev->descriptor.idVendor),
-				      le16_to_cpu(chip->dev->descriptor.idProduct));
-	unsigned int i;
+	const struct ozzy_device *dev =
+		ozzy_device_lookup(le16_to_cpu(chip->dev->descriptor.idVendor),
+				   le16_to_cpu(chip->dev->descriptor.idProduct));
+	unsigned int i, n;
+
+	n = dev ? ozzy_device_rates(dev, priv->rates) : 0;
+	if (!n) {
+		ploytec_err(&chip->dev->dev, "device not in the device list, or without rates\n");
+		return -ENODEV;
+	}
 
 	priv->base_info = chip->info;
 	priv->info = *chip->info;
-	priv->info.capture_channels = model->in_channels;
-	priv->info.playback_channels = model->out_channels;
-	priv->info.rates = model->rates;
-	priv->info.num_rates = model->num_rates;
+	priv->info.capture_channels = dev->in_channels;
+	priv->info.playback_channels = dev->out_channels;
+	priv->info.rates = priv->rates;
+	priv->info.num_rates = n;
 	priv->info.rates_mask = 0;
-	for (i = 0; i < model->num_rates; i++)
-		priv->info.rates_mask |= snd_pcm_rate_to_rate_bit(model->rates[i]);
-	priv->info.rate_min = model->rates[0];
-	priv->info.rate_max = model->rates[model->num_rates - 1];
-	priv->encode = ploytec_frame_encoder(model->out_channels);
-	priv->decode = ploytec_frame_decoder(model->in_channels);
+	for (i = 0; i < n; i++)
+		priv->info.rates_mask |= snd_pcm_rate_to_rate_bit(priv->rates[i]);
+	priv->info.rate_min = priv->rates[0];
+	priv->info.rate_max = priv->rates[n - 1];
+	priv->encode = ploytec_frame_encoder(dev->out_channels);
+	priv->decode = ploytec_frame_decoder(dev->in_channels);
 
 	chip->info = &priv->info;
-	chip->requested_rate = model->num_rates - 1;
+	chip->requested_rate = n - 1;
 
-	ploytec_log(&chip->dev->dev, "model: %s, %u in / %u out\n",
-		    model->name, model->in_channels, model->out_channels);
+	ploytec_log(&chip->dev->dev, "model: %s, %u in / %u out%s\n", dev->name,
+		    dev->in_channels, dev->out_channels,
+		    dev->status == OZZY_STATUS_EXPERIMENTAL ? " (experimental)" : "");
+	return 0;
 }
 
 /*
@@ -194,7 +203,8 @@ static int ploytec_private_init(struct ozzy_chip *chip)
 	if (!priv)
 		return -ENOMEM;
 	chip->private_data = priv;
-	ploytec_apply_model(chip, priv);
+	if (ploytec_apply_model(chip, priv) < 0)
+		return -ENODEV;
 	if (!priv->encode || !priv->decode) {
 		ploytec_err(&chip->dev->dev, "no frame codec for %u in / %u out\n",
 			    chip->info->capture_channels, chip->info->playback_channels);

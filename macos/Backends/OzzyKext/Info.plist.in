@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleExecutable</key>
+	<string>OzzyKext</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.ozzy.kext.OzzyKext</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundlePackageType</key>
+	<string>KEXT</string>
+	<key>CFBundleVersion</key>
+	<string>1.0.0</string>
+	<key>IOKitPersonalities</key>
+	<dict>
+		<!-- OZZY_PERSONALITIES: generated from common/ozzy_devices.def by GenPersonalities.c (install.command) -->
+	</dict>
+	<key>OSBundleLibraries</key>
+	<dict>
+		<key>com.apple.iokit.IOUSBHostFamily</key>
+		<string>1.0.1</string>
+		<key>com.apple.kpi.iokit</key>
+		<string>16.0</string>
+		<key>com.apple.kpi.libkern</key>
+		<string>16.0</string>
+	</dict>
+</dict>
+</plist>

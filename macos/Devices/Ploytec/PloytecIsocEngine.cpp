@@ -10,9 +10,11 @@
 // Feedback format (ploytec_defs.h)
 static const struct isoc_fb_config kFeedback = PLOYTEC_ISOC_FEEDBACK;
 
-PloytecIsocEngine::PloytecIsocEngine(uint16_t vid, uint16_t pid) {
-    mModel = ploytec_model_for_ids(vid, pid);
-    mSampleRate = mModel->rates[mModel->num_rates - 1];
+PloytecIsocEngine::PloytecIsocEngine(const struct ozzy_device* device) {
+    // Channels and rates per device (common/ozzy_devices.def); run at the highest rate
+    uint32_t rates[OZZY_MAX_RATES];
+    mModel = device;
+    mSampleRate = rates[ozzy_device_rates(device, rates) - 1];
 
     // Endpoints found by type, as both platforms describe them (ploytec_defs.h)
     mProfile.interfaceCount = PLOYTEC_NUM_INTERFACES;

@@ -2,7 +2,6 @@
 #include "PloytecProtocol.h"
 #include "PloytecIO.h"
 #include "../../../common/devices/ploytec/ploytec_handshake.h"
-#include "../../../common/devices/ploytec/ploytec_models.h"
 #include "../../Shared/OzzyLog.h"
 #include <libkern/libkern.h>
 #include <sys/errno.h>
@@ -33,12 +32,13 @@ static void HostLog(void* ctx, bool error, const char* fmt, va_list args) {
 // (only the Windows driver does, see ploytec_handshake.c). Shared with PloytecIsocEngine.
 const struct ploytec_host_ops kPloytecHostOps = { HostControl, nullptr, HostSleep, HostLog };
 
-PloytecEngine::PloytecEngine(uint16_t vid, uint16_t pid) {
+PloytecEngine::PloytecEngine(const struct ozzy_device* device) {
 
-    // Channel counts and rates per model (ploytec_models.h, shared with Linux); run at the
-    // highest rate the model supports (the DB2 is 48 kHz only)
-    mModel = ploytec_model_for_ids(vid, pid);
-    mSampleRate = mModel->rates[mModel->num_rates - 1];
+    // Channel counts and rates per device (common/ozzy_devices.def, shared with Linux); run at
+    // the highest rate the device supports (the DB2 is 48 kHz only)
+    uint32_t rates[OZZY_MAX_RATES];
+    mModel = device;
+    mSampleRate = rates[ozzy_device_rates(device, rates) - 1];
 
     // --- Define Hardware Topology ---
     // The Xone:DB4 presents two interfaces:

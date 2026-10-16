@@ -33,7 +33,7 @@ rates and a few vendor extras (listed per device).
 
 | VID:PID | Product | In / out | Rates | Source | Linux | Ozzy needs |
 |---|---|---|---|---|---|---|
-| 0A4A:FFDB/FFD2/FFDD/FF4D/FF01/FFAD | Xone:DB4/DB2/DX/4D/2D, WZ4 | see `ploytec_models.h` | | plist | Ozzy | in Ozzy |
+| 0A4A:FFDB/FFD2/FFDD/FF4D/FF01/FFAD | Xone:DB4/DB2/DX/4D/2D, WZ4 | see `common/ozzy_devices.def` | | plist | Ozzy | in Ozzy |
 | 200C:1009 | Reloop Digital Jockey 2 ME | 6 / 4 | 44.1k | Reloop INF, PR #80 | Ozzy | in Ozzy |
 | 200C:1019 | Reloop Jockey 3 Master Edition | 6 / 4 | 44.1–96k | plist (flags = DB2/DB4) | fvdpol/alsa-jockey3 (GPL, out of tree; upstream patch pending) | model row |
 | 200C:1037 | Reloop Jockey 3 Remix | 6 / 4 | ? | fallback | fvdpol/alsa-jockey3 | model row |
@@ -129,8 +129,9 @@ quirk). Details in `findings_other_and_projects.md`.
   4. Input post-processing quirks (MPC Renaissance zeroes inputs 3/4, US-366).
   5. Rarer: isoc in + isoc out (MPC Renaissance bcdDevice 0x0300), rate-dependent channel counts
      (Dotec, SPL Crimson).
-- The central device file (one row per device) fits this: VID, PID, name, family, in/out, rates,
-  plus a small quirk field for the extras above.
+- The central device list `common/ozzy_devices.def` (one row per device: VID, PID, name, family,
+  in/out, rates, status, platforms, quirks) is where a device is added; the Linux ID table, the
+  kext's personalities and the engine choice are generated from it.
 
 ## Naming correction
 200C:1009 is the **Digital Jockey 2 Master Edition** (Ozzy's name; Reloop's INF and PR #80) and

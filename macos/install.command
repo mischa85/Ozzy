@@ -224,10 +224,16 @@ GIT_VERSION=$(git -C "$DIR" describe --always --dirty 2>/dev/null || echo unknow
 echo "   🏷️  Build: $GIT_VERSION"
 KERNEL_HEADERS="$SDKROOT/System/Library/Frameworks/Kernel.framework/Headers"
 
+# Devices to leave out (keys from common/ozzy_devices.def), e.g. OZZY_DISABLE="ReloopDJ2" ./install.command.
+# Applied to the kext and to its generated personalities alike.
+DISABLE_FLAGS=""
+for KEY in $OZZY_DISABLE; do DISABLE_FLAGS="$DISABLE_FLAGS -DOZZY_DISABLE_$KEY"; done
+if [ -n "$DISABLE_FLAGS" ]; then echo "   🚫 Left out:$DISABLE_FLAGS"; fi
+
 CFLAGS="-x c++ -arch $KEXT_ARCH -std=c++11 -O2 -DKERNEL -D__KERNEL__ -mkernel \
 -fno-builtin -fno-exceptions -fno-rtti -fno-common -fno-use-cxa-atexit \
 -Wno-deprecated-declarations -Wno-inconsistent-missing-override \
--nostdinc -I. -I$KERNEL_HEADERS -include Backends/OzzyKext/SdkCompat.h -DOZZY_GIT_VERSION=\"$GIT_VERSION\""
+-nostdinc -I. -I$KERNEL_HEADERS -include Backends/OzzyKext/SdkCompat.h -DOZZY_GIT_VERSION=\"$GIT_VERSION\"$DISABLE_FLAGS"
 
 LDFLAGS="-arch $KEXT_ARCH -Xlinker -kext -nostdlib -lkmod -lcc_kext"
 
@@ -260,12 +266,20 @@ if [ $? -ne 0 ]; then
 fi
 
 echo "   📦 Bundling kext..."
-if [ -f "Backends/OzzyKext/Info.plist" ]; then
-    cp "Backends/OzzyKext/Info.plist" "$BUILD_DIR/$KEXT_NAME.kext/Contents/Info.plist"
-else
-    echo "❌ Error: Backends/OzzyKext/Info.plist not found!"
+# The matching personalities come from the device list (common/ozzy_devices.def):
+# GenPersonalities prints one per device built for macOS, put in place of the marker
+GEN="$BUILD_DIR/GenPersonalities"
+if ! clang $DISABLE_FLAGS -o "$GEN" Backends/OzzyKext/GenPersonalities.c || ! "$GEN" > "$BUILD_DIR/personalities.xml"; then
+    echo "❌ Error: generating the kext personalities failed"
     exit 1
 fi
+awk -v f="$BUILD_DIR/personalities.xml" '/OZZY_PERSONALITIES/ { while ((getline line < f) > 0) print line; next } { print }' \
+    Backends/OzzyKext/Info.plist.in > "$BUILD_DIR/$KEXT_NAME.kext/Contents/Info.plist"
+if ! plutil -lint -s "$BUILD_DIR/$KEXT_NAME.kext/Contents/Info.plist"; then
+    echo "❌ Error: the generated Info.plist is invalid"
+    exit 1
+fi
+rm -f "$GEN" "$BUILD_DIR/personalities.xml"
 
 echo "   🔑 Signing kext..."
 codesign --force --sign - "$BUILD_DIR/$KEXT_NAME.kext" > /dev/null 2>&1

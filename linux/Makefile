@@ -24,6 +24,9 @@ $(MODULE_NAME)-y := ozzy_core.o \
                     ../common/devices/ploytec/ploytec_codec.o \
                     ../common/devices/ploytec/ploytec_handshake.o
 
+# Devices to leave out (keys from common/ozzy_devices.def), e.g. make OZZY_DISABLE="ReloopDJ2"
+ccflags-y += $(addprefix -DOZZY_DISABLE_,$(OZZY_DISABLE))
+
 # Commit the module is built from: logged at probe, shown by `modinfo -F version`
 OZZY_GIT_VERSION := $(shell git -C $(src) describe --always --dirty 2>/dev/null || echo unknown)
 CFLAGS_ozzy_core.o := -DOZZY_GIT_VERSION='"$(OZZY_GIT_VERSION)"'

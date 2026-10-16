@@ -89,19 +89,30 @@ IOReturn OzzyKext::newUserClient(task_t owningTask, void* securityID,
     return kIOReturnSuccess;
 }
 
-/* The Xone:1D is a USB MIDI class device, the Akai EIE Pro a Ploytec bulk in / isochronous
- * out device; everything else speaks the Ploytec (Xone) protocol.
+/* The engine for a device's family (common/ozzy_devices.def). The kext's personalities are
+ * generated from the same list, so the lookup fails only for a device that isn't in it.
  * @size returns the allocation size for SafeKernelDelete. */
 OzzyEngine* CreateEngine(uint16_t vid, uint16_t pid, size_t* size) {
-    bool usbMidi = (vid == PLOYTEC_VENDOR_ID && pid == PLOYTEC_PID_XONE_1D);
-    bool isoc = (vid == AKAI_VENDOR_ID && pid == AKAI_PID_EIE_PRO);
-    *size = usbMidi ? sizeof(UsbMidiEngine) : isoc ? sizeof(PloytecIsocEngine) : sizeof(PloytecEngine);
+    const struct ozzy_device* device = ozzy_device_lookup(vid, pid);
+    if (!device) {
+        LogOzzyKext("%04x:%04x is not in the device list", vid, pid);
+        return nullptr;
+    }
+    LogOzzyKext("  device: %s%s", device->name, device->status == OZZY_STATUS_EXPERIMENTAL ? " (experimental)" : "");
+
+    switch (device->family) {
+    case OZZY_FAMILY_USB_MIDI:     *size = sizeof(UsbMidiEngine); break;
+    case OZZY_FAMILY_PLOYTEC_ISOC: *size = sizeof(PloytecIsocEngine); break;
+    default:                       *size = sizeof(PloytecEngine); break;
+    }
     void* raw = IOMalloc(*size);
     if (!raw) return nullptr;
     memset(raw, 0, *size);
-    if (usbMidi) return new(raw) UsbMidiEngine();
-    if (isoc) return new(raw) PloytecIsocEngine(vid, pid);
-    return new(raw) PloytecEngine(vid, pid);
+    switch (device->family) {
+    case OZZY_FAMILY_USB_MIDI:     return new(raw) UsbMidiEngine();
+    case OZZY_FAMILY_PLOYTEC_ISOC: return new(raw) PloytecIsocEngine(device);
+    default:                       return new(raw) PloytecEngine(device);
+    }
 }
 
 KextBus* CreateBus(IOUSBHostDevice* dev, IOService* driver) {

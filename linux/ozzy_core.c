@@ -24,7 +24,6 @@
 #include "ozzy_midi.h"
 #include "devices/ploytec.h"
 #include "../common/ozzy_version.h"
-#include "../common/devices/ploytec/ploytec_defs.h"
 
 MODULE_AUTHOR("Marcel Bierling <marcel@hackerman.art>");
 MODULE_DESCRIPTION("Ozzy USB Audio Driver");
@@ -46,25 +45,33 @@ static struct usb_driver ozzy_usb_driver;
  * Device Registration Table
  * ======================================================================== */
 
-static const struct ozzy_device_desc ploytec_desc = {
+/* Family info and ops; unused when OZZY_DISABLE leaves out all of a family's devices */
+static const struct ozzy_device_desc ploytec_desc __maybe_unused = {
 	.info = &ploytec_info,
 	.ops  = &ploytec_ops,
 };
 
-static const struct ozzy_device_desc ploytec_isoc_desc = {
+static const struct ozzy_device_desc ploytec_isoc_desc __maybe_unused = {
 	.info = &ploytec_isoc_info,
 	.ops  = &ploytec_isoc_ops,
 };
 
+/*
+ * The USB ID table, from common/ozzy_devices.def: one entry per device of a family
+ * Linux has code for, pointing at that family's info and ops. The family token picks
+ * the ROW macro, so USB_MIDI devices (snd-usb-audio drives those) add nothing.
+ */
+#define OZZY_LINUX_ROW_PLOYTEC_XONE(vid, pid) \
+	{ USB_DEVICE(vid, pid), .driver_info = (kernel_ulong_t)&ploytec_desc },
+#define OZZY_LINUX_ROW_PLOYTEC_ISOC(vid, pid) \
+	{ USB_DEVICE(vid, pid), .driver_info = (kernel_ulong_t)&ploytec_isoc_desc },
+#define OZZY_LINUX_ROW_USB_MIDI(vid, pid)
+
 static const struct usb_device_id ozzy_id_table[] = {
-	{ USB_DEVICE(PLOYTEC_VENDOR_ID, PLOYTEC_PID_XONE_DB4),       .driver_info = (kernel_ulong_t)&ploytec_desc },
-	{ USB_DEVICE(PLOYTEC_VENDOR_ID, PLOYTEC_PID_XONE_DB2),       .driver_info = (kernel_ulong_t)&ploytec_desc },
-	{ USB_DEVICE(PLOYTEC_VENDOR_ID, PLOYTEC_PID_XONE_DX),        .driver_info = (kernel_ulong_t)&ploytec_desc },
-	{ USB_DEVICE(PLOYTEC_VENDOR_ID, PLOYTEC_PID_XONE_4D),        .driver_info = (kernel_ulong_t)&ploytec_desc },
-	{ USB_DEVICE(PLOYTEC_VENDOR_ID, PLOYTEC_PID_XONE_2D),        .driver_info = (kernel_ulong_t)&ploytec_desc }, /* experimental */
-	{ USB_DEVICE(PLOYTEC_VENDOR_ID, PLOYTEC_PID_WIZARD_4),       .driver_info = (kernel_ulong_t)&ploytec_desc }, /* experimental */
-	{ USB_DEVICE(RELOOP_VENDOR_ID, RELOOP_PID_DIGITAL_JOCKEY_2), .driver_info = (kernel_ulong_t)&ploytec_desc }, /* experimental */
-	{ USB_DEVICE(AKAI_VENDOR_ID, AKAI_PID_EIE_PRO),              .driver_info = (kernel_ulong_t)&ploytec_isoc_desc }, /* experimental */
+#define OZZY_DEVICE(key, vid, pid, name, family, in, out, rates, status, quirks) \
+	OZZY_LINUX_ROW_##family(vid, pid)
+#include "../common/ozzy_devices.def"
+#undef OZZY_DEVICE
 	{}
 };
 MODULE_DEVICE_TABLE(usb, ozzy_id_table);

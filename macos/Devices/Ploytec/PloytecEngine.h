@@ -4,7 +4,7 @@
 #include "../../OzzyCore/OzzyEngine.h"
 #include "../../Shared/OzzySharedData.h"
 #include "PloytecProtocol.h"
-#include "../../../common/devices/ploytec/ploytec_models.h"
+#include "../../../common/ozzy_devices.h"
 #include "../../../common/devices/ploytec/ploytec_midi.h"
 
 struct ploytec_host_ops;
@@ -14,7 +14,7 @@ class PloytecEngine : public OzzyEngine {
     uint64_t mHwSampleTime = 0;
     enum ploytec_out_layout mOutLayout = PLOYTEC_OUT_LAYOUT_INT;
     uint32_t mSampleRate = 96000;
-    const struct ploytec_model* mModel = nullptr;
+    const struct ozzy_device* mModel = nullptr;   // row in common/ozzy_devices.def
     uint32_t mPacketSizeOut = 0;
     bool mPcmInInt1024 = false;     // PCM IN is interrupt, wMaxPacketSize 1024 (ploytec_midi.h)
     struct ploytec_midi mMidi = {}; // MIDI framing at mSampleRate
@@ -26,7 +26,7 @@ class PloytecEngine : public OzzyEngine {
     volatile OzzySharedMemory* GetSHM() { return (volatile OzzySharedMemory*)mSharedMemory; }
 
 public:
-    PloytecEngine(uint16_t vid, uint16_t pid);
+    explicit PloytecEngine(const struct ozzy_device* device);
     
     virtual const OzzyDeviceProfile& GetProfile() const override { return mProfile; }
     virtual void SetEndpoint(OzzyPipeRole role, uint8_t address, uint8_t transferType,

@@ -5,7 +5,7 @@
 #include "../../OzzyCore/OzzyIsocOutput.h"
 #include "../../Shared/OzzySharedData.h"
 #include "PloytecProtocol.h"
-#include "../../../common/devices/ploytec/ploytec_models.h"
+#include "../../../common/ozzy_devices.h"
 #include "../../../common/devices/ploytec/ploytec_midi.h"
 
 /*
@@ -20,7 +20,7 @@ class PloytecIsocEngine : public OzzyEngine {
     static constexpr uint32_t kMidiInSlot = 256;   // bytes per MIDI IN read slot in midiInUSBBuffer
 
     OzzyDeviceProfile mProfile;
-    const struct ploytec_model* mModel = nullptr;
+    const struct ozzy_device* mModel = nullptr;   // row in common/ozzy_devices.def
     uint32_t mSampleRate = 0;
     struct ploytec_midi mMidi = {};
     volatile bool mRunning = false;
@@ -36,7 +36,7 @@ class PloytecIsocEngine : public OzzyEngine {
     volatile OzzySharedMemory* GetSHM() { return (volatile OzzySharedMemory*)mSharedMemory; }
 
 public:
-    PloytecIsocEngine(uint16_t vid, uint16_t pid);
+    explicit PloytecIsocEngine(const struct ozzy_device* device);
 
     virtual const OzzyDeviceProfile& GetProfile() const override { return mProfile; }
     virtual void SetEndpoint(OzzyPipeRole role, uint8_t address, uint8_t transferType,

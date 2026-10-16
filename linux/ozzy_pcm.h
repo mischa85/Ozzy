@@ -37,8 +37,8 @@ struct pcm_substream {
 
 	bool active;
 
-	snd_pcm_uframes_t dma_off;     /* current position in ALSA DMA area (bytes) */
-	snd_pcm_uframes_t period_off;  /* current position within current period */
+	unsigned int dma_off;     /* current position in the ALSA DMA area (bytes) */
+	unsigned int period_off;  /* bytes since the last period boundary */
 };
 
 /* PCM streaming states */

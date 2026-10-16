@@ -300,19 +300,22 @@ static unsigned int ploytec_process_out_packet(struct ozzy_chip *chip,
 /*
  * ploytec_process_in_packet - Decode a Ploytec input packet into ALSA audio.
  * Zero-copy: reads from URB buffer, writes directly to ALSA DMA area.
- * Handles DMA ring buffer wraparound.
+ * Handles DMA ring buffer wraparound. Decodes only the whole frames among the
+ * @len bytes received (frames are contiguous, PLOYTEC_IN_FRAME_SIZE each).
  */
 static unsigned int ploytec_process_in_packet(struct ozzy_chip *chip,
-					      uint8_t *urb_buf, uint8_t *dma_area,
+					      uint8_t *urb_buf, unsigned int len,
+					      uint8_t *dma_area,
 					      unsigned int dma_off,
 					      unsigned int pcm_buffer_size)
 {
 	struct ploytec_private *priv = chip->private_data;
 	unsigned int frame_bytes = chip->info->capture_channels * ALSA_BYTES_PER_SAMPLE;
+	unsigned int frames = min_t(unsigned int, len / PLOYTEC_IN_FRAME_SIZE, PLOYTEC_FRAMES_PER_PKT);
 	unsigned int f;
 	unsigned int dst_off;
 
-	for (f = 0; f < PLOYTEC_FRAMES_PER_PKT; f++) {
+	for (f = 0; f < frames; f++) {
 		dst_off = dma_off + f * frame_bytes;
 		if (dst_off >= pcm_buffer_size)
 			dst_off -= pcm_buffer_size;
@@ -320,7 +323,7 @@ static unsigned int ploytec_process_in_packet(struct ozzy_chip *chip,
 		priv->decode(dma_area + dst_off, urb_buf + f * PLOYTEC_IN_FRAME_SIZE);
 	}
 
-	return PLOYTEC_FRAMES_PER_PKT * frame_bytes;
+	return frames * frame_bytes;
 }
 
 /* ========================================================================

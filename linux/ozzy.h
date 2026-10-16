@@ -126,13 +126,15 @@ struct ozzy_device_ops {
 	 * Zero-copy: reads directly from the URB buffer, writes directly into
 	 * the ALSA DMA area. Must handle DMA ring buffer wraparound.
 	 * @urb_buf:         source URB buffer (device format)
+	 * @len:             bytes the device sent (0 after a failed transfer); decode
+	 *                   only whole frames within it
 	 * @dma_area:        destination ALSA DMA ring buffer (interleaved samples)
 	 * @dma_off:         current byte offset in the DMA ring buffer
 	 * @pcm_buffer_size: total DMA ring buffer size in bytes
 	 * Returns: number of ALSA bytes written to the DMA area.
 	 */
 	unsigned int (*process_in_packet)(struct ozzy_chip *chip, uint8_t *urb_buf,
-					  uint8_t *dma_area, unsigned int dma_off,
+					  unsigned int len, uint8_t *dma_area, unsigned int dma_off,
 					  unsigned int pcm_buffer_size);
 
 	/*

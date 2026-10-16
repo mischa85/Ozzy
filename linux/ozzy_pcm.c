@@ -117,8 +117,31 @@ static void ozzy_pcm_poison_urbs(struct pcm_runtime *rt)
  * ======================================================================== */
 
 /*
+ * ozzy_pcm_advance - Move @sub's ring position by @bytes (ALSA bytes the device
+ * consumed or produced). Returns true when that crossed a period boundary.
+ * Both offsets are in bytes; the period is snd_pcm_lib_period_bytes(), not the
+ * period size in frames. Caller holds sub->lock.
+ */
+static bool ozzy_pcm_advance(struct pcm_substream *sub, unsigned int bytes,
+			     unsigned int pcm_buffer_size)
+{
+	unsigned int period_bytes = snd_pcm_lib_period_bytes(sub->instance);
+
+	sub->dma_off += bytes;
+	if (sub->dma_off >= pcm_buffer_size)
+		sub->dma_off -= pcm_buffer_size;
+
+	sub->period_off += bytes;
+	if (sub->period_off < period_bytes)
+		return false;
+	sub->period_off %= period_bytes;
+	return true;
+}
+
+/*
  * ozzy_pcm_in_urb_handler - Input URB completion handler.
- * Calls the device's process_in_packet to decode audio into the ALSA DMA area.
+ * Calls the device's process_in_packet to decode the bytes that arrived into the
+ * ALSA DMA area. A transfer that completed with an error status carries no audio.
  */
 static void ozzy_pcm_in_urb_handler(struct urb *usb_urb)
 {
@@ -144,19 +167,12 @@ static void ozzy_pcm_in_urb_handler(struct urb *usb_urb)
 		unsigned int pcm_buffer_size = snd_pcm_lib_buffer_bytes(sub->instance);
 
 		bytes = chip->ops->process_in_packet(chip, in_urb->buffer,
+						     usb_urb->status ? 0 : usb_urb->actual_length,
 						     alsa_rt->dma_area,
 						     sub->dma_off,
 						     pcm_buffer_size);
 
-		sub->dma_off += bytes;
-		if (sub->dma_off >= pcm_buffer_size)
-			sub->dma_off -= pcm_buffer_size;
-
-		sub->period_off += bytes;
-		if (sub->period_off >= alsa_rt->period_size) {
-			sub->period_off %= alsa_rt->period_size;
-			do_period_elapsed = true;
-		}
+		do_period_elapsed = ozzy_pcm_advance(sub, bytes, pcm_buffer_size);
 	}
 	spin_unlock_irqrestore(&sub->lock, flags);
 
@@ -207,15 +223,7 @@ static void ozzy_pcm_out_urb_handler(struct urb *usb_urb)
 						      sub->dma_off,
 						      pcm_buffer_size);
 
-		sub->dma_off += bytes;
-		if (sub->dma_off >= pcm_buffer_size)
-			sub->dma_off -= pcm_buffer_size;
-
-		sub->period_off += bytes;
-		if (sub->period_off >= alsa_rt->period_size) {
-			sub->period_off %= alsa_rt->period_size;
-			do_period_elapsed = true;
-		}
+		do_period_elapsed = ozzy_pcm_advance(sub, bytes, pcm_buffer_size);
 	} else {
 		/* No active playback -- re-initialize silence pattern */
 		chip->ops->init_out_urb(chip, out_urb->buffer);
@@ -302,15 +310,7 @@ static void ozzy_pcm_iso_out_urb_handler(struct urb *usb_urb)
 		bytes = ozzy_pcm_fill_iso_out(rt, usb_urb, alsa_rt->dma_area,
 					      sub->dma_off, pcm_buffer_size);
 
-		sub->dma_off += bytes;
-		if (sub->dma_off >= pcm_buffer_size)
-			sub->dma_off -= pcm_buffer_size;
-
-		sub->period_off += bytes;
-		if (sub->period_off >= alsa_rt->period_size) {
-			sub->period_off %= alsa_rt->period_size;
-			do_period_elapsed = true;
-		}
+		do_period_elapsed = ozzy_pcm_advance(sub, bytes, pcm_buffer_size);
 	} else {
 		ozzy_pcm_fill_iso_out(rt, usb_urb, NULL, 0, 0);
 	}

@@ -11,6 +11,7 @@
  */
 
 #include <linux/slab.h>
+#include <linux/version.h>
 #include <sound/rawmidi.h>
 
 #include "ozzy.h"
@@ -161,6 +162,46 @@ in_fail:
 	ozzy_midi_err(&in_urb->chip->dev->dev, "input URB failure\n");
 }
 
+/*
+ * ozzy_midi_out_urb_handler - Dedicated MIDI OUT transfer done: the next timer
+ * tick may send again.
+ */
+static void ozzy_midi_out_urb_handler(struct urb *usb_urb)
+{
+	struct midi_urb *out_urb = usb_urb->context;
+	struct midi_runtime *rt = out_urb->chip->midi;
+
+	if (unlikely(usb_urb->status && !ozzy_urb_gone(usb_urb->status)))
+		ozzy_midi_err(&out_urb->chip->dev->dev, "output URB failure (%d)\n", usb_urb->status);
+
+	clear_bit(0, &rt->out_busy);
+}
+
+/*
+ * ozzy_midi_out_tick - Every info->midi_out_interval_us: send the next transfer
+ * on the dedicated MIDI OUT endpoint if the previous one is done. One transfer at
+ * a time and at most one per interval, so even an endpoint that never NAKs can't
+ * send faster than the device's MIDI cable.
+ */
+static enum hrtimer_restart ozzy_midi_out_tick(struct hrtimer *timer)
+{
+	struct midi_runtime *rt = container_of(timer, struct midi_runtime, out_timer);
+	struct ozzy_chip *chip = rt->chip;
+	struct urb *urb = &rt->midi_out_urb.instance;
+
+	if (!READ_ONCE(rt->out_ready))
+		return HRTIMER_NORESTART;
+
+	if (!test_and_set_bit(0, &rt->out_busy)) {
+		urb->transfer_buffer_length = chip->ops->fill_midi_out_xfer(chip, rt->midi_out_urb.buffer);
+		if (!urb->transfer_buffer_length || usb_submit_urb(urb, GFP_ATOMIC) < 0)
+			clear_bit(0, &rt->out_busy);
+	}
+
+	hrtimer_forward_now(timer, rt->out_interval);
+	return HRTIMER_RESTART;
+}
+
 /* ========================================================================
  * ALSA Rawmidi Operations
  * ======================================================================== */
@@ -272,6 +313,38 @@ static int ozzy_midi_init_bulk_in_urb(struct midi_urb *urb,
 }
 
 /*
+ * ozzy_midi_init_out_urb - Initialize a dedicated MIDI OUT URB (bulk or interrupt,
+ * as the endpoint says). Sent by ozzy_midi_out_tick().
+ */
+static int ozzy_midi_init_out_urb(struct midi_urb *urb, struct ozzy_chip *chip, unsigned int ep)
+{
+	struct usb_host_endpoint *hep = chip->dev->ep_out[ep];
+
+	urb->chip = chip;
+	usb_init_urb(&urb->instance);
+
+	if (!urb->buffer)
+		urb->buffer = kzalloc(OZZY_MIDI_OUT_XFER_MAX, GFP_KERNEL);
+	if (!urb->buffer)
+		return -ENOMEM;
+
+	if (hep && usb_endpoint_xfer_int(&hep->desc))
+		usb_fill_int_urb(&urb->instance, chip->dev, usb_sndintpipe(chip->dev, ep),
+				 urb->buffer, OZZY_MIDI_OUT_XFER_MAX,
+				 ozzy_midi_out_urb_handler, urb, hep->desc.bInterval);
+	else
+		usb_fill_bulk_urb(&urb->instance, chip->dev, usb_sndbulkpipe(chip->dev, ep),
+				  urb->buffer, OZZY_MIDI_OUT_XFER_MAX,
+				  ozzy_midi_out_urb_handler, urb);
+
+	if (usb_urb_ep_type_check(&urb->instance)) {
+		ozzy_midi_err(&chip->dev->dev, "MIDI out URB endpoint sanity check failed\n");
+		return -EINVAL;
+	}
+	return 0;
+}
+
+/*
  * ozzy_midi_init_urbs - Initialize and submit all MIDI input URBs.
  * Called during initial probe and after USB device reset (post_reset).
  */
@@ -303,6 +376,18 @@ int ozzy_midi_init_urbs(struct ozzy_chip *chip)
 		}
 	}
 
+	/* Dedicated MIDI OUT: sent by ozzy_midi_out_tick() */
+	if (rt->has_out_ep) {
+		ret = ozzy_midi_init_out_urb(&rt->midi_out_urb, chip, chip->midi_out_ep);
+		if (ret < 0) {
+			ozzy_midi_abort(chip);
+			goto error;
+		}
+		rt->out_busy = 0;
+		WRITE_ONCE(rt->out_ready, true);
+		hrtimer_start(&rt->out_timer, rt->out_interval, HRTIMER_MODE_REL_SOFT);
+	}
+
 	return 0;
 
 error:
@@ -325,6 +410,13 @@ static void ozzy_midi_kill_urbs(struct midi_runtime *rt)
 		if (!time)
 			usb_kill_anchored_urbs(&rt->midi_in_urbs[i].submitted);
 		usb_kill_urb(&rt->midi_in_urbs[i].instance);
+	}
+
+	/* Stop the MIDI OUT timer first, then wait for the transfer in flight */
+	if (rt->has_out_ep) {
+		WRITE_ONCE(rt->out_ready, false);
+		hrtimer_cancel(&rt->out_timer);
+		usb_kill_urb(&rt->midi_out_urb.instance);
 	}
 }
 
@@ -372,6 +464,17 @@ int ozzy_midi_init(struct ozzy_chip *chip)
 	spin_lock_init(&rt->in_lock);
 	spin_lock_init(&rt->out_lock);
 
+	rt->has_out_ep = chip->midi_out_ep && chip->ops->fill_midi_out_xfer;
+	if (rt->has_out_ep) {
+		rt->out_interval = ns_to_ktime((u64)chip->info->midi_out_interval_us * NSEC_PER_USEC);
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 13, 0)
+		hrtimer_setup(&rt->out_timer, ozzy_midi_out_tick, CLOCK_MONOTONIC, HRTIMER_MODE_REL_SOFT);
+#else
+		hrtimer_init(&rt->out_timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL_SOFT);
+		rt->out_timer.function = ozzy_midi_out_tick;
+#endif
+	}
+
 	ret = snd_rawmidi_new(chip->card, chip->dev->product, 0, 1, 1, &midi);
 	if (ret < 0) {
 		ozzy_midi_err(&chip->dev->dev, "Cannot create MIDI instance\n");
@@ -394,7 +497,7 @@ int ozzy_midi_init(struct ozzy_chip *chip)
 	rt->active = true;
 
 	/* Set up and submit MIDI URBs */
-	if (chip->midi_in_ep) {
+	if (chip->midi_in_ep || rt->has_out_ep) {
 		ret = ozzy_midi_init_urbs(chip);
 		if (ret < 0) {
 			ozzy_midi_err(&chip->dev->dev, "MIDI URB setup failed\n");

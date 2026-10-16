@@ -8,6 +8,7 @@
 #ifndef OZZY_MIDI_H
 #define OZZY_MIDI_H
 
+#include <linux/hrtimer.h>
 #include <sound/rawmidi.h>
 
 struct ozzy_chip;
@@ -46,6 +47,14 @@ struct midi_runtime {
 	spinlock_t out_lock;
 
 	struct midi_urb midi_in_urbs[OZZY_MIDI_N_URBS];
+
+	/* Dedicated MIDI OUT endpoint (chip->midi_out_ep): one transfer per out_interval */
+	bool has_out_ep;                    /* the device has one (out_timer is set up) */
+	struct midi_urb midi_out_urb;
+	unsigned long out_busy;             /* bit 0: midi_out_urb is in flight */
+	bool out_ready;                     /* the timer may send */
+	struct hrtimer out_timer;
+	ktime_t out_interval;
 
 	/* MIDI output send ring, filled from the rawmidi output substream */
 	u8 *send_buffer;                    /* pending MIDI bytes to embed in PCM out */

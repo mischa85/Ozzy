@@ -73,6 +73,8 @@ struct ozzy_device_info {
 
 	/* MIDI topology */
 	struct ozzy_ep midi_in_ep;        /* dedicated MIDI input endpoint */
+	struct ozzy_ep midi_out_ep;       /* dedicated MIDI output endpoint (fill_midi_out_xfer) */
+	unsigned int midi_out_interval_us; /* one midi_out_ep transfer per this many us */
 	bool midi_out_embedded;           /* true if MIDI out is embedded in PCM out packets */
 
 	/* USB interface configuration */
@@ -184,6 +186,16 @@ struct ozzy_device_ops {
 	 * @is_bulk: true if the output endpoint uses bulk transfers
 	 */
 	unsigned int (*get_out_packet_size)(struct ozzy_chip *chip, bool is_bulk);
+
+	/*
+	 * fill_midi_out_xfer - Build the next transfer for a dedicated MIDI OUT
+	 * endpoint (info->midi_out_ep), using ozzy_midi_consume() for the MIDI bytes.
+	 * The core asks for one every info->midi_out_interval_us while the previous
+	 * one is done, which paces the MIDI bytes to the cable.
+	 * @buf: OZZY_MIDI_OUT_XFER_MAX bytes
+	 * Returns: the transfer length in bytes (0: send nothing this time).
+	 */
+	unsigned int (*fill_midi_out_xfer)(struct ozzy_chip *chip, uint8_t *buf);
 };
 
 /*
@@ -223,6 +235,7 @@ struct ozzy_chip {
 	unsigned int in_ep;
 	unsigned int feedback_ep;
 	unsigned int midi_in_ep;
+	unsigned int midi_out_ep;
 	uint16_t out_maxpacket;           /* output EP wMaxPacketSize */
 
 	struct usb_interface *intf;       /* primary USB interface */

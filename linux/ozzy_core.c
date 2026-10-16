@@ -250,6 +250,7 @@ static int ozzy_probe(struct usb_interface *intf,
 	chip->in_ep = ozzy_resolve_ep(device, &chip->info->in_ep, true);
 	chip->feedback_ep = ozzy_resolve_ep(device, &chip->info->feedback_ep, true);
 	chip->midi_in_ep = ozzy_resolve_ep(device, &chip->info->midi_in_ep, true);
+	chip->midi_out_ep = ozzy_resolve_ep(device, &chip->info->midi_out_ep, false);
 	ret = ozzy_check_pcm_eps(chip);
 	if (ret < 0)
 		goto err_intf2;
@@ -269,6 +270,8 @@ static int ozzy_probe(struct usb_interface *intf,
 		ozzy_log(&device->dev, "  MIDI in: EP %u%s\n",
 			 chip->midi_in_ep,
 			 chip->info->midi_out_embedded ? " (out embedded in PCM)" : "");
+	if (chip->midi_out_ep)
+		ozzy_log(&device->dev, "  MIDI out: EP %u\n", chip->midi_out_ep);
 
 	/* Device-specific initialization (vendor handshake) */
 	ret = chip->ops->init(chip);
@@ -287,7 +290,7 @@ static int ozzy_probe(struct usb_interface *intf,
 	}
 
 	/* Initialize MIDI subsystem (if device has MIDI) */
-	if (chip->midi_in_ep || chip->info->midi_out_embedded) {
+	if (chip->midi_in_ep || chip->midi_out_ep || chip->info->midi_out_embedded) {
 		ret = ozzy_midi_init(chip);
 		if (ret < 0) {
 			ozzy_err(&device->dev, "MIDI initialization failed\n");
@@ -400,7 +403,7 @@ static int ozzy_post_reset(struct usb_interface *intf)
 		return ret;
 	}
 
-	if (chip->midi_in_ep) {
+	if (chip->midi_in_ep || chip->midi_out_ep) {
 		ret = ozzy_midi_init_urbs(chip);
 		if (ret < 0) {
 			ozzy_err(&chip->dev->dev, "Post-reset MIDI URB init failed\n");

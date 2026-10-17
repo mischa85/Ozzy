@@ -62,10 +62,10 @@ void ploytec_decode_frame_10ch(uint8_t *dest, const uint8_t *src);
 void ploytec_decode_frame_16ch(uint8_t *dest, const uint8_t *src);
 
 /*
- * The ESU1808's S/PDIF mirror of output pair 1/2 (lanes 9/10), added to a frame from
+ * The ESU1808's S/PDIF mirror of output pair @pair (0..3; lanes 9/10), added to a frame from
  * ploytec_encode_frame_8ch; @prev_even is the previous encoded frame's bytes 0x18..0x2F.
  */
-void ploytec_spdif_mirror_12(uint8_t *dest, const uint8_t *prev_even);
+void ploytec_spdif_mirror(uint8_t *dest, const uint8_t *prev_even, unsigned int pair);
 
 /* The codec for a channel count, or NULL if there is none. Call once, not per frame. */
 ploytec_frame_fn ploytec_frame_encoder(unsigned int channels);

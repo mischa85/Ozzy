@@ -89,7 +89,7 @@ bool PloytecEngine::Start() {
     // 1. Setup Shared Memory (device names already set by kext from USB descriptors)
     bool bulk = mOutLayout == PLOYTEC_OUT_LAYOUT_BULK;
     shm->audio.deviceFlags = (bulk ? kOzzyDeviceFlagPloytecBulk : 0) |
-                             (bulk && (mModel->quirks & OZZY_QUIRK_SPDIF_MIRROR_12) ? kOzzyDeviceFlagSpdifMirror12 : 0);
+                             (bulk && (mModel->quirks & OZZY_QUIRK_SPDIF_MIRROR) ? kOzzyDeviceFlagSpdifMirror : 0);
     shm->audio.framesPerPacket = PLOYTEC_FRAMES_PER_PKT;  // 80 frames per logical packet
     shm->audio.samplesPerPacket = 10;  // 10 samples per USB sub-packet
     shm->audio.outputBytesPerFrame = PLOYTEC_OUT_FRAME_SIZE;

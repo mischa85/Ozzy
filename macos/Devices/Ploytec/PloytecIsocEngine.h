@@ -47,7 +47,7 @@ public:
     virtual void OnPacketComplete(uint8_t pipeID, void* ctx, int status, uint32_t bytes) override;
     virtual void OnIsocComplete(uint8_t pipeID, void* ctx, int status, OzzyIsocPacket* packets, uint32_t count) override;
     virtual void OnTimer() override;
-    virtual uint32_t GetQuirks() const override { return mModel->quirks; }
+    virtual const struct ozzy_device* GetModel() const override { return mModel; }
     virtual void Suspend() override;
 
 private:

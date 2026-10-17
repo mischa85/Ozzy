@@ -4,6 +4,7 @@
 #include "IOzzyBus.h"
 #include "../../common/ozzy_ep.h"
 #include "../../common/ozzy_settings.h"
+#include "../../common/ozzy_devices.h"
 
 // --- Hardware Description ---
 
@@ -76,9 +77,13 @@ public:
     virtual void OnTimer() {}
 
     // --- Device settings (common/ozzy_settings.h) ---
-    // The model's OZZY_QUIRK_xxx bits, which say which settings it has
-    virtual uint32_t GetQuirks() const { return 0; }
-    bool HasSetting(unsigned int id) const { return ozzy_has_setting(GetQuirks(), id); }
+    // The model's row in common/ozzy_devices.def: its quirks and channels say which settings
+    // it has
+    virtual const struct ozzy_device* GetModel() const { return nullptr; }
+    bool HasSetting(unsigned int id) const {
+        const struct ozzy_device* m = GetModel();
+        return m && ozzy_setting_values(m->quirks, m->in_channels, m->out_channels, id) > 0;
+    }
     void SetSetting(unsigned int id, uint8_t value) { if (id < OZZY_NUM_SETTINGS) mSettings.value[id] = value; }
 
     // Restart for changed settings: Suspend() stops resubmitting transfers and the timer, the

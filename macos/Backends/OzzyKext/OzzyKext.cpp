@@ -255,7 +255,10 @@ IOReturn OzzyKext::ApplySetting(uint32_t id, uint32_t value) {
 
 IOReturn OzzyKext::ApplySettingLocked(uint32_t id, uint32_t value) {
     if (!mRunning || !mEngine) return kIOReturnNotReady;
-    if (!mEngine->HasSetting(id) || !ozzy_setting_valid(id, value)) return kIOReturnBadArgument;
+    // Device settings only: the HAL applies routes itself
+    if (!mEngine->HasSetting(id) || ozzy_setting_descs[id].kind != OZZY_SETTING_DEVICE ||
+        value >= ozzy_setting_descs[id].num_values)
+        return kIOReturnBadArgument;
 
     LogOzzyKext("%s: %s", ozzy_setting_descs[id].name, ozzy_setting_descs[id].value_names[value]);
     mEngine->Suspend();

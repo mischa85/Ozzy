@@ -41,9 +41,13 @@
 // returns; the result is in audio.settings and audio.sampleRate. The HAL calls it from
 // PerformDeviceConfigurationChange, with IO stopped.
 #define kOzzyMethodApplySetting     1
+// OzzyHAL device property for any setting (common/ozzy_settings.h), for an app or a script:
+// qualifier UInt32 setting id, data UInt32 value. The device has it if it has any setting;
+// an id it doesn't have is an illegal operation.
+#define kOzzyPropertySetting        'ozst'
 #define kOzzyAudioPropertyKey       "OzzyAudio" // true if the device has audio channels
 
-#define kOzzySharedVersion          6          // bump when OzzySharedMemory changes layout
+#define kOzzySharedVersion          7          // bump when OzzySharedMemory changes layout
 
 // Sizing: 8KB covers High Speed USB max packet size, devices use what they need
 #define kOzzyMaxPacketSize          8192
@@ -60,7 +64,7 @@
 // OzzyAudioBuffer::deviceFlags
 #define kOzzyDeviceFlagPloytecBulk  (1u << 0)  // Ploytec 512-byte "bulk" output layout, else 482-byte "interrupt"
 #define kOzzyDeviceFlagPlainOutput  (1u << 1)  // outputBuffer is a ring of plain interleaved frames (see below)
-#define kOzzyDeviceFlagSpdifMirror12 (1u << 2) // Ploytec bulk, 8 out: lanes 9/10 mirror pair 1/2 (ESU1808)
+#define kOzzyDeviceFlagSpdifMirror  (1u << 2)  // Ploytec bulk, 8 out: lanes 9/10 mirror a pair (ESU1808)
 
 // Isochronous IN transfers (feedback): 2 in flight, up to 32 packets of up to 256 bytes each
 #define kOzzyIsocInBufferSize       (2 * 32 * 256)

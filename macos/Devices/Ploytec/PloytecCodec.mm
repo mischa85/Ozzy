@@ -40,10 +40,11 @@ static void WriteOutput(uint8_t* ringBuffer, const float* srcFrames, uint64_t sa
     }
 }
 
-// The ESU1808 (bulk layout, 8 channels): the 8-channel frame plus the S/PDIF mirror of pair 1/2,
-// whose lane 9 is channel 2 of the frame before. That frame is in the ring already (written
-// just before, or by the previous I/O cycle), so the mirror takes it from there.
-static void WriteOutputSpdif12(uint8_t* ringBuffer, const float* srcFrames, uint64_t sampleTime, uint32_t frameCount, uint32_t ringSize, uint32_t bytesPerFrame) {
+// The ESU1808 (bulk layout, 8 channels): the 8-channel frame plus the S/PDIF mirror of pair Pair,
+// whose lane 9 is the pair's second channel of the frame before. That frame is in the ring
+// already (written just before, or by the previous I/O cycle), so the mirror takes it from there.
+template <unsigned int Pair>
+static void WriteOutputSpdif(uint8_t* ringBuffer, const float* srcFrames, uint64_t sampleTime, uint32_t frameCount, uint32_t ringSize, uint32_t bytesPerFrame) {
     for (uint32_t i = 0; i < frameCount; i++) {
         uint32_t sampleOffset = (uint32_t)((sampleTime + i) % ringSize);
         uint32_t prevOffset = (sampleOffset ? sampleOffset : ringSize) - 1;
@@ -52,7 +53,7 @@ static void WriteOutputSpdif12(uint8_t* ringBuffer, const float* srcFrames, uint
         const uint8_t* prev = ringBuffer + (prevOffset / PLOYTEC_FRAMES_PER_PKT) * kOzzyMaxPacketSize
                             + ploytec_out_frame_offset(PLOYTEC_OUT_LAYOUT_BULK, prevOffset % PLOYTEC_FRAMES_PER_PKT);
         EncodeFrame<8, ploytec_encode_frame_8ch>(dst, srcFrames + (i * 8));
-        ploytec_spdif_mirror_12(dst, prev + PLOYTEC_OUT_FRAME_SIZE / 2);
+        ploytec_spdif_mirror(dst, prev + PLOYTEC_OUT_FRAME_SIZE / 2, Pair);
     }
 }
 
@@ -72,9 +73,15 @@ static void ReadInput(float* dstFrames, const uint8_t* ringBuffer, uint64_t samp
     }
 }
 
-WriteOutputFunc PloytecOutputWriter(bool bulkLayout, uint32_t channels, bool spdifMirror12) {
-    if (spdifMirror12 && bulkLayout && channels == 8)
-        return WriteOutputSpdif12;
+WriteOutputFunc PloytecOutputWriter(bool bulkLayout, uint32_t channels, bool spdifMirror, unsigned int mirrorPair) {
+    if (spdifMirror && bulkLayout && channels == 8) {
+        switch (mirrorPair) {
+        case 1: return WriteOutputSpdif<1>;
+        case 2: return WriteOutputSpdif<2>;
+        case 3: return WriteOutputSpdif<3>;
+        default: return WriteOutputSpdif<0>;
+        }
+    }
     switch (channels) {
     case 16: return bulkLayout ? WriteOutput<PLOYTEC_OUT_LAYOUT_BULK, 16, ploytec_encode_frame_16ch>
                                : WriteOutput<PLOYTEC_OUT_LAYOUT_INT, 16, ploytec_encode_frame_16ch>;

@@ -377,20 +377,20 @@ void ploytec_encode_frame_10ch(uint8_t *dest, const uint8_t *src)
 }
 
 /*
- * ploytec_spdif_mirror_12 - The ESU1808's S/PDIF mirror of output pair 1/2 (official
- * dmaEncode10_12, the default selection) on a frame from ploytec_encode_frame_8ch:
- * lane 10 gets channel 1 of this frame, lane 9 channel 2 of the previous frame, which
- * the official encoder carries over from frame to frame. @prev_even is the previous
- * encoded frame's even half (its bytes 0x18..0x2F; lane 2, bit 0, is channel 2), or
- * 24 zero bytes for the first frame.
+ * ploytec_spdif_mirror - The ESU1808's S/PDIF mirror of output pair @pair (0 = 1/2, the
+ * default; official dmaEncode10_12/34/56/78, which differ only in their source channels)
+ * on a frame from ploytec_encode_frame_8ch: lane 10 gets channel 2 * @pair + 1 of this
+ * frame, lane 9 channel 2 * @pair + 2 of the previous frame, which the official encoder
+ * carries over from frame to frame. @prev_even is the previous encoded frame's even half
+ * (its bytes 0x18..0x2F; bit @pair is that channel), or 24 zero bytes for the first frame.
  */
-void ploytec_spdif_mirror_12(uint8_t *dest, const uint8_t *prev_even)
+void ploytec_spdif_mirror(uint8_t *dest, const uint8_t *prev_even, unsigned int pair)
 {
 	unsigned int i;
 
 	for (i = 0; i < 24; i++) {
-		dest[0x18 + i] |= (dest[i] & 1) << 4;
-		dest[i] |= (prev_even[i] & 1) << 4;
+		dest[0x18 + i] |= ((dest[i] >> pair) & 1) << 4;
+		dest[i] |= ((prev_even[i] >> pair) & 1) << 4;
 	}
 }
 

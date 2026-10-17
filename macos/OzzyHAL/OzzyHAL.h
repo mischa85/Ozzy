@@ -72,10 +72,13 @@ public:
     // kAudioDevicePropertyClockSource (Audio MIDI Setup's Clock Source menu). Item IDs are
     // the setting's values (enum ozzy_clock_source).
     bool HasSetting(unsigned int id) const { return id < OZZY_NUM_SETTINGS && (mSettingsAvailable & (1u << id)); }
+    bool HasSettings() const { return mSettingsAvailable != 0; }
+    unsigned int SettingCount(unsigned int id) const;
     UInt32 GetSetting(unsigned int id) const { return mSettings.value[id]; }
     CFStringRef CopyClockSourceName(UInt32 item) const;
-    // A client set a setting: ask CoreAudio to stop IO and call PerformSettingChange
-    OSStatus RequestSetting(AudioServerPlugInHostRef host, unsigned int id, UInt32 value);
+    // A client set a setting (kOzzyPropertySetting, or the clock source control): a route
+    // applies at once, a device setting asks CoreAudio to stop IO and call PerformSettingChange
+    OSStatus SetSetting(AudioServerPlugInHostRef host, unsigned int id, UInt32 value);
     // CoreAudio stopped IO for the change: send it to the kext, re-read the format, keep it
     OSStatus PerformSettingChange(AudioServerPlugInHostRef host, UInt64 action);
 
@@ -118,6 +121,9 @@ private:
     struct ozzy_settings mSettings = {};
     bool mClockLocked = false;
     uint32_t mLockRate = 0;
+    struct ozzy_route mInRoute = {};    // capture routing, applied after mReadInput
+    struct ozzy_route mOutRoute = {};   // playback routing, applied before mWriteOutput
+    bool mSpdifMirror = false;          // mWriteOutput is the ESU1808 mirror writer (UpdateRoutes)
 
     bool mConnected = false;     // published to CoreAudio
     bool mIOStarted = false;
@@ -141,7 +147,9 @@ private:
     void ApplyDeviceConfig();
     kern_return_t CallApplySetting(unsigned int id, uint32_t value);
     CFStringRef CopySettingKey(unsigned int id) const;
+    void StoreSetting(AudioServerPlugInHostRef host, unsigned int id, uint32_t value);
     void RestoreSettings(AudioServerPlugInHostRef host);
+    void UpdateRoutes();
     void UpdateMetadata();
     void RebuildStreamConfigs();
     void ClearOutputBuffer();

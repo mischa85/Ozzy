@@ -1,7 +1,8 @@
 # Device settings: plan and facts (clock source, digital I/O, routing)
 
-Status: clock source and S/PDIF out mode implemented 2026-10-17 (untested on hardware: no device
-with digital I/O); the other settings are still plan. Written 2026-10-17 at the end of the device-list work; start here.
+Status: clock source, S/PDIF out mode, routing (US-144MKII, US-600, US-200) and the ESU1808 S/PDIF
+mirror pair implemented 2026-10-17, untested on hardware; US-3xx mixer modes, reverb/levels and
+firmware update are still plan. Written 2026-10-17 at the end of the device-list work; start here.
 
 ## Goal
 
@@ -27,8 +28,10 @@ the OS can't show. Order: external clock first (it's what users need, and it bui
 | Follow the locked rate | limit hw_params to the lock rate | offer only the lock rate (the official driver did this) | driver |
 | Lock status | read-only bool kcontrol | no standard UI: app (or clock source item name) | app |
 | S/PDIF mode consumer/pro (done) | enum kcontrol "IEC958 Playback Mode" | no natural fit: kext path ready, needs the app | app |
-| Digital out channels (US-16xx/US-2000: output routing; ESU1808: mirror pair) | part of routing (encoder side) | output data source (**verify Audio MIDI Setup shows it** for a 3rd-party HAL) | app |
-| Input routing (US-144MKII, US-600) | enum per pair | input data source (same check) | app |
+| Output routing (US-144MKII, US-600, US-200) (done) | enum per output pair "Output 1-2 Source" | `kOzzyPropertySetting` (app) | app |
+| Input routing (US-144MKII, US-600) (done) | enum per capture pair "Capture 1-2 Source" | `kOzzyPropertySetting` (app) | app |
+| ESU1808 S/PDIF mirror pair (done) | enum "IEC958 Playback Source" | `kOzzyPropertySetting` (app) | app |
+| US-16xx/US-2000 digital out channels | open (see below: no effect found in the kext) | | |
 | US-3xx mixer modes | PipeWire profiles | app | app |
 | Reverb / level processors | volume / enum kcontrols | app | app |
 | Firmware update (#21) | app | app | app |
@@ -131,15 +134,44 @@ to an "analog / digital" menu (`doUsb1ModeInputSelection`); the help says USB 1.
 on these devices. So no setting for it. `setDigitalOutSelector` also accepts 0..1 on ESI
 2573:0012/0013, but they have no flag 0x7ac, so nothing is written. **ESU1808 mirror pair**: the
 same AjExtData[4] (0..3) picks `dmaEncode10_12/34/56/78` in `chooseDMAEncoder` (encoder side, no
-request); Ozzy has pair 1/2 (`ploytec_spdif_mirror_12`).
+request). The four encoders are the same code with the mirror's sources channel 2p+1 (this frame)
+and 2p+2 (carried from the previous frame) for pair p; Ozzy: `ploytec_spdif_mirror(dest, prev, p)`,
+checked against all four in `tools/ploytec_lanes_test.c`.
 
-**Routing**: US-144MKII `_postprocessUS144_00/10/11` and US-600 `_postprocessUS600_<idx>` (out pair k
-= in pair r_k), output `pcmTo24LSB_US144_*` (AjExtData[5..9], user client dispatch 0x28); details in
-the Tascam section of `device_inventory.md`.
+**Routing** (EIE kext): user client dispatch 0x28 writes RoutingIn0..2 = AjExtData[5..7] (then
+`chooseInputPostprocessor`, or `choose6InputPostprocessor` for the US-600) or RoutingOut0..1 =
+AjExtData[8..9] (then `chooseISOOutEncoder`). Defaults (`PtAjExtData::setDefaults`): in 0/1/2, out
+0/1, no routing. The 30 post-processors and 3 encoders all do one thing:
+- input: host capture pair k = device input pair RoutingIn[k] (`_postprocessUS144_ab` with
+  [5]=a, [6]=b on 0644:8020; `_postprocessUS600_abc` on 0644:8035; combinations without a
+  function, e.g. US-144 01 = the default, get none). In place on the decoded 32-bit frames.
+- output: device output pair k plays host pair RoutingOut[k] (`pcmTo24LSB_US144_ab`, on plist
+  flag 0x7a9 devices: US-144MKII, US-600, US-200; 4 outputs).
+Ozzy: `common/ozzy_route.h` (pair map + frame copy), route settings in `ozzy_settings.h`
+(`OZZY_QUIRK_IN_ROUTING` / `OUT_ROUTING`), checked against 8 of the official post-processors and
+the encoder (scratch test, same transcriptions as the decompile). Host side only, no request:
+- Linux: `chip->in_route` / `out_route`; the Ploytec input decode and the core's isochronous
+  output copy route frames when the map isn't the default; a changed route needs no reset.
+- macOS: the HAL owns the route settings (stored per device UID), routes in place after its input
+  reader and before its output writer, and re-picks the ESU1808 mirror writer. The kext doesn't
+  see them (it rejects non-device settings).
+
+**Digital out channels on the US-1641/1800/2000**: their panel routes it with `setRouting(false, 1,
+pair)`, i.e. RoutingOut1, but their plists have flag 0x7a9 = 0 (decoded: `ploytec_config_decode.py`
+on the 3.22/3.25 kexts), and their kexts ship the same generic encoders, so `chooseISOOutEncoder`
+keeps `pcmTo24LSB`: no effect found. Needs a capture of the official driver or a tester.
+
+**MPC Renaissance inputs 3/4**: `_postprocessACV0BugFix` (zero inputs 3/4) runs only when there is
+no digital lock (`chooseInputPostprocessor`, AjExtData+0x28 = 0), so with an S/PDIF lock inputs
+3/4 probably carry the digital input. Ozzy offers 2 inputs; not changed (untested).
+
+**App interface on macOS**: `kOzzyPropertySetting` ('ozst') on the device object, qualifier UInt32
+setting id, data UInt32 value, settable, for every setting the device has: device settings go
+through the configuration change to the kext, the rest apply in the HAL at once.
 
 ## Open
 
 - Lock changes while streaming: the official driver only reads lock in `updateAjInputSelector`;
   polling would need a test that an 'I' read during streaming is safe.
-- ESI U-series clock source (states A/B/C), 192k lock handling (alt setting), and the remaining
-  settings in the table above.
+- ESI U-series clock source (states A/B/C), 192k lock handling (alt setting), the US-16xx digital
+  out channels, the MPC Renaissance's digital inputs, and the remaining settings in the table above.

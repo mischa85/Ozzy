@@ -36,7 +36,7 @@ public:
     virtual bool Start() override;
     virtual void Stop() override;
     virtual void OnPacketComplete(uint8_t pipeID, void* ctx, int status, uint32_t bytes) override;
-    virtual uint32_t GetQuirks() const override { return mModel->quirks; }
+    virtual const struct ozzy_device* GetModel() const override { return mModel; }
     virtual void Suspend() override;
     
 private:

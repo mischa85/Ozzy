@@ -275,6 +275,20 @@ static unsigned int ozzy_pcm_fill_iso_out(struct pcm_runtime *rt, struct urb *ur
 		memset(buf, 0, off);
 		return 0;
 	}
+	if (!rt->chip->out_route.identity) {
+		/* Output routing: frame by frame (the DMA area holds whole frames) */
+		const struct ozzy_route *route = &rt->chip->out_route;
+		unsigned int pair_bytes = 2 * rt->chip->info->bytes_per_sample;
+		unsigned int f, src = dma_off;
+
+		for (f = 0; f < off; f += rt->iso_frame_bytes) {
+			ozzy_route_frame(buf + f, dma_area + src, route, pair_bytes);
+			src += rt->iso_frame_bytes;
+			if (src >= pcm_buffer_size)
+				src = 0;
+		}
+		return off;
+	}
 	first = min(off, pcm_buffer_size - dma_off);
 	memcpy(buf, dma_area + dma_off, first);
 	memcpy(buf + first, dma_area, off - first);

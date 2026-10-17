@@ -109,7 +109,8 @@ sends the same values, facts only):
 - Plist kMsWait 100 for all, but `initDeviceSpecificData` clears it before `configurationDone`; only
   the US-200 waits (100 ms, hard-coded). kInACR 3 (M4_C1 MIDI), like the EIE.
 - PCM: output plain 24-bit (`pcmTo24LSB`), input the 16-lane junction decoder. The US-144MKII /
-  US-600 routing post-processors and `pcmTo24LSB_US144_*` are off (no-op) at the default routing.
+  US-600 routing post-processors and `pcmTo24LSB_US144_*` (US-144MKII, US-600, US-200) are pair
+  routing, off at the defaults; Ozzy has them as settings (`device_settings.md`).
 - 'D' (0x44) = deep sleep (us144mkii).
 
 MIDI framing on the bulk in / isoc out path (EIE kext `AJ::streamingStarted` @0x2e94, `kInACR`

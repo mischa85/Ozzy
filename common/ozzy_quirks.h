@@ -84,12 +84,13 @@ enum ozzy_quirk {
 	OZZY_QUIRK_ESI_CPLD = 1u << 9,
 
 	/*
-	 * ESI ESU1808: output lanes 9/10 carry the S/PDIF mirror of output pair 1/2 (official
-	 * dmaEncode10_12 at its default selection; ploytec_spdif_mirror_12). Only with the
-	 * bulk output layout: on interrupt (964-byte) output the official driver uses the
-	 * plain 8-channel encoder.
+	 * ESI ESU1808: output lanes 9/10 carry the S/PDIF mirror of an output pair, 1/2 by
+	 * default (official dmaEncode10_12/34/56/78, the DigitalOutSelector setting; Ozzy:
+	 * ploytec_spdif_mirror and the S/PDIF mirror setting). Only with the bulk output
+	 * layout: on interrupt (964-byte) output the official driver uses the plain 8-channel
+	 * encoder.
 	 */
-	OZZY_QUIRK_SPDIF_MIRROR_12 = 1u << 10,
+	OZZY_QUIRK_SPDIF_MIRROR = 1u << 10,
 
 	/*
 	 * S/PDIF in that can clock the device: the Clock Source setting (ozzy_settings.h),
@@ -99,6 +100,20 @@ enum ozzy_quirk {
 	 * ESI devices, whose selector has three states with an open mapping.
 	 */
 	OZZY_QUIRK_DIGITAL_IN = 1u << 11,
+
+	/*
+	 * Output routing (ozzy_route.h): which host playback pair each device output pair plays.
+	 * The official pcmTo24LSB_US144_* encoders, on plist flag 0x7a9 devices: Tascam
+	 * US-144MKII, US-600, US-200 (4 outputs each).
+	 */
+	OZZY_QUIRK_OUT_ROUTING = 1u << 12,
+
+	/*
+	 * Input routing (ozzy_route.h): which device input pair each host capture pair carries.
+	 * The official input post-processors: Tascam US-144MKII (_postprocessUS144_*, 2 pairs)
+	 * and US-600 (_postprocessUS600_*, 3 pairs).
+	 */
+	OZZY_QUIRK_IN_ROUTING = 1u << 13,
 };
 
 #endif /* OZZY_QUIRKS_H */

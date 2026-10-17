@@ -12,8 +12,9 @@ struct ozzy_chip;
 
 /*
  * ozzy_controls_init - Add the ALSA controls for the settings this device has
- * (common/ozzy_settings.h, from chip->quirks). Call after ops->init and before
- * the card is registered. Returns 0 on success, negative errno on failure.
+ * (common/ozzy_settings.h, from chip->quirks and the channel counts) and set up the
+ * routing. Call after ops->init and before the card is registered. Returns 0 on
+ * success, negative errno on failure.
  */
 int ozzy_controls_init(struct ozzy_chip *chip);
 

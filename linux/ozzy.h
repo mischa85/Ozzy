@@ -224,6 +224,9 @@ struct ozzy_chip {
 	/* Device settings (common/ozzy_settings.h, ozzy_controls.c) */
 	uint32_t quirks;                  /* this model's OZZY_QUIRK_xxx bits, set by ops->init */
 	struct ozzy_settings settings;    /* the user's values, kept across resets */
+	uint32_t settings_available;      /* bit (1 << id) per setting the device has */
+	struct ozzy_route in_route;       /* capture routing from the route settings */
+	struct ozzy_route out_route;      /* playback routing (isochronous out) */
 	struct ozzy_clock_status clock;   /* digital lock as of the last handshake */
 	struct mutex settings_mutex;      /* serializes setting changes */
 	struct snd_kcontrol *clock_lock_kctl;  /* "S/PDIF Clock Validity", NULL if none */

@@ -58,7 +58,7 @@ ESI's ESU devices (VID 0x2573 is ESI Audiotechnik; "ESU" is its product line, e.
   channel 2 of the **previous** frame (carried across calls in `param_1[2]`). Probably the S/PDIF
   serialiser takes lane 9 one frame late, keeping L/R aligned (inferred). On a 964-byte interrupt
   output `chooseDMAEncoder` replaces it with the plain `dmaEncode08_Int964` (no mirror).
-  Ozzy: `ploytec_encode_frame_10ch`, `ploytec_spdif_mirror_12` (from the previous encoded frame,
+  Ozzy: `ploytec_encode_frame_10ch`, `ploytec_spdif_mirror` (any pair; from the previous encoded frame,
   so no state on macOS; Linux keeps the last frame's even half per packet).
 See [ESU-specific protocol](#esu-specific-protocol-updateajinputselector_esu186) below.
 

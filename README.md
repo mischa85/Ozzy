@@ -10,6 +10,7 @@ This is an open-source, reverse-engineered driver supporting non-class compliant
 
 **Currently Supported Devices:**
 * **Allen & Heath Xone:DB4, DB2, DX, 4D** (Ploytec-based protocol)
+* **Tascam US-1641**
 * **Experimental:** 30+ more Ploytec-based interfaces and DJ controllers from Allen & Heath, Reloop, ESI, Midiplus, Smyth Research, Akai, M-Audio, Lexicon, Numark and Tascam ([full list](#️-supported-devices))
 
 More devices can be added—the architecture separates the audio engine from device protocols.
@@ -43,6 +44,7 @@ Every device below comes from one list in [`common/ozzy_devices.def`](common/ozz
 | **Allen & Heath Xone:DB2** | 8 / 8 | 48 kHz |
 | **Allen & Heath Xone:DX** | 8 / 8 | 44.1–96 kHz |
 | **Allen & Heath Xone:4D** | 8 / 8 | 44.1–96 kHz |
+| **Tascam US-1641** | 16 / 4 | 44.1–96 kHz |
 
 ### 🧪 Experimental (needs testers)
 
@@ -78,7 +80,6 @@ These use the same Ploytec chip. Their channels, rates and setup requests come f
 | **Tascam US-144MKII** | 4 / 4 | 44.1–96 kHz | macOS only by default: Linux has its own driver |
 | **Tascam US-200** | 2 / 4 | 44.1–96 kHz |  |
 | **Tascam US-600** | 6 / 4 | 44.1–96 kHz |  |
-| **Tascam US-1641** | 16 / 4 | 44.1–96 kHz |  |
 | **Tascam US-1800** | 16 / 4 | 44.1–96 kHz |  |
 | **Tascam US-2000** | 16 / 4 | 44.1–96 kHz |  |
 

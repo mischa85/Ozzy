@@ -98,13 +98,16 @@ static int ploytec_apply_model(struct ozzy_chip *chip, struct ploytec_private *p
 
 	chip->info = &priv->info;
 
-	/* ESU1808: its own packet codec (S/PDIF mirror), picked here so the I/O path doesn't branch */
+	/* ESU1808: its own packet codec (S/PDIF mirror), picked here so the I/O path doesn't branch.
+	 * The interrupt layout has no mirror (official dmaEncode08_Int964), so no mirror setting. */
 	if ((dev->quirks & OZZY_QUIRK_SPDIF_MIRROR) && dev->out_channels == 8 &&
 	    ploytec_out_layout(chip) == PLOYTEC_OUT_LAYOUT_BULK) {
 		priv->base_ops = chip->ops;
 		priv->ops = *chip->ops;
 		priv->ops.process_out_packet = ploytec_process_out_packet_spdif;
 		chip->ops = &priv->ops;
+	} else {
+		chip->quirks &= ~(u32)OZZY_QUIRK_SPDIF_MIRROR;
 	}
 	chip->requested_rate = n - 1;
 

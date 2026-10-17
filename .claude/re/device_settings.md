@@ -189,5 +189,11 @@ back changed (on Linux the control write itself resets the device, so it's there
 
 - Lock changes while streaming: the official driver only reads lock in `updateAjInputSelector`;
   polling would need a test that an 'I' read during streaming is safe.
+- A lock to a rate the device doesn't list (e.g. 32 kHz) fails the handshake's follow-up on both
+  platforms: the device stays down until the clock source is set to Internal (Linux: the post-reset
+  init fails; macOS: the engine restart fails and the HAL drops the device). Fine for an edge case,
+  but a tester may hit it.
+- Linux: `alsactl restore` at boot writes every control; each stored device setting that differs
+  from the default costs one USB reset (routes cost nothing).
 - ESI U-series clock source (states A/B/C), 192k lock handling (alt setting), the US-16xx digital
   out channels, the MPC Renaissance's digital inputs, and the remaining settings in the table above.

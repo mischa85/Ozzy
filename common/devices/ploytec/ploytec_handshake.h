@@ -57,7 +57,7 @@ struct ploytec_handshake_info {
 	uint32_t boot_rate;  /* rate before SET_CUR (the DB2 boots at 44100) */
 	uint32_t rate;       /* rate the device was set to: the requested one, or the S/PDIF lock rate */
 	uint8_t status;      /* AJ input selector byte as read before the confirm write */
-	struct ozzy_clock_status clock;  /* digital lock, with the S/PDIF clock source selected */
+	struct ozzy_clock_status clock;  /* digital lock (clock source Automatic, DIGITAL_IN devices) */
 };
 
 /*
@@ -79,9 +79,9 @@ extern const struct ploytec_rate_endpoints ploytec_isoc_rate_endpoints;  /* 0x86
  * replace or skip setup requests: NO_AJ_SELECTOR, ESI, ESI_U168, ESI_CPLD, WAIT_200MS,
  * WAIT_100MS, AJ_BIT0, SPDIF_OUT, DIGITAL_OUT_SEL, DIGITAL_IN).
  * @settings: the user's settings (NULL: the defaults). Only the ones the device has
- * (ozzy_has_setting) are sent. With the S/PDIF clock source and the device locked, the
- * handshake sets the lock rate instead of @rate, as the official driver does; info->rate
- * says which. @info may be NULL. Returns 0 on success, negative errno on failure.
+ * (ozzy_has_setting) are sent. On DIGITAL_IN devices with the Automatic clock source
+ * (the default) and locked to S/PDIF, the handshake sets the lock rate instead of @rate,
+ * as the official driver does; info->rate says which. @info may be NULL. Returns 0 on success, negative errno on failure.
  */
 int ploytec_handshake(const struct ploytec_host_ops *ops, void *ctx, uint32_t rate,
 		      uint32_t quirks, const struct ozzy_settings *settings,

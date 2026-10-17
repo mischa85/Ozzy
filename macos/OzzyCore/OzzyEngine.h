@@ -80,9 +80,11 @@ public:
     // The model's row in common/ozzy_devices.def: its quirks and channels say which settings
     // it has
     virtual const struct ozzy_device* GetModel() const { return nullptr; }
+    // The model's quirks as far as settings go (an engine drops what its transport can't do)
+    virtual uint32_t GetSettingQuirks() const { return GetModel() ? GetModel()->quirks : 0; }
     bool HasSetting(unsigned int id) const {
         const struct ozzy_device* m = GetModel();
-        return m && ozzy_setting_values(m->quirks, m->in_channels, m->out_channels, id) > 0;
+        return m && ozzy_setting_values(GetSettingQuirks(), m->in_channels, m->out_channels, id) > 0;
     }
     void SetSetting(unsigned int id, uint8_t value) { if (id < OZZY_NUM_SETTINGS) mSettings.value[id] = value; }
 

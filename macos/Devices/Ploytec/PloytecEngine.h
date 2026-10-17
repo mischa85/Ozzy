@@ -37,6 +37,10 @@ public:
     virtual void Stop() override;
     virtual void OnPacketComplete(uint8_t pipeID, void* ctx, int status, uint32_t bytes) override;
     virtual const struct ozzy_device* GetModel() const override { return mModel; }
+    // The ESU1808's mirror only on the bulk layout (official dmaEncode08_Int964 on interrupt)
+    virtual uint32_t GetSettingQuirks() const override {
+        return mOutLayout == PLOYTEC_OUT_LAYOUT_BULK ? mModel->quirks : (mModel->quirks & ~(uint32_t)OZZY_QUIRK_SPDIF_MIRROR);
+    }
     virtual void Suspend() override;
     
 private:

@@ -71,6 +71,21 @@ struct ozzy_pcm_ring {
 };
 
 /*
+ * For pcm_progress: how many boundaries every @step frames (ALSA periods, WaveRT packets) ring
+ * position @pos has reached since @next, the next one; @next moves past them.
+ */
+static inline uint32_t ozzy_pcm_boundaries(uint64_t *next, uint64_t pos, uint32_t step)
+{
+	uint32_t n = 0;
+
+	while (step && pos >= *next) {
+		*next += step;
+		n++;
+	}
+	return n;
+}
+
+/*
  * struct ozzy_engine_memory - Where the engine's transfers go: every buffer it hands to
  * ozzy_bus_ops.submit / submit_isoc is in here. ozzy_engine_attach() points it into the
  * shared memory (macOS: the HAL reads and writes the PCM slots there; Windows, the harness and

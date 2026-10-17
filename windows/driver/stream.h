@@ -31,6 +31,7 @@ struct wstream {
     volatile LONG64 completed;        /* packets completed (notified) */
     volatile LONG64 last_start_qpc;   /* capture: when the last completed packet started */
     uint64_t boundary_qpc;            /* when the packet in progress started (DISPATCH only) */
+    uint64_t next_boundary;           /* ring position where that packet ends (DISPATCH only) */
 };
 typedef struct wstream wstream;
 WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(wstream, wstream_get)

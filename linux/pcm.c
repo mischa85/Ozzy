@@ -204,13 +204,8 @@ void ozzy_pcm_progress(struct ozzy_chip *chip, enum ozzy_pcm_dir dir, uint64_t f
 	spin_lock_irqsave(&st->lock, flags);
 	substream = st->substream;
 	if (st->attached && substream) {
-		snd_pcm_uframes_t period = substream->runtime->period_size;
-
 		st->pos = frames;
-		while (period && frames >= st->period_next) {
-			st->period_next += period;
-			elapsed = true;
-		}
+		elapsed = ozzy_pcm_boundaries(&st->period_next, frames, substream->runtime->period_size) > 0;
 	}
 	spin_unlock_irqrestore(&st->lock, flags);
 	if (elapsed)

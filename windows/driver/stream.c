@@ -99,6 +99,7 @@ static NTSTATUS wstream_run(ACXSTREAM stream) {
     s->ring.start = pos;
     s->boundary_qpc = (uint64_t)KeQueryPerformanceCounter(NULL).QuadPart;
     InterlockedExchange64(&s->completed, (LONG64)(pos / s->packet_frames));
+    s->next_boundary = (pos / s->packet_frames + 1) * s->packet_frames;
 
     kbus_set_stream(&s->dev->bus, wstream_dir(s), s);
     ozzy_engine_set_pcm_ring(s->dev->engine, wstream_dir(s), &s->ring);
@@ -117,14 +118,12 @@ static NTSTATUS wstream_pause(ACXSTREAM stream) {
 void wstream_progress(struct wstream* s, uint64_t frames, uint64_t qpc) {
     InterlockedExchange64(&s->pos, (LONG64)frames);
     InterlockedExchange64(&s->pos_qpc, (LONG64)qpc);
-    uint64_t done = frames / s->packet_frames;
     uint64_t completed = (uint64_t)s->completed;
-    while (completed < done) {
+    for (uint32_t n = ozzy_pcm_boundaries(&s->next_boundary, frames, s->packet_frames); n; n--, completed++) {
         InterlockedExchange64(&s->last_start_qpc, (LONG64)s->boundary_qpc);
         InterlockedExchange64(&s->completed, (LONG64)(completed + 1));
         AcxRtStreamNotifyPacketComplete(s->stream, completed, qpc);
         s->boundary_qpc = qpc;
-        completed++;
     }
 }
 

@@ -2,10 +2,7 @@
 #include "PloytecProtocol.h"
 #include "PloytecIO.h"
 #include "../../../common/devices/ploytec/ploytec_handshake.h"
-#include <IOKit/IOReturn.h>
-#include "../../Shared/OzzyLog.h"
-#include <libkern/libkern.h>
-#include <sys/errno.h>
+#include "../../shared/OzzyLog.h"
 #include <string.h>
 
 // --- CONSTANTS ---
@@ -25,7 +22,7 @@ static void HostSleep(void* ctx, unsigned int ms) {
 
 static void HostLog(void* ctx, bool error, const char* fmt, va_list args) {
     char line[256];
-    vsnprintf(line, sizeof(line), fmt, args);
+    OzzyVsnprintf(line, sizeof(line), fmt, args);
     LogPloytec("%s", line);
 }
 
@@ -182,7 +179,7 @@ void PloytecEngine::ProcessMIDIInput(uint32_t bytesReceived) {
 
 void PloytecEngine::OnPacketComplete(uint8_t pipeID, void* ctx, int status, uint32_t bytes) {
     // Aborted (Suspend/Stop): no resubmit, a synchronous abort would accept it
-    if (!mBus || !mRunning || status == (int)kIOReturnAborted) return;
+    if (!mBus || !mRunning || status == OZZY_STATUS_ABORTED) return;
 
     uint32_t finishedIdx = (uint32_t)(uintptr_t)ctx;
     uint32_t nextIdx = finishedIdx + 2;
@@ -230,7 +227,7 @@ void PloytecEngine::UpdateTimestamp() {
         volatile auto* ts = &shm->audio.timestamp;
         uint32_t seq = ts->sequence;
         OzzyStoreRelaxed(&ts->sequence, seq + 1);
-        __atomic_thread_fence(__ATOMIC_RELEASE);
+        OzzyFenceRelease();
         OzzyStoreRelaxed(&ts->sampleTime, mHwSampleTime);
         OzzyStoreRelaxed(&ts->hostTime, mBus->GetTime());
         OzzyStoreRelease(&ts->sequence, seq + 2);

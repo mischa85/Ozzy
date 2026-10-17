@@ -1,8 +1,8 @@
 #ifndef UsbMidiEngine_h
 #define UsbMidiEngine_h
 
-#include "../../OzzyCore/OzzyEngine.h"
-#include "../../Shared/OzzySharedData.h"
+#include "../../core/OzzyEngine.h"
+#include "../../shared/OzzySharedData.h"
 #include "../../../common/usb_midi.h"
 
 /*

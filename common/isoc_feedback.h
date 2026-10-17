@@ -39,6 +39,13 @@
 #include <linux/compiler.h>
 #define ISOC_FB_LOAD(x)      READ_ONCE(x)
 #define ISOC_FB_STORE(x, v)  WRITE_ONCE(x, v)
+#elif defined(_MSC_VER) && !defined(__clang__)
+#include <stdint.h>
+#include <stdbool.h>
+/* MSVC has no __atomic builtins. The ring holds bytes, which never tear; volatile keeps
+ * the compiler from caching or merging the accesses. */
+#define ISOC_FB_LOAD(x)      (*(volatile const uint8_t *)&(x))
+#define ISOC_FB_STORE(x, v)  (*(volatile uint8_t *)&(x) = (v))
 #else
 #include <stdint.h>
 #include <stdbool.h>

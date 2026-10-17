@@ -1,5 +1,5 @@
 #pragma once
-#include "../../OzzyCore/OzzyEngine.h" // Includes IOzzyBus definition
+#include "../../core/OzzyEngine.h" // Includes IOzzyBus definition
 
 class PloytecBus : public IOzzyBus {
 public:

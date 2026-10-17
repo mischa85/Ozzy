@@ -1,8 +1,8 @@
 #ifndef PloytecIO_h
 #define PloytecIO_h
 
-#include "../../OzzyCore/IOzzyBus.h"
-#include "../../Shared/OzzySharedData.h"
+#include "../../core/IOzzyBus.h"
+#include "../../shared/OzzySharedData.h"
 #include "../../../common/devices/ploytec/ploytec_midi.h"
 
 /*

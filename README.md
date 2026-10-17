@@ -365,7 +365,7 @@ Ozzy provides a **clean, open-source example** of how to:
 
 ### Architecture Highlights
 
-- **Device-agnostic core:** The audio engine (`OzzyCore`) is separated from device protocol implementations, making it easy to support additional vendors
+- **Device-agnostic core:** The audio engine (`engine/`) is separated from device protocol implementations, making it easy to support additional vendors
 - **One device list:** [`common/ozzy_devices.def`](common/ozzy_devices.def) has one row per device (IDs, channels, rates, protocol family, quirks). The Linux USB ID table and the macOS kext's matching are generated from it, so adding a device that fits an existing family is one row; per-device differences are quirk flags ([`common/ozzy_quirks.h`](common/ozzy_quirks.h))
 - **Platform-portable:** Linux and macOS implementations share the USB protocol code
 - **Performance-first:** No unnecessary data copies, context switches, or latency-inducing abstractions
@@ -381,11 +381,13 @@ Ozzy/
 │   └── devices/    # Device-specific protocol definitions and codecs
 ├── linux/          # Linux ALSA kernel module
 │   └── devices/    # Linux device-specific glue
+├── engine/         # Engine shared by the macOS kext and the Windows driver
+│   ├── core/       # Device-agnostic audio engine and the bus interface (IOzzyBus)
+│   ├── devices/    # Device-specific protocol implementations
+│   └── shared/     # Shared memory layout, platform layer, logging
 ├── macos/          # macOS kext + HAL/MIDI drivers
-│   ├── OzzyCore/   # Device-agnostic audio engine
-│   ├── Devices/    # Device-specific protocol implementations
 │   └── Backends/   # Platform backends (Kext, future Dext)
-├── windows/        # Windows WASAPI driver (WIP)
+├── windows/        # Windows ACX (WASAPI) driver (WIP)
 └── legacy/         # Archived experiments and old implementations
 ```
 

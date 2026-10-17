@@ -1,8 +1,8 @@
 #ifndef PloytecEngine_h
 #define PloytecEngine_h
 
-#include "../../OzzyCore/OzzyEngine.h"
-#include "../../Shared/OzzySharedData.h"
+#include "../../core/OzzyEngine.h"
+#include "../../shared/OzzySharedData.h"
 #include "PloytecProtocol.h"
 #include "../../../common/ozzy_devices.h"
 #include "../../../common/devices/ploytec/ploytec_midi.h"

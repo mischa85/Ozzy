@@ -2,7 +2,27 @@
 
 // Centralized logging macros for consistent prefix usage across the entire Ozzy codebase
 
-#if defined(KERNEL) || defined(__KERNEL__)
+#if defined(_KERNEL_MODE)
+// ============================================================================
+// WINDOWS KERNEL (ACX DRIVER) LOGGING: DebugView / WinDbg, Kd_IHVAUDIO_Mask
+// ============================================================================
+#include <wdm.h>
+
+#define LogOzzyKext(fmt, ...) DbgPrintEx(DPFLTR_IHVAUDIO_ID, DPFLTR_ERROR_LEVEL, "[Ozzy] " fmt "\n", ##__VA_ARGS__)
+#define LogPloytec(fmt, ...) DbgPrintEx(DPFLTR_IHVAUDIO_ID, DPFLTR_ERROR_LEVEL, "[Ploytec] " fmt "\n", ##__VA_ARGS__)
+#define LogUsbMidi(fmt, ...) DbgPrintEx(DPFLTR_IHVAUDIO_ID, DPFLTR_ERROR_LEVEL, "[UsbMidi] " fmt "\n", ##__VA_ARGS__)
+
+#elif defined(OZZY_USER_ENGINE)
+// ============================================================================
+// WINUSB HARNESS LOGGING: stderr
+// ============================================================================
+#include <stdio.h>
+
+#define LogOzzyKext(fmt, ...) fprintf(stderr, "[Ozzy] " fmt "\n", ##__VA_ARGS__)
+#define LogPloytec(fmt, ...) fprintf(stderr, "[Ploytec] " fmt "\n", ##__VA_ARGS__)
+#define LogUsbMidi(fmt, ...) fprintf(stderr, "[UsbMidi] " fmt "\n", ##__VA_ARGS__)
+
+#elif defined(KERNEL) || defined(__KERNEL__)
 // ============================================================================
 // KERNEL (KEXT) LOGGING
 // ============================================================================

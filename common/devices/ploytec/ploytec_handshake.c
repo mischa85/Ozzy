@@ -9,6 +9,10 @@
 #include <linux/errno.h>
 #elif defined(KERNEL)
 #include <sys/errno.h>
+#elif defined(_KERNEL_MODE)
+/* The Windows kernel has no errno.h; the values only travel between Ozzy's own code */
+#define EIO     5
+#define EINVAL  22
 #else
 #include <errno.h>
 #endif
@@ -19,8 +23,10 @@
 #define PLOYTEC_EP_ADDR_PCM_IN   (PLOYTEC_EP_PCM_IN | 0x80)
 #define PLOYTEC_EP_ADDR_PCM_OUT  PLOYTEC_EP_PCM_OUT
 
+#if defined(__GNUC__) || defined(__clang__)
 static void hs_log(const struct ploytec_host_ops *ops, void *ctx, bool error, const char *fmt, ...)
 	__attribute__((format(printf, 4, 5)));
+#endif
 
 static void hs_log(const struct ploytec_host_ops *ops, void *ctx, bool error, const char *fmt, ...)
 {

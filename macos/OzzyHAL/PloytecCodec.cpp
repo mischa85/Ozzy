@@ -1,8 +1,8 @@
 #include "PloytecCodec.h"
-#include "PloytecProtocol.h"
-#include "../../../common/devices/ploytec/ploytec_codec.h"
-#include "../../Shared/OzzySharedData.h"
-#include "../../Shared/OzzyPlainCodec.h"
+#include "../../engine/devices/ploytec/PloytecProtocol.h"
+#include "../../common/devices/ploytec/ploytec_codec.h"
+#include "../../engine/shared/OzzySharedData.h"
+#include "OzzyPlainCodec.h"
 #include <cstring>
 #include <cmath>
 #include <utility>
@@ -11,7 +11,7 @@
 // which works on S24_3LE. The HAL works in float, so convert around it. The channel count and
 // frame codec are template parameters: the per-channel conversion is unrolled at compile time
 // and the codec call is direct, so the I/O path never branches on the channel count. The
-// sample conversion is shared with the plain codec (Shared/OzzyPlainCodec.h).
+// sample conversion is shared with the plain codec (OzzyPlainCodec.h).
 template <uint32_t Channels, ploytec_frame_fn Encode>
 static inline void EncodeFrame(uint8_t* dst, const float* src) {
     uint8_t s24[Channels * 3];

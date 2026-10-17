@@ -1,9 +1,9 @@
 #ifndef PloytecIsocEngine_h
 #define PloytecIsocEngine_h
 
-#include "../../OzzyCore/OzzyEngine.h"
-#include "../../OzzyCore/OzzyIsocOutput.h"
-#include "../../Shared/OzzySharedData.h"
+#include "../../core/OzzyEngine.h"
+#include "../../core/OzzyIsocOutput.h"
+#include "../../shared/OzzySharedData.h"
 #include "PloytecProtocol.h"
 #include "../../../common/ozzy_devices.h"
 #include "../../../common/devices/ploytec/ploytec_midi.h"

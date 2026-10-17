@@ -2,7 +2,7 @@
 /*
  * ozzyctl backend for macOS: OzzyHAL's devices through CoreAudio. Their UIDs start with
  * "OzzyHAL."; the settings are the custom property kOzzyPropertySetting, a dictionary of
- * setting name -> value (macos/Shared/OzzySharedData.h).
+ * setting name -> value (engine/shared/OzzySharedData.h).
  *
  * Copyright (C) 2024 Marcel Bierling <marcel@hackerman.art>
  */
@@ -15,7 +15,7 @@
 
 #include "ozzyctl.h"
 
-/* Same value as macos/Shared/OzzySharedData.h (that header is C++ for the HAL and kext) */
+/* Same value as engine/shared/OzzySharedData.h (that header is C++ for the HAL and kext) */
 #define kOzzyPropertySetting 'ozst'
 
 static AudioObjectPropertyAddress addr(AudioObjectPropertySelector sel, AudioObjectPropertyScope scope)

@@ -1,5 +1,5 @@
 #include "OzzyEngine.h"
-#include "../Shared/OzzySharedData.h"
+#include "../shared/OzzySharedData.h"
 
 // The base class implementation is minimal because most logic is protocol-specific.
 // However, we can implement shared helpers here if needed in the future.

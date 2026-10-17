@@ -1,5 +1,5 @@
 #include "UsbMidiEngine.h"
-#include "../../Shared/OzzyLog.h"
+#include "../../shared/OzzyLog.h"
 #include <string.h>
 
 // Xone:1D (lsusb in #27): interface 1 is MIDIStreaming with one embedded jack per direction
@@ -30,14 +30,14 @@ bool UsbMidiEngine::Start() {
     if (!shm) return false;
 
     // The device calls itself "Xone MIDI Device"; use the name on the front panel
-    strlcpy((char*)shm->productName, "Xone:1D", sizeof(shm->productName));
+    OzzyStrlcpy((char*)shm->productName, "Xone:1D", sizeof(shm->productName));
 
     // No audio: the HAL skips devices without channels
     shm->audio.inputChannels = 0;
     shm->audio.outputChannels = 0;
 
     memset(&mEncoder, 0, sizeof(mEncoder));
-    __atomic_store_n(&mOutBusy, false, __ATOMIC_RELEASE);
+    OzzyStoreRelease<bool>(&mOutBusy, false);
     mRunning = true;
     OzzyStoreRelease(&shm->audio.hardwarePresent, true);
 
@@ -97,7 +97,7 @@ void UsbMidiEngine::OnPacketComplete(uint8_t pipeID, void* ctx, int status, uint
         SubmitRead(slot);
     } else if (pipeID == kEpMidiOut) {
         if (status != 0) LogUsbMidi("MIDI output error 0x%x", status);
-        __atomic_store_n(&mOutBusy, false, __ATOMIC_RELEASE);
+        OzzyStoreRelease<bool>(&mOutBusy, false);
         PumpMidiOut();
     }
 }
@@ -113,7 +113,7 @@ void UsbMidiEngine::PumpMidiOut() {
     if (!shm) return;
 
     for (;;) {
-        if (__atomic_exchange_n(&mOutBusy, true, __ATOMIC_ACQUIRE)) return;
+        if (OzzyExchangeAcquire(&mOutBusy, true)) return;
 
         uint32_t r = shm->midiOut.readIndex;
         uint32_t w = OzzyLoadAcquire(&shm->midiOut.writeIndex);
@@ -130,7 +130,7 @@ void UsbMidiEngine::PumpMidiOut() {
             }
         }
         OzzyStoreRelease(&shm->midiOut.readIndex, r);
-        __atomic_store_n(&mOutBusy, false, __ATOMIC_RELEASE);
+        OzzyStoreRelease<bool>(&mOutBusy, false);
 
         // A kick that came in while we held mOutBusy returned early; pick up its bytes
         if (OzzyLoadAcquire(&shm->midiOut.writeIndex) == r) return;

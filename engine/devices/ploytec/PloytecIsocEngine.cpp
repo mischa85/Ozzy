@@ -2,9 +2,7 @@
 #include "PloytecEngine.h"
 #include "PloytecIO.h"
 #include "../../../common/devices/ploytec/ploytec_handshake.h"
-#include "../../Shared/OzzyLog.h"
-#include <libkern/libkern.h>
-#include <IOKit/IOReturn.h>
+#include "../../shared/OzzyLog.h"
 #include <string.h>
 
 // Feedback format (ploytec_defs.h)
@@ -82,7 +80,7 @@ bool PloytecIsocEngine::Start() {
 
     OzzyStoreRelease(&shm->audio.hardwarePresent, true);
     shm->audio.timestamp.sampleTime = 0;
-    __atomic_store_n(&mMidiOutBusy, false, __ATOMIC_RELEASE);
+    OzzyStoreRelease<bool>(&mMidiOutBusy, false);
     mRunning = true;
 
     // 3. Transfers: PCM in, PCM out with feedback, MIDI in; MIDI out from the timer
@@ -133,7 +131,7 @@ void PloytecIsocEngine::OnIsocComplete(uint8_t pipeID, void* ctx, int status, Oz
 }
 
 void PloytecIsocEngine::OnPacketComplete(uint8_t pipeID, void* ctx, int status, uint32_t bytes) {
-    if (!mBus || !mRunning || status == (int)kIOReturnAborted) return;
+    if (!mBus || !mRunning || status == OZZY_STATUS_ABORTED) return;
     uint32_t idx = (uint32_t)(uintptr_t)ctx;
     auto* shm = GetSHM();
 
@@ -146,7 +144,7 @@ void PloytecIsocEngine::OnPacketComplete(uint8_t pipeID, void* ctx, int status, 
         SubmitMIDIIn(idx);
     } else if (pipeID == mMidiOutAddr) {
         if (status != 0) LogPloytec("isoc: MIDI output error 0x%x", status);
-        __atomic_store_n(&mMidiOutBusy, false, __ATOMIC_RELEASE);
+        OzzyStoreRelease<bool>(&mMidiOutBusy, false);
     }
 }
 
@@ -168,7 +166,7 @@ void PloytecIsocEngine::OnTimer() {
 void PloytecIsocEngine::SendMidiOut() {
     auto* shm = GetSHM();
     if (!shm || !mMidiOutAddr) return;
-    if (__atomic_exchange_n(&mMidiOutBusy, true, __ATOMIC_ACQUIRE)) return;
+    if (OzzyExchangeAcquire(&mMidiOutBusy, true)) return;
 
     uint8_t* buf = (uint8_t*)shm->midiOutUSBBuffer;
     uint32_t n = ploytec_midi_xfer_begin(&mMidi, buf);
@@ -176,6 +174,6 @@ void PloytecIsocEngine::SendMidiOut() {
 
     if (!mBus->SubmitUSBPacket(mMidiOutAddr, buf, mMidi.xfer_size, nullptr)) {
         LogPloytec("isoc: MIDI output submission failed");
-        __atomic_store_n(&mMidiOutBusy, false, __ATOMIC_RELEASE);
+        OzzyStoreRelease<bool>(&mMidiOutBusy, false);
     }
 }

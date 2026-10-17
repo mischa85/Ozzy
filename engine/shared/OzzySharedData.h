@@ -3,26 +3,14 @@
 
 #include <stdint.h>
 #include "../../common/ozzy_settings.h"
+#include "OzzyPlatform.h"
 
-// --- KERNEL vs USER SPACE SHIM ---
-#ifdef KERNEL
+// --- Engine side vs client side (engine/shared/OzzyPlatform.h) ---
+#ifdef OZZY_ENGINE_SIDE
     typedef volatile uint32_t AtomicU32;
     typedef volatile uint64_t AtomicU64;
     typedef volatile bool     AtomicBool;
-    #define CACHE_ALIGN __attribute__((aligned(64)))
-
-    // volatile only stops the compiler from reordering; on arm64 the CPU can still make a
-    // ring index visible before the data it publishes. Pair these with the user-space
-    // std::atomic acquire loads and release stores.
-    template <typename T> static inline T OzzyLoadAcquire(const volatile T* p) {
-        return __atomic_load_n(p, __ATOMIC_ACQUIRE);
-    }
-    template <typename T> static inline void OzzyStoreRelease(volatile T* p, T v) {
-        __atomic_store_n(p, v, __ATOMIC_RELEASE);
-    }
-    template <typename T> static inline void OzzyStoreRelaxed(volatile T* p, T v) {
-        __atomic_store_n(p, v, __ATOMIC_RELAXED);
-    }
+    #define CACHE_ALIGN OZZY_CACHE_ALIGN
 #else
     #include <atomic>
     typedef std::atomic<uint32_t> AtomicU32;
@@ -138,7 +126,7 @@ struct OzzySharedMemory {
     uint32_t version;
     uint32_t sessionID; 
 
-#ifdef KERNEL
+#ifdef OZZY_ENGINE_SIDE
     AtomicU32 heartbeat;
 #else
     AtomicU32 heartbeat { 0 };
@@ -168,8 +156,8 @@ struct OzzySharedMemory {
     CACHE_ALIGN OzzyAudioBuffer audio;
 };
 
-#ifdef KERNEL
-// --- MIDI rings, kext side: it fills midiIn and drains midiOut ---
+#ifdef OZZY_ENGINE_SIDE
+// --- MIDI rings, engine side: it fills midiIn and drains midiOut ---
 
 // Append @count bytes to @ring; what doesn't fit is dropped. Returns how many went in.
 static inline uint32_t OzzyMidiRingPush(volatile OzzyMidiBuffer* ring, const uint8_t* bytes, uint32_t count) {

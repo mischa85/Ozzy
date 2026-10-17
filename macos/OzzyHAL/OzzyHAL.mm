@@ -1,8 +1,8 @@
 #include "OzzyHAL.h"
-#include "../Devices/Ploytec/PloytecCodec.h"
-#include "../Shared/OzzyPlainCodec.h"
-#include "../Devices/Ploytec/PloytecProtocol.h"
-#include "../Shared/OzzyLog.h"
+#include "PloytecCodec.h"
+#include "OzzyPlainCodec.h"
+#include "../../engine/devices/ploytec/PloytecProtocol.h"
+#include "../../engine/shared/OzzyLog.h"
 #include "../Shared/OzzyKextClient.h"
 #include "../../common/ozzy_version.h"
 #include <CoreAudio/CoreAudio.h>

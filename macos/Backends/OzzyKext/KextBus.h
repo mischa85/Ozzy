@@ -5,7 +5,7 @@
 #include <IOKit/usb/IOUSBHostPipe.h>
 #include <IOKit/IOBufferMemoryDescriptor.h> 
 #include <IOKit/IOSubMemoryDescriptor.h> // REQUIRED for withSubRange
-#include "../../Devices/Ploytec/PloytecBus.h"
+#include "../../../engine/devices/ploytec/PloytecBus.h"
 #include <kern/thread_call.h>
 
 class KextBus : public PloytecBus {

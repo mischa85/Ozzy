@@ -2,7 +2,7 @@
 #define OzzyIsocOutput_h
 
 #include "IOzzyBus.h"
-#include "../Shared/OzzySharedData.h"
+#include "../shared/OzzySharedData.h"
 #include "../../common/isoc_feedback.h"
 
 /*

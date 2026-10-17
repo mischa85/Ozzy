@@ -1,10 +1,10 @@
 #include "OzzyKext.h"
 #include "KextBus.h"
-#include "../../Devices/Ploytec/PloytecEngine.h"
-#include "../../Devices/Ploytec/PloytecIsocEngine.h"
-#include "../../Devices/UsbMidi/UsbMidiEngine.h"
-#include "../../Shared/OzzySharedData.h"
-#include "../../Shared/OzzyLog.h"
+#include "../../../engine/devices/ploytec/PloytecEngine.h"
+#include "../../../engine/devices/ploytec/PloytecIsocEngine.h"
+#include "../../../engine/devices/usbmidi/UsbMidiEngine.h"
+#include "../../../engine/shared/OzzySharedData.h"
+#include "../../../engine/shared/OzzyLog.h"
 #include "../../../common/ozzy_version.h"
 #include <IOKit/IOLib.h>
 #include <IOKit/IOWorkLoop.h>

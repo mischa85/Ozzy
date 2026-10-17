@@ -410,7 +410,7 @@ macOS (the same shape as Linux):
   - `isoc_fb_layout()` and the transfer constants in `isoc_feedback.h`.
   - The handshake and the MIDI framing.
 - **Generic kext pieces:**
-  - `OzzyCore/OzzyIsocOutput`: the macOS counterpart of the Linux core's isochronous output. It
+  - `engine/core/OzzyIsocOutput`: the macOS counterpart of the Linux core's isochronous output. It
     owns the ring, the OUT and feedback transfers, and the timestamps, so any isochronous device
     can use it.
   - `KextBus::SubmitIsoc`: `IOUSBHostPipe::io()` with an `IOUSBHostIsochronousTransaction` per
@@ -422,7 +422,7 @@ macOS (the same shape as Linux):
   - MIDI ring helpers (`OzzyMidiRingPush/Pop`) used by all three engines.
 - **Shared memory v4:**
   - `kOzzyDeviceFlagPlainOutput`: outputBuffer is a ring of `kOzzyNumPackets × 80` plain S24
-    frames. The HAL writes it with `Shared/OzzyPlainCodec.h`.
+    frames. The HAL writes it with `macos/OzzyHAL/OzzyPlainCodec.h`.
   - `safetyOffsetFrames`: 3 × 4 ms read ahead.
   - `isocInUSBBuffer`: the feedback transfers.
 - **`PloytecIsocEngine`:** only the EIE-specific parts.

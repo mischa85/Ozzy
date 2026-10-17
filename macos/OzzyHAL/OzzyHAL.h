@@ -9,7 +9,7 @@
 #include <atomic>
 #include <cstdint>
 #include <pthread.h>
-#include "../Shared/OzzySharedData.h"
+#include "../../engine/shared/OzzySharedData.h"
 
 // Codec function pointer types for device-agnostic encoding/decoding
 typedef void (*WriteOutputFunc)(uint8_t* ringBuffer, const float* srcFrames, uint64_t sampleTime, uint32_t frameCount, uint32_t ringSize, uint32_t bytesPerFrame);

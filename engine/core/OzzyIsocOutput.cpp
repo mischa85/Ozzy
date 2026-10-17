@@ -1,6 +1,5 @@
 #include "OzzyIsocOutput.h"
-#include "../Shared/OzzyLog.h"
-#include <IOKit/IOReturn.h>
+#include "../shared/OzzyLog.h"
 #include <string.h>
 
 static const struct isoc_fb_config kNoFeedback = { ISOC_FB_NONE, 0, 0 };
@@ -85,7 +84,7 @@ void OzzyIsocOutput::PublishTimestamps(const OutTransfer& t) {
         volatile auto* ts = &mSHM->audio.timestamp;
         uint32_t seq = ts->sequence;
         OzzyStoreRelaxed(&ts->sequence, seq + 1);
-        __atomic_thread_fence(__ATOMIC_RELEASE);
+        OzzyFenceRelease();
         OzzyStoreRelaxed(&ts->sampleTime, mNextAnchor);
         OzzyStoreRelaxed(&ts->hostTime, t.packets[p].time ? t.packets[p].time : mBus->GetTime());
         OzzyStoreRelease(&ts->sequence, seq + 2);
@@ -97,13 +96,13 @@ bool OzzyIsocOutput::OnIsocComplete(uint8_t pipeID, void* ctx, int status, OzzyI
     uint32_t i = (uint32_t)(uintptr_t)ctx;
 
     if (pipeID == mConfig.outAddr) {
-        if (!mRunning || status == (int)kIOReturnAborted) return true;
+        if (!mRunning || status == OZZY_STATUS_ABORTED) return true;
         PublishTimestamps(mOut[i]);
         SubmitOut(i);
         return true;
     }
     if (pipeID == mConfig.fbAddr && mConfig.fbAddr) {
-        if (!mRunning || status == (int)kIOReturnAborted) return true;
+        if (!mRunning || status == OZZY_STATUS_ABORTED) return true;
         for (uint32_t p = 0; p < count; p++) {
             const uint8_t* pkt = (const uint8_t*)mSHM->isocInUSBBuffer + packets[p].offset;
             uint32_t len = packets[p].status == 0 ? packets[p].actual : 0;

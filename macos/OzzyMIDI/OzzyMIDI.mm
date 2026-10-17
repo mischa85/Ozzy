@@ -1,6 +1,6 @@
 #include "OzzyMIDI.h"
-#include "../Shared/OzzySharedData.h"
-#include "../Shared/OzzyLog.h"
+#include "../../engine/shared/OzzySharedData.h"
+#include "../../engine/shared/OzzyLog.h"
 #include "../Shared/OzzyKextClient.h"
 #include <CoreFoundation/CoreFoundation.h>
 #include <CoreMIDI/CoreMIDI.h>

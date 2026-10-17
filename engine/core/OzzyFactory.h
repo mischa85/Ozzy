@@ -2,7 +2,7 @@
 #define OzzyFactory_h
 
 #include "OzzyEngine.h"
-#include "../Devices/Ploytec/PloytecEngine.h"
+#include "../devices/ploytec/PloytecEngine.h"
 
 class OzzyFactory {
 public:

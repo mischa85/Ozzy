@@ -26,11 +26,20 @@ ozzy.sys = 1
 
 [Ozzy.Device.NT]
 CopyFiles = Ozzy.CopyFiles
+AddReg    = Ozzy.Device.AddReg
+
+; MIDI: the device is a MIDI driver too (as Windows MIDI Services' own ACX MIDI drivers declare it)
+[Ozzy.Device.AddReg]
+HKR,,AssociatedFilters,,"wdmaud2"
+HKR,Drivers,SubClasses,,"midi"
+HKR,Drivers\midi\wdmaud2.drv,Driver,,wdmaud2.drv
+HKR,Drivers\midi\wdmaud2.drv,Description,,%Midi.Name%
 
 [Ozzy.CopyFiles]
 ozzy.sys
 
-; One render and one capture endpoint: the reference strings are the ACX circuit names
+; One render and one capture endpoint, and the MIDI circuit (midi.c): the reference strings are
+; the ACX circuit names
 [Ozzy.Device.NT.Interfaces]
 AddInterface = %KSCATEGORY_AUDIO%,    %KSNAME_Out%, Ozzy.Out
 AddInterface = %KSCATEGORY_RENDER%,   %KSNAME_Out%, Ozzy.Out
@@ -38,6 +47,7 @@ AddInterface = %KSCATEGORY_REALTIME%, %KSNAME_Out%, Ozzy.Out
 AddInterface = %KSCATEGORY_AUDIO%,    %KSNAME_In%,  Ozzy.In
 AddInterface = %KSCATEGORY_CAPTURE%,  %KSNAME_In%,  Ozzy.In
 AddInterface = %KSCATEGORY_REALTIME%, %KSNAME_In%,  Ozzy.In
+AddInterface = %KSCATEGORY_AUDIO%,    %KSNAME_Midi%, Ozzy.Midi
 
 [Ozzy.Out]
 AddReg = Ozzy.Out.AddReg
@@ -56,6 +66,12 @@ HKR,,CLSID,,%Proxy.CLSID%
 HKR,,FriendlyName,,%In.Name%
 HKR,EP\0,%PKEY_AudioEndpoint_Association%,,%KSNODETYPE_ANY%
 HKR,EP\0,%PKEY_AudioEndpoint_Supports_EventDriven_Mode%,0x00010001,0x1
+
+[Ozzy.Midi]
+AddReg = Ozzy.Midi.AddReg
+
+[Ozzy.Midi.AddReg]
+HKR,,FriendlyName,,%Midi.Name%
 
 [Ozzy.Device.NT.Services]
 AddService = Ozzy, 0x00000002, Ozzy.Service
@@ -81,6 +97,8 @@ Out.Name     = "Ozzy output"
 In.Name      = "Ozzy input"
 KSNAME_Out   = "OzzyOut"
 KSNAME_In    = "OzzyIn"
+KSNAME_Midi  = "OzzyMidi"
+Midi.Name    = "Ozzy MIDI"
 
 Proxy.CLSID         = "{17CCA71B-ECD7-11D0-B908-00A0C9223196}"
 KSCATEGORY_AUDIO    = "{6994AD04-93EF-11D0-A3CC-00A0C9223196}"

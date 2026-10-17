@@ -61,6 +61,9 @@ struct kmdf_bus {
     struct kbus_pipe pipes[KBUS_MAX_PIPES];
     int pipe_count;
     struct wstream* volatile stream[OZZY_PCM_DIRS];
+    /* Called after every completion and timer tick, within kbus_wait_completions' reach */
+    void (*service)(void* ctx);
+    void* service_ctx;
     volatile LONG in_completion;
     PEX_TIMER timer;
 };

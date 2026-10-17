@@ -1,4 +1,5 @@
 #include "device.h"
+#include "midi.h"
 #include "../common/ozzy_version.h"
 
 static EVT_WDF_DEVICE_PREPARE_HARDWARE wdev_evt_prepare_hardware;
@@ -71,6 +72,13 @@ NTSTATUS wdev_evt_add(WDFDRIVER driver, PWDFDEVICE_INIT init) {
         status = wcircuit_create(device, false, &ctx->capture);
         if (!NT_SUCCESS(status)) return status;
     }
+    /* MIDI: every Ploytec device has it (in the PCM packets or on its own endpoints). Audio
+     * works without it. */
+    status = wmidi_circuit_create(device, &ctx->midi);
+    if (!NT_SUCCESS(status)) {
+        DbgPrintEx(DPFLTR_IHVAUDIO_ID, DPFLTR_ERROR_LEVEL, "[Ozzy] no MIDI circuit: 0x%08x\n", status);
+        ctx->midi = NULL;
+    }
     DbgPrintEx(DPFLTR_IHVAUDIO_ID, DPFLTR_ERROR_LEVEL, "[Ozzy] %s (build %s), %u in / %u out\n",
                model->name, OZZY_GIT_VERSION, model->in_channels, model->out_channels);
     return STATUS_SUCCESS;
@@ -99,6 +107,8 @@ static NTSTATUS wdev_evt_prepare_hardware(WDFDEVICE device, WDFCMRESLIST resourc
     }
     if (!ctx->configured) {
         kbus_init(&ctx->bus, ctx->engine);
+        ctx->bus.service = wmidi_service;
+        ctx->bus.service_ctx = ctx;
         NTSTATUS status = kbus_create(&ctx->bus, device);
         if (NT_SUCCESS(status)) status = kbus_configure(&ctx->bus);
         if (!NT_SUCCESS(status)) return status;
@@ -117,6 +127,13 @@ static NTSTATUS wdev_evt_prepare_hardware(WDFDEVICE device, WDFCMRESLIST resourc
             NTSTATUS status = AcxDeviceAddCircuit(device, ctx->capture);
             if (!NT_SUCCESS(status)) return status;
         }
+        /* Whether ACX takes a MIDI circuit next to WaveRT ones is untested: audio goes on without */
+        if (ctx->midi) {
+            NTSTATUS status = AcxDeviceAddCircuit(device, ctx->midi);
+            ctx->midi_added = NT_SUCCESS(status);
+            if (!ctx->midi_added)
+                DbgPrintEx(DPFLTR_IHVAUDIO_ID, DPFLTR_ERROR_LEVEL, "[Ozzy] MIDI circuit not added: 0x%08x\n", status);
+        }
         ctx->circuits_added = true;
     }
     return STATUS_SUCCESS;
@@ -130,6 +147,8 @@ static NTSTATUS wdev_evt_release_hardware(WDFDEVICE device, WDFCMRESLIST transla
     if (ctx->circuits_added) {
         if (ctx->render) AcxDeviceRemoveCircuit(device, ctx->render);
         if (ctx->capture) AcxDeviceRemoveCircuit(device, ctx->capture);
+        if (ctx->midi_added) AcxDeviceRemoveCircuit(device, ctx->midi);
+        ctx->midi_added = false;
         ctx->circuits_added = false;
     }
     /* D0Exit has stopped the engine and its transfers */

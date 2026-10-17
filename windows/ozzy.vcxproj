@@ -67,6 +67,7 @@
     <ClCompile Include="stream.c" />
     <ClCompile Include="kmdf_bus.c" />
     <ClCompile Include="settings.c" />
+    <ClCompile Include="midi.c" />
     <ClCompile Include="..\engine\core\ozzy_engine.c" />
     <ClCompile Include="..\engine\core\ozzy_isoc_output.c" />
     <ClCompile Include="..\engine\devices\ploytec\ploytec_engine.c" />
@@ -76,6 +77,7 @@
     <ClCompile Include="..\common\devices\ploytec\ploytec_handshake.c" />
     <ClCompile Include="..\common\devices\ploytec\ploytec_codec.c" />
     <ClCompile Include="..\common\usb_midi.c" />
+    <ClCompile Include="..\common\midi_ump.c" />
   </ItemGroup>
   <ItemGroup>
     <!-- Generated before the build from ozzy.inf.in (OzzyGenerateInf) -->

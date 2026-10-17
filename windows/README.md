@@ -19,6 +19,7 @@ USB completion path:
 | `device.c` | device add (model from the hardware ID), engine, bus and shared memory, D0 entry/exit |
 | `circuit.c` | render and capture circuits: host and bridge pins, the one S24_3LE format |
 | `stream.c` | RT stream: WaveRT packets as one ring, positions, packet completion |
+| `midi.c` | MIDI in and out as a UMP MIDI circuit for Windows MIDI Services: a looped ring per direction mapped into the MIDI service, MIDI 1.0 bytes converted by `common/midi_ump.c` |
 | `settings.c` | the device settings for `ozzyctl`: a KS property set on each circuit (`ozzy_ksproperty.h`), kept in the device's registry key |
 | `kmdf_bus.c` | the engine's bus (`ozzy_bus`) on KMDF USB: bulk/interrupt requests and isochronous URBs on the engine's own transfer buffers (`ozzy_engine_alloc_memory`), control requests |
 | `ozzy.inf.in` | INF template: endpoints, service; the build fills in the devices |
@@ -30,9 +31,15 @@ isochronous transfer is one `URB_FUNCTION_ISOCH_TRANSFER` (started ASAP) over a 
 own, its packets back to back, so each OUT packet's length is the gap to the next. The URB
 reports no per-frame times; every packet gets the completion's time.
 
-Not yet: MIDI (the Xones' MIDI in/out, and the Xone:1D). ACX's documentation covers only WaveRT
-audio, but Microsoft's own USB MIDI 2 driver is an ACX driver with a MIDI circuit that Windows
-MIDI Services picks up; how Ozzy exposes its MIDI is still to decide.
+MIDI (`midi.c`): a MIDI circuit next to the audio ones, the way Microsoft's USB MIDI 2 driver
+(also ACX) exposes its ports, so Windows MIDI Services (Windows 11, 25H2 for the full API) finds
+it. Apps on the WinMM and WinRT MIDI APIs see a MIDI 1.0 port through the service. Each
+direction is a stream whose ring of UMP messages is mapped into the service
+(`KSPROPSETID_MidiLoopedStreaming`): MIDI in goes from the engine's ring into it in the USB
+completion path, MIDI out comes from it on a worker thread into the engine's ring. Not covered:
+the legacy MIDI stack (Windows MIDI Services switched off, or before it), and the Xone:1D (USB
+MIDI class: Windows' own driver may take it). If ACX doesn't take a MIDI circuit next to WaveRT
+ones, audio still comes up and the log says so.
 
 Sample rates: each endpoint offers a format per rate the device lists (the highest first). A
 stream at another rate restarts the engine at it (`ozzy_engine_change_rate`), unless the other

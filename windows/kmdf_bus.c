@@ -166,6 +166,7 @@ static void kbus_completion(WDFREQUEST request, WDFIOTARGET target, PWDF_REQUEST
         if (p->type == 1) ozzy_engine_isoc_complete(kb->engine, p->address, xfer, (int)status, packets, count);
         else ozzy_engine_complete(kb->engine, p->address, xfer, (int)status, bytes);
     }
+    if (kb->service) kb->service(kb->service_ctx);
     InterlockedDecrement(&kb->in_completion);
 }
 
@@ -208,7 +209,10 @@ static int kbus_clear_halt(void* ctx, uint8_t address) {
 static void kbus_timer_callback(PEX_TIMER timer, PVOID context) {
     UNREFERENCED_PARAMETER(timer);
     struct kmdf_bus* kb = context;
+    InterlockedIncrement(&kb->in_completion);
     if (kb->engine) ozzy_engine_timer(kb->engine);
+    if (kb->service) kb->service(kb->service_ctx);
+    InterlockedDecrement(&kb->in_completion);
 }
 
 static bool kbus_start_timer(void* ctx, uint32_t interval_us) {

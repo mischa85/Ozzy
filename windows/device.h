@@ -9,6 +9,8 @@
 #include <mmsystem.h>
 #include <ksmedia.h>
 #include "kmdf_bus.h"
+
+struct wmidi_stream;
 #include "../engine/shared/ozzy_shared_data.h"
 
 #define OZZY_POOL_TAG 'yzzO'
@@ -25,6 +27,11 @@ struct wdev {
     struct ozzy_shared_memory* shm;
     ACXCIRCUIT render;                 /* NULL if the model has no channels that way */
     ACXCIRCUIT capture;
+    ACXCIRCUIT midi;                   /* NULL if it couldn't be made (midi.c) */
+    bool midi_added;
+    struct wmidi_stream* volatile midi_streams[2];   /* the out and in stream, NULL if none */
+    struct wmidi_stream* volatile midi_in;           /* the running in stream (wmidi_service) */
+    volatile LONG midi_busy;           /* wmidi_service runs */
     bool circuits_added;
     bool configured;                   /* bus configured for the engine (once per PrepareHardware) */
 };

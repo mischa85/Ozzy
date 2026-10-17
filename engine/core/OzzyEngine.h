@@ -5,6 +5,7 @@
 #include "../../common/ozzy_ep.h"
 #include "../../common/ozzy_settings.h"
 #include "../../common/ozzy_devices.h"
+#include "../shared/OzzyPlatform.h"
 
 // --- Hardware Description ---
 
@@ -37,12 +38,27 @@ struct OzzyDeviceProfile {
     OzzyPipeConfig feedback;   // isochronous IN feedback for isochronous PCM out
 };
 
+// --- PCM rings ---
+// An interleaved S24_3LE ring the engine encodes PCM out from, or decodes PCM in into, in its
+// transfer completion path: where the OS's audio buffer can be reached from the kernel (the
+// Windows driver's WaveRT buffer). Without one (macOS: the HAL writes the shared memory rings
+// itself) the engine sends and receives the shared memory as it is.
+enum OzzyPcmDir { kOzzyPcmOut, kOzzyPcmIn, kOzzyPcmDirs };
+
+struct OzzyPcmRing {
+    uint8_t* base;
+    uint32_t frames;     // ring length
+    uint32_t channels;   // must be the model's channel count in this direction
+    uint64_t start;      // ring position of the next packet's first frame (frame start % frames)
+};
+
 // --- Base Class ---
 class OzzyEngine {
 protected:
     IOzzyBus* mBus = nullptr;
     void* mSharedMemory = nullptr; // Opaque pointer to OzzySharedMemory
     struct ozzy_settings mSettings = {};  // what Start() sends (Init: the defaults)
+    const OzzyPcmRing* volatile mPcmRingSet[kOzzyPcmDirs] = {};   // SetPcmRing
 
     // Publish mSettings and the clock status of the handshake Start() just ran
     void PublishSettings(const struct ozzy_clock_status& clock);
@@ -87,6 +103,11 @@ public:
         return m && ozzy_setting_values(GetSettingQuirks(), m->in_channels, m->out_channels, id) > 0;
     }
     void SetSetting(unsigned int id, uint8_t value) { if (id < OZZY_NUM_SETTINGS) mSettings.value[id] = value; }
+
+    // Attach @ring for @dir (nullptr detaches). The completion path picks it up with the next
+    // packet. The ring must stay valid until the caller has waited out the completions in
+    // progress after detaching.
+    void SetPcmRing(OzzyPcmDir dir, const OzzyPcmRing* ring) { OzzyStoreRelease(&mPcmRingSet[dir], ring); }
 
     // Restart for changed settings: Suspend() stops resubmitting transfers and the timer, the
     // kext aborts every pipe, then calls Start() again. Unlike Stop() it keeps hardwarePresent

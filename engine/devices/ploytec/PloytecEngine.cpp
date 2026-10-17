@@ -108,6 +108,9 @@ bool PloytecEngine::Start() {
     shm->audio.sampleRate = mSampleRate;
     PublishSettings(hs.clock);
     ploytec_midi_init(&mMidi, mSampleRate, mPcmInInt1024);
+    mEncode = ploytec_frame_encoder(mModel->out_channels);
+    mDecode = ploytec_frame_decoder(mModel->in_channels);
+    mMirror = bulk && (mModel->quirks & OZZY_QUIRK_SPDIF_MIRROR) && mModel->out_channels == 8;
     
     // Hardware is confirmed working and communicating (release: the format fields above first)
     OzzyStoreRelease(&shm->audio.hardwarePresent, true);
@@ -192,6 +195,7 @@ void PloytecEngine::OnPacketComplete(uint8_t pipeID, void* ctx, int status, uint
         
         // Process MIDI output: Write pending MIDI bytes to the packet's MIDI positions
         ProcessMIDIOutput(nextIdx);
+        EncodePcmOut(nextIdx);
         
         // Use modulo to wrap around the full ring buffer (128 packets)
         uint32_t packetIdx = nextIdx % kOzzyNumPackets;
@@ -203,6 +207,7 @@ void PloytecEngine::OnPacketComplete(uint8_t pipeID, void* ctx, int status, uint
         }
     }
     else if (pipeID == kEpPcmIn) {
+        DecodePcmIn(finishedIdx, status == 0 ? bytes : 0);
         if (!PloytecSubmitPCMIn(mBus, GetSHM(), kEpPcmIn, nextIdx))
             LogPloytec("input submission failed (idx: %u)", nextIdx);
     }
@@ -213,6 +218,71 @@ void PloytecEngine::OnPacketComplete(uint8_t pipeID, void* ctx, int status, uint
         // Re-submit MIDI input buffer
         SubmitMIDIIn(nextIdx);
     }
+}
+
+/* The ring attached for @dir, picked up here in the completion path: a new ring starts at
+ * its own start position. nullptr if none (or its channels don't match the model). */
+const OzzyPcmRing* PloytecEngine::TakePcmRing(OzzyPcmDir dir) {
+    const OzzyPcmRing* ring = OzzyLoadAcquire(&mPcmRingSet[dir]);
+    if (ring != mPcmRing[dir]) {
+        mPcmRing[dir] = ring;
+        if (ring) mPcmPos[dir] = ring->start;
+    }
+    uint32_t channels = dir == kOzzyPcmOut ? mModel->out_channels : mModel->in_channels;
+    return ring && ring->frames && ring->channels == channels ? ring : nullptr;
+}
+
+/* PCM out from the attached ring: the packet's 80 frames, encoded straight from the ring into
+ * the packet about to be sent (the MIDI and sync bytes are already in place) */
+void PloytecEngine::EncodePcmOut(uint32_t packetIdx) {
+    const OzzyPcmRing* ring = TakePcmRing(kOzzyPcmOut);
+    if (!ring || !mEncode) return;
+
+    uint8_t* packet = (uint8_t*)GetSHM()->audio.outputBuffer + (packetIdx % kOzzyNumPackets) * kOzzyMaxPacketSize;
+    uint32_t frameBytes = ring->channels * 3;
+    uint32_t r = (uint32_t)(mPcmPos[kOzzyPcmOut] % ring->frames);
+    for (uint32_t f = 0; f < PLOYTEC_FRAMES_PER_PKT; f++) {
+        mEncode(packet + ploytec_out_frame_offset(mOutLayout, f), ring->base + r * frameBytes);
+        if (++r == ring->frames) r = 0;
+    }
+
+    // The ESU1808's S/PDIF mirror takes lane 9 from the frame before; for frame 0 that is the
+    // last frame of the packet before, already encoded
+    if (mMirror) {
+        unsigned int pair = mSettings.value[OZZY_SETTING_SPDIF_MIRROR];
+        const uint8_t* prev = (uint8_t*)GetSHM()->audio.outputBuffer +
+                              ((packetIdx + kOzzyNumPackets - 1) % kOzzyNumPackets) * kOzzyMaxPacketSize +
+                              ploytec_out_frame_offset(mOutLayout, PLOYTEC_FRAMES_PER_PKT - 1);
+        for (uint32_t f = 0; f < PLOYTEC_FRAMES_PER_PKT; f++) {
+            uint8_t* dst = packet + ploytec_out_frame_offset(mOutLayout, f);
+            ploytec_spdif_mirror(dst, prev + PLOYTEC_OUT_FRAME_SIZE / 2, pair);
+            prev = dst;
+        }
+    }
+
+    mPcmPos[kOzzyPcmOut] += PLOYTEC_FRAMES_PER_PKT;
+    mBus->PcmProgress(kOzzyPcmOut, mPcmPos[kOzzyPcmOut]);
+}
+
+/* PCM in into the attached ring: the frames of a completed IN transfer, decoded straight from
+ * the shared memory into the ring; a short (or failed, @bytes 0) transfer leaves silence, so
+ * the ring keeps the device's clock */
+void PloytecEngine::DecodePcmIn(uint32_t packetIdx, uint32_t bytes) {
+    const OzzyPcmRing* ring = TakePcmRing(kOzzyPcmIn);
+    if (!ring || !mDecode) return;
+
+    const uint8_t* packet = (const uint8_t*)GetSHM()->audio.inputBuffer + (packetIdx % kOzzyNumPackets) * kOzzyMaxPacketSize;
+    uint32_t frameBytes = ring->channels * 3;
+    uint32_t got = bytes / PLOYTEC_IN_FRAME_SIZE;
+    uint32_t r = (uint32_t)(mPcmPos[kOzzyPcmIn] % ring->frames);
+    for (uint32_t f = 0; f < PLOYTEC_FRAMES_PER_PKT; f++) {
+        if (f < got) mDecode(ring->base + r * frameBytes, packet + f * PLOYTEC_IN_FRAME_SIZE);
+        else memset(ring->base + r * frameBytes, 0, frameBytes);
+        if (++r == ring->frames) r = 0;
+    }
+
+    mPcmPos[kOzzyPcmIn] += PLOYTEC_FRAMES_PER_PKT;
+    mBus->PcmProgress(kOzzyPcmIn, mPcmPos[kOzzyPcmIn]);
 }
 
 void PloytecEngine::UpdateTimestamp() {

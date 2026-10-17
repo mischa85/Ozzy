@@ -41,6 +41,11 @@ public:
     virtual bool StartTimer(uint32_t intervalUs) { return false; }
     virtual void StopTimer() {}
 
+    // The engine moved PCM through an attached ring (OzzyEngine::SetPcmRing): @frames is the
+    // ring position after this packet, counted from the ring's start (frames encoded from the
+    // out ring, or decoded into the in ring). Called from the transfer completion path.
+    virtual void PcmProgress(int dir, uint64_t frames) {}
+
     // --- System Services ---
     virtual void Sleep(uint32_t ms) = 0;
     virtual uint64_t GetTime() = 0; // Returns mach_absolute_time()

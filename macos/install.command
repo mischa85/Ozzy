@@ -201,6 +201,7 @@ SOURCES=(
     "../engine/devices/ploytec/PloytecIsocEngine.cpp"
     "../engine/devices/usbmidi/UsbMidiEngine.cpp"
     "../common/devices/ploytec/ploytec_handshake.c"
+    "../common/devices/ploytec/ploytec_codec.c"
     "../common/usb_midi.c"
 )
 
@@ -230,9 +231,10 @@ DISABLE_FLAGS=""
 for KEY in $OZZY_DISABLE; do DISABLE_FLAGS="$DISABLE_FLAGS -DOZZY_DISABLE_$KEY"; done
 if [ -n "$DISABLE_FLAGS" ]; then echo "   🚫 Left out:$DISABLE_FLAGS"; fi
 
+# -Wno-implicit-int-conversion: the frame codecs (ploytec_codec.c) narrow to bytes on purpose
 CFLAGS="-x c++ -arch $KEXT_ARCH -std=c++11 -O2 -DKERNEL -D__KERNEL__ -mkernel \
 -fno-builtin -fno-exceptions -fno-rtti -fno-common -fno-use-cxa-atexit \
--Wno-deprecated-declarations -Wno-inconsistent-missing-override \
+-Wno-deprecated-declarations -Wno-inconsistent-missing-override -Wno-implicit-int-conversion \
 -nostdinc -I. -I$KERNEL_HEADERS -include Backends/OzzyKext/SdkCompat.h -DOZZY_GIT_VERSION=\"$GIT_VERSION\"$DISABLE_FLAGS"
 
 LDFLAGS="-arch $KEXT_ARCH -Xlinker -kext -nostdlib -lkmod -lcc_kext"

@@ -6,6 +6,7 @@
 #include "PloytecProtocol.h"
 #include "../../../common/ozzy_devices.h"
 #include "../../../common/devices/ploytec/ploytec_midi.h"
+#include "../../../common/devices/ploytec/ploytec_codec.h"
 
 struct ploytec_host_ops;
 extern const struct ploytec_host_ops kPloytecHostOps;   // handshake host services over IOzzyBus
@@ -21,6 +22,13 @@ class PloytecEngine : public OzzyEngine {
     bool mPcmInInt1024 = false;     // PCM IN is interrupt, wMaxPacketSize 1024 (ploytec_midi.h)
     struct ploytec_midi mMidi = {}; // MIDI framing at mSampleRate
     
+    // PCM rings (OzzyEngine::SetPcmRing), touched only in the completion path
+    const OzzyPcmRing* mPcmRing[kOzzyPcmDirs] = {};
+    uint64_t mPcmPos[kOzzyPcmDirs] = {};   // ring position of the next frame
+    ploytec_frame_fn mEncode = nullptr;    // frame codecs for the model's channel counts
+    ploytec_frame_fn mDecode = nullptr;
+    bool mMirror = false;                  // ESU1808 S/PDIF mirror (bulk layout, 8 out)
+
     // Storage for the profile
     OzzyDeviceProfile mProfile;
     
@@ -50,6 +58,9 @@ private:
     void UpdateTimestamp();
     void ProcessMIDIOutput(uint32_t packetIdx);
     void ProcessMIDIInput(uint32_t bytesReceived);
+    const OzzyPcmRing* TakePcmRing(OzzyPcmDir dir);
+    void EncodePcmOut(uint32_t packetIdx);
+    void DecodePcmIn(uint32_t packetIdx, uint32_t bytes);
 };
 
 #endif

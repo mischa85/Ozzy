@@ -5,7 +5,7 @@
  * Copyright (C) 2024 Marcel Bierling <marcel@hackerman.art>
  */
 
-#ifdef __KERNEL__
+#if defined(__KERNEL__) && defined(__linux__)
 #include <linux/types.h>
 #else
 #include <stdint.h>

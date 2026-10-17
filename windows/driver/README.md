@@ -2,7 +2,7 @@
 
 A KMDF + ACX kernel driver (Windows 11). The device shows up as a normal audio device with one
 output and one input endpoint, so every app reaches it through WASAPI. It runs the same engine
-as the macOS kext (`engine/`) on a KMDF USB bus (`KmdfBus`), and does the real-time work in the
+as the macOS kext (`engine/`) on a KMDF USB bus (`kmdf_bus.c`), and does the real-time work in the
 USB completion path:
 
 - **Playback:** when a PCM OUT transfer completes, the engine encodes the next packet's 80 frames
@@ -15,11 +15,11 @@ USB completion path:
 
 | File | What |
 |---|---|
-| `Driver.cpp` | DriverEntry: WDF and ACX driver |
-| `Device.cpp` | device add (model from the hardware ID), engine, bus and shared memory, D0 entry/exit |
-| `Circuit.cpp` | render and capture circuits: host and bridge pins, the one S24_3LE format |
-| `Stream.cpp` | RT stream: WaveRT packets as one ring, positions, packet completion |
-| `KmdfBus.cpp` | the engine's bus (`ozzy_bus`) on KMDF USB: requests into the shared memory, control requests |
+| `driver.c` | DriverEntry: WDF and ACX driver |
+| `device.c` | device add (model from the hardware ID), engine, bus and shared memory, D0 entry/exit |
+| `circuit.c` | render and capture circuits: host and bridge pins, the one S24_3LE format |
+| `stream.c` | RT stream: WaveRT packets as one ring, positions, packet completion |
+| `kmdf_bus.c` | the engine's bus (`ozzy_bus`) on KMDF USB: requests into the shared memory, control requests |
 | `ozzy.inf.in` | INF template: endpoints, service; the build fills in the devices |
 | `GenInf.c` | writes `ozzy.inf`: one line per supported device in `common/ozzy_devices.def` (compiled and run by `ozzy.vcxproj` before the build, like `GenPersonalities.c` for the kext) |
 

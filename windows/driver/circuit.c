@@ -1,14 +1,14 @@
-#include "Device.h"
-#include "Stream.h"
+#include "device.h"
+#include "stream.h"
 
-// Component IDs of the two circuits; the names are the INF's AddInterface reference strings
-static const GUID kRenderComponent = { 0x87e5b7f1, 0xc03a, 0x4350, { 0xaf, 0x68, 0x72, 0x29, 0x07, 0x66, 0x7a, 0x9a } };
-static const GUID kCaptureComponent = { 0x4b712dd5, 0x1ce4, 0x4d50, { 0xb5, 0xf0, 0x68, 0xa3, 0x27, 0x23, 0xa7, 0xae } };
+/* Component IDs of the two circuits; the names are the INF's AddInterface reference strings */
+static const GUID render_component = { 0x87e5b7f1, 0xc03a, 0x4350, { 0xaf, 0x68, 0x72, 0x29, 0x07, 0x66, 0x7a, 0x9a } };
+static const GUID capture_component = { 0x4b712dd5, 0x1ce4, 0x4d50, { 0xb5, 0xf0, 0x68, 0xa3, 0x27, 0x23, 0xa7, 0xae } };
 
 /* The one format a direction has: the model's channels, packed 24-bit (S24_3LE, what the
  * frame codecs take), at the rate the engine runs. Stereo gets a speaker mask, more channels
  * none (direct out: a mixer's channels aren't surround speakers). */
-static void FillFormat(KSDATAFORMAT_WAVEFORMATEXTENSIBLE* f, uint32_t channels, uint32_t rate) {
+static void fill_format(KSDATAFORMAT_WAVEFORMATEXTENSIBLE* f, uint32_t channels, uint32_t rate) {
     RtlZeroMemory(f, sizeof(*f));
     f->DataFormat.FormatSize = sizeof(*f);
     f->DataFormat.MajorFormat = KSDATAFORMAT_TYPE_AUDIO;
@@ -30,36 +30,36 @@ static void FillFormat(KSDATAFORMAT_WAVEFORMATEXTENSIBLE* f, uint32_t channels, 
 
 /* A circuit with a host pin (the stream, KSCATEGORY_AUDIO) and a bridge pin (the device's line
  * connector), and no elements: the mixer has no volume or mute to offer here */
-NTSTATUS OzzyCreateCircuit(WDFDEVICE device, bool render, ACXCIRCUIT* out) {
+NTSTATUS wcircuit_create(WDFDEVICE device, bool render, ACXCIRCUIT* out) {
     PAGED_CODE();
-    OzzyDeviceContext* dev = GetOzzyDevice(device);
+    struct wdev* dev = wdev_get(device);
 
     PACXCIRCUIT_INIT init = AcxCircuitInitAllocate(device);
     if (!init) return STATUS_INSUFFICIENT_RESOURCES;
-    AcxCircuitInitSetComponentId(init, render ? &kRenderComponent : &kCaptureComponent);
+    AcxCircuitInitSetComponentId(init, render ? &render_component : &capture_component);
     UNICODE_STRING name;
     RtlInitUnicodeString(&name, render ? L"OzzyOut" : L"OzzyIn");
     (VOID)AcxCircuitInitAssignName(init, &name);
     AcxCircuitInitSetCircuitType(init, render ? AcxCircuitTypeRender : AcxCircuitTypeCapture);
-    NTSTATUS status = AcxCircuitInitAssignAcxCreateStreamCallback(init, OzzyEvtCreateStream);
+    NTSTATUS status = AcxCircuitInitAssignAcxCreateStreamCallback(init, wstream_evt_create);
     if (!NT_SUCCESS(status)) {
         AcxCircuitInitFree(init);
         return status;
     }
 
     WDF_OBJECT_ATTRIBUTES attributes;
-    WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&attributes, OzzyCircuitContext);
+    WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&attributes, wcircuit);
     ACXCIRCUIT circuit;
     status = AcxCircuitCreate(device, &attributes, &init, &circuit);
     if (!NT_SUCCESS(status)) {
         AcxCircuitInitFree(init);
         return status;
     }
-    OzzyCircuitContext* ctx = GetOzzyCircuit(circuit);
+    struct wcircuit* ctx = wcircuit_get(circuit);
     ctx->render = render;
-    FillFormat(&ctx->format, render ? dev->model->out_channels : dev->model->in_channels, dev->rate);
+    fill_format(&ctx->format, render ? dev->model->out_channels : dev->model->in_channels, dev->rate);
 
-    // Pin 0: the host pin the stream connects to; pin 1: the bridge to the device
+    /* Pin 0: the host pin the stream connects to; pin 1: the bridge to the device */
     ACXPIN pins[2];
     ACX_PIN_CONFIG pin;
     ACX_PIN_CONFIG_INIT(&pin);
@@ -78,10 +78,10 @@ NTSTATUS OzzyCreateCircuit(WDFDEVICE device, bool render, ACXCIRCUIT* out) {
     status = AcxPinCreate(circuit, &attributes, &pin, &pins[1]);
     if (!NT_SUCCESS(status)) return status;
 
-    ACX_DATAFORMAT_CONFIG formatConfig;
-    ACX_DATAFORMAT_CONFIG_INIT_KS(&formatConfig, &ctx->format);
+    ACX_DATAFORMAT_CONFIG format_config;
+    ACX_DATAFORMAT_CONFIG_INIT_KS(&format_config, &ctx->format);
     ACXDATAFORMAT format;
-    status = AcxDataFormatCreate(device, &attributes, &formatConfig, &format);
+    status = AcxDataFormatCreate(device, &attributes, &format_config, &format);
     if (!NT_SUCCESS(status)) return status;
     ACXDATAFORMATLIST formats = AcxPinGetRawDataFormatList(pins[0]);
     if (!formats) return STATUS_INSUFFICIENT_RESOURCES;

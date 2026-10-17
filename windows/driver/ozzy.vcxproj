@@ -50,7 +50,7 @@
     <ClCompile>
       <AdditionalIncludeDirectories>$(DDK_INC_PATH)\acx\km\$(ACX_VERSION_MAJOR).$(ACX_VERSION_MINOR);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <PreprocessorDefinitions>ACX_VERSION_MAJOR=$(ACX_VERSION_MAJOR);ACX_VERSION_MINOR=$(ACX_VERSION_MINOR);KMDF_VERSION_MAJOR=$(KMDF_VERSION_MAJOR);KMDF_VERSION_MINOR=$(KMDF_VERSION_MINOR);%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <LanguageStandard>stdcpp17</LanguageStandard>
+      <LanguageStandard_C>stdc17</LanguageStandard_C>
       <WarningLevel>Level3</WarningLevel>
     </ClCompile>
     <Link>
@@ -61,12 +61,11 @@
     </DriverSign>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="Driver.cpp" />
-    <ClCompile Include="Device.cpp" />
-    <ClCompile Include="Circuit.cpp" />
-    <ClCompile Include="Stream.cpp" />
-    <ClCompile Include="KmdfBus.cpp" />
-    <ClCompile Include="KernelNew.cpp" />
+    <ClCompile Include="driver.c" />
+    <ClCompile Include="device.c" />
+    <ClCompile Include="circuit.c" />
+    <ClCompile Include="stream.c" />
+    <ClCompile Include="kmdf_bus.c" />
     <ClCompile Include="..\..\engine\core\ozzy_engine.c" />
     <ClCompile Include="..\..\engine\core\ozzy_isoc_output.c" />
     <ClCompile Include="..\..\engine\devices\ploytec\ploytec_engine.c" />

@@ -252,25 +252,38 @@ static int hs_digital_out_sel(const struct ploytec_host_ops *ops, void *ctx)
 }
 
 /*
- * hs_spdif_out - writeDigitalOutMode in mode 0 (AjExtData[3], the default): read the
- * S/PDIF output registers 0x0D..0x11 and write each one that differs from
- * 0x0D = 0x04, 0x0E = 0x00, 0x0F = 0x00, 0x10 = (old & 0xF0) | rate code (IEC 60958
- * channel status: 44.1k 0, 48k 2, 88.2k 8, 96k 0xA, 176.4k 0xC, 192k 0xE), 0x11 = 0x0B.
- * The official startStreaming does this right after the first SET_CUR pair.
+ * hs_spdif_regs - The S/PDIF output registers 0x0D..0x11 writeDigitalOutMode wants for
+ * @mode (AjExtData[3], enum ozzy_spdif_out_mode) at @rate, from the ones read (@old):
+ *   mode 0 (default, consumer): 0x0D = 0x04, 0x0E = 0, 0x0F = 0, 0x10 = (old & 0xF0) | rate
+ *     code (IEC 60958: 32k 3, 44.1k 0, 48k 2, 88.2k 8, 96k 0xA, 176.4k 0xC, 192k 0xE),
+ *     0x11 = 0x0B
+ *   mode 1 (professional): 0x0D = 0xC1 / 0x41 / 0x81 at 32k / 44.1k / 48k, 0x01 above (other
+ *     rates: unchanged), 0x0E = 0, 0x0F = 0x2C, 0x10 = 0, 0x11 = 0x50 / 0x10 / 0x58 / 0x18
+ *     at 88.2k / 96k / 176.4k / 192k, else 0
  */
-static int hs_spdif_out(const struct ploytec_host_ops *ops, void *ctx, uint32_t rate)
+static void hs_spdif_regs(uint8_t mode, uint32_t rate, const uint8_t *old, uint8_t *want)
 {
-	uint8_t old[PLOYTEC_SPDIF_REGS] = { 0 };
-	uint8_t want[PLOYTEC_SPDIF_REGS];
 	uint8_t code;
-	int i, ret;
 
-	ret = ops->control(ctx, PLOYTEC_REQTYPE_VENDOR_IN, PLOYTEC_CMD_ESI_A,
-			   PLOYTEC_SPDIF_REG_FIRST << 8, PLOYTEC_ESI_A_INDEX, old, sizeof(old));
-	if (ret < 0)
-		return ret;
+	want[1] = 0x00;
+	if (mode == OZZY_SPDIF_OUT_PROFESSIONAL) {
+		switch (rate) {
+		case 32000:  want[0] = 0xC1; want[4] = 0x00; break;
+		case 44100:  want[0] = 0x41; want[4] = 0x00; break;
+		case 48000:  want[0] = 0x81; want[4] = 0x00; break;
+		case 88200:  want[0] = 0x01; want[4] = 0x50; break;
+		case 96000:  want[0] = 0x01; want[4] = 0x10; break;
+		case 176400: want[0] = 0x01; want[4] = 0x58; break;
+		case 192000: want[0] = 0x01; want[4] = 0x18; break;
+		default:     want[0] = old[0]; want[4] = 0x00; break;
+		}
+		want[2] = 0x2C;
+		want[3] = 0x00;
+		return;
+	}
 
 	switch (rate) {
+	case 32000:  code = 0x3; break;
 	case 48000:  code = 0x2; break;
 	case 88200:  code = 0x8; break;
 	case 96000:  code = 0xA; break;
@@ -279,10 +292,29 @@ static int hs_spdif_out(const struct ploytec_host_ops *ops, void *ctx, uint32_t 
 	default:     code = 0x0; break;  /* 44.1k */
 	}
 	want[0] = 0x04;
-	want[1] = 0x00;
 	want[2] = 0x00;
 	want[3] = (old[3] & 0xF0) | code;
 	want[4] = 0x0B;
+}
+
+/*
+ * hs_spdif_out - writeDigitalOutMode: read the S/PDIF output registers 0x0D..0x11 and write
+ * each one that differs from what @mode wants at @rate (hs_spdif_regs). The official
+ * startStreaming does this right after the first SET_CUR pair, and setDigitalOutMode with
+ * streaming suspended.
+ */
+static int hs_spdif_out(const struct ploytec_host_ops *ops, void *ctx, uint32_t rate, uint8_t mode)
+{
+	uint8_t old[PLOYTEC_SPDIF_REGS] = { 0 };
+	uint8_t want[PLOYTEC_SPDIF_REGS];
+	int i, ret;
+
+	ret = ops->control(ctx, PLOYTEC_REQTYPE_VENDOR_IN, PLOYTEC_CMD_ESI_A,
+			   PLOYTEC_SPDIF_REG_FIRST << 8, PLOYTEC_ESI_A_INDEX, old, sizeof(old));
+	if (ret < 0)
+		return ret;
+
+	hs_spdif_regs(mode, rate, old, want);
 
 	for (i = 0; i < PLOYTEC_SPDIF_REGS; i++) {
 		if (old[i] == want[i])
@@ -293,7 +325,8 @@ static int hs_spdif_out(const struct ploytec_host_ops *ops, void *ctx, uint32_t 
 		if (ret < 0)
 			return ret;
 	}
-	hs_log(ops, ctx, false, "S/PDIF out registers set for %u Hz", rate);
+	hs_log(ops, ctx, false, "S/PDIF out registers set for %u Hz (%s)", rate,
+	       ozzy_spdif_out_mode_names[mode]);
 	return 0;
 }
 
@@ -411,6 +444,7 @@ int ploytec_handshake_eps(const struct ploytec_host_ops *ops, void *ctx, uint32_
 {
 	struct ploytec_handshake_info local;
 	uint8_t clock_source = OZZY_CLOCK_INTERNAL;
+	uint8_t spdif_mode = OZZY_SPDIF_OUT_CONSUMER;
 	uint32_t verify_rate = 0;
 	int step = 0;
 	int ret = 0;
@@ -421,6 +455,8 @@ int ploytec_handshake_eps(const struct ploytec_host_ops *ops, void *ctx, uint32_
 	info->clock.lock_rate = 0;
 	if (settings && ozzy_has_setting(quirks, OZZY_SETTING_CLOCK_SOURCE))
 		clock_source = settings->value[OZZY_SETTING_CLOCK_SOURCE];
+	if (settings && ozzy_has_setting(quirks, OZZY_SETTING_SPDIF_OUT_MODE))
+		spdif_mode = settings->value[OZZY_SETTING_SPDIF_OUT_MODE];
 
 	hs_log(ops, ctx, false, "--- begin handshake sequence ---");
 
@@ -478,7 +514,7 @@ int ploytec_handshake_eps(const struct ploytec_host_ops *ops, void *ctx, uint32_
 		goto err;
 
 	if (quirks & OZZY_QUIRK_SPDIF_OUT) {
-		ret = hs_spdif_out(ops, ctx, rate);
+		ret = hs_spdif_out(ops, ctx, rate, spdif_mode);
 		if (ret < 0)
 			goto err;
 	}

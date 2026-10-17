@@ -63,9 +63,9 @@ enum ozzy_quirk {
 	OZZY_QUIRK_AJ_BIT0 = 1u << 6,
 
 	/*
-	 * Write the S/PDIF output registers ('A' 0x0D..0x11, writeDigitalOutMode, mode 0)
-	 * after the rate is set (plist flag PGDevice+0x7a6). MPC Renaissance, every
-	 * Tascam but the US-200.
+	 * Write the S/PDIF output registers ('A' 0x0D..0x11, writeDigitalOutMode) after the
+	 * rate is set (plist flag PGDevice+0x7a6), in the mode of the S/PDIF out mode setting
+	 * (ozzy_settings.h, default consumer). MPC Renaissance, every Tascam but the US-200.
 	 */
 	OZZY_QUIRK_SPDIF_OUT = 1u << 7,
 

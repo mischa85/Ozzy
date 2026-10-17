@@ -1,7 +1,7 @@
 # Device settings: plan and facts (clock source, digital I/O, routing)
 
-Status: clock source implemented 2026-10-17 (untested on hardware: no device with digital in);
-the other settings are still plan. Written 2026-10-17 at the end of the device-list work; start here.
+Status: clock source and S/PDIF out mode implemented 2026-10-17 (untested on hardware: no device
+with digital I/O); the other settings are still plan. Written 2026-10-17 at the end of the device-list work; start here.
 
 ## Goal
 
@@ -26,7 +26,7 @@ the OS can't show. Order: external clock first (it's what users need, and it bui
 | Clock source (internal / S/PDIF) | enum kcontrol "Clock Source" | `kAudioDevicePropertyClockSource` (Audio MIDI Setup menu) | app |
 | Follow the locked rate | limit hw_params to the lock rate | offer only the lock rate (the official driver did this) | driver |
 | Lock status | read-only bool kcontrol | no standard UI: app (or clock source item name) | app |
-| S/PDIF mode consumer/pro | enum kcontrol | no natural fit: app | app |
+| S/PDIF mode consumer/pro (done) | enum kcontrol "IEC958 Playback Mode" | no natural fit: kext path ready, needs the app | app |
 | Digital out source (US-16xx, ESU1808 pair) | enum kcontrol | output data source (**verify Audio MIDI Setup shows it** for a 3rd-party HAL) | app |
 | Input routing (US-144MKII, US-600) | enum per pair | input data source (same check) | app |
 | US-3xx mixer modes | PipeWire profiles | app | app |
@@ -74,6 +74,21 @@ the OS can't show. Order: external clock first (it's what users need, and it bui
   decompile says; that Audio MIDI Setup shows the Clock Source menu for this plug-in; that a lock
   gained or lost while streaming is picked up only at the next change (selecting the same source
   again re-reads it on macOS; on Linux any reset does).
+
+## S/PDIF out mode: how it is built
+
+- `OZZY_SETTING_SPDIF_OUT_MODE` (Consumer / Professional = the official DigitalOutMode 0/1,
+  `PtAjExtData::validate` clamps it to 0..1), on `OZZY_QUIRK_SPDIF_OUT` devices (MPC Renaissance,
+  Tascams but the US-200). `hs_spdif_regs()` has both modes' registers (EIE kext
+  `writeDigitalOutMode` @ 00012212). "Professional" is from IEC 60958: mode 1 sets bit 0 of
+  channel status byte 0, the professional flag; the driver only says 0/1.
+- The official `setDigitalOutMode` suspends streaming, writes the registers, resumes. Ozzy uses
+  the same path as the clock source: Linux resets the device (heavier than the official, which
+  only rewrites the registers, but one path), macOS restarts the engine via
+  `kOzzyMethodApplySetting`. Mode follows rate changes because the handshake writes it after SET_CUR.
+- Linux: "IEC958 Playback Mode" enum (ALSA's name for S/PDIF is IEC958). macOS: CoreAudio has no
+  property for it, so no UI yet; the HAL restores a stored value, and the app can set it through
+  the user client.
 
 ## Facts from the official driver (EIE kext 3.3.17 decompile `AKAI_EIE/AKAI_EIE_kext_all.c`, DB2 `DB2_decompile/XONE_DB2_kext_all.c`)
 

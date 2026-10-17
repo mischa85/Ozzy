@@ -64,9 +64,13 @@ before SET_CUR, and skips the Xone status confirm. Untested on hardware.
 
 Plist flag 0x7a6 (Tascams but the US-200, MPC Renaissance) or Tascam 0x8041/0x8048: read 5 bytes
 (0xC0, wValue 0x0D00), then write registers 0x0D..0x11 that differ (wValue `reg << 8 | val`).
-Mode 0 (default): 04, 00 (0x0E written only if non-zero), 00, `(old & 0xF0) | rate code`, 0B.
-Mode 1: 0x0D 0xC1/0x41/0x81/0x01 by rate, 0x0F 0x2C, 0x11 rate-dependent. Runs in `startStreaming`
-after SET_CUR. Ozzy: `hs_spdif_out`, `OZZY_QUIRK_SPDIF_OUT`.
+Mode 0 (default): 04, 00 (0x0E written only if non-zero), 00, `(old & 0xF0) | rate code`
+(32k 3, 44.1k 0, 48k 2, 88.2k 8, 96k 0xA, 176.4k 0xC, 192k 0xE), 0B.
+Mode 1: 0x0D 0xC1/0x41/0x81 at 32k/44.1k/48k, 0x01 at 88.2k and up (other rates: unchanged),
+0x0E 0, 0x0F 0x2C, 0x10 0, 0x11 0x50/0x10/0x58/0x18 at 88.2k/96k/176.4k/192k, else 0. Mode 1 sets
+IEC 60958 byte 0 bit 0 (professional). Runs in `startStreaming` after SET_CUR, and from
+`setDigitalOutMode` with streaming suspended. Ozzy: `hs_spdif_regs` / `hs_spdif_out`,
+`OZZY_QUIRK_SPDIF_OUT`, setting `OZZY_SETTING_SPDIF_OUT_MODE`.
 
 ### 'A' (0x41) — Wolfson Codec Register Write (devices with Wolfson DAC/ADC)
 

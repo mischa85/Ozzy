@@ -35,6 +35,7 @@ extern "C" {
 
 enum ozzy_setting {
 	OZZY_SETTING_CLOCK_SOURCE,
+	OZZY_SETTING_SPDIF_OUT_MODE,
 	OZZY_NUM_SETTINGS
 };
 
@@ -43,6 +44,17 @@ enum ozzy_clock_source {
 	OZZY_CLOCK_INTERNAL = 0,
 	OZZY_CLOCK_SPDIF    = 1,
 	OZZY_NUM_CLOCK_SOURCES
+};
+
+/*
+ * OZZY_SETTING_SPDIF_OUT_MODE values: the S/PDIF output's channel status (the official
+ * driver's DigitalOutMode 0/1). Mode 1 sets bit 0 of channel status byte 0, IEC 60958's
+ * professional flag, so it is named Professional (from the standard, not the driver).
+ */
+enum ozzy_spdif_out_mode {
+	OZZY_SPDIF_OUT_CONSUMER     = 0,
+	OZZY_SPDIF_OUT_PROFESSIONAL = 1,
+	OZZY_NUM_SPDIF_OUT_MODES
 };
 
 /*
@@ -63,11 +75,15 @@ struct ozzy_setting_desc {
 };
 
 static const char *const ozzy_clock_source_names[OZZY_NUM_CLOCK_SOURCES] = { "Internal", "S/PDIF" };
+static const char *const ozzy_spdif_out_mode_names[OZZY_NUM_SPDIF_OUT_MODES] = { "Consumer", "Professional" };
 
 static const struct ozzy_setting_desc ozzy_setting_descs[OZZY_NUM_SETTINGS] = {
 	/* Positional: the macOS kext compiles this as C++11 */
 	{ "Clock Source", ozzy_clock_source_names, OZZY_NUM_CLOCK_SOURCES, OZZY_CLOCK_INTERNAL,
 	  OZZY_QUIRK_DIGITAL_IN },
+	/* ALSA names S/PDIF "IEC958" (Documentation/sound/designs/control-names.rst) */
+	{ "IEC958 Playback Mode", ozzy_spdif_out_mode_names, OZZY_NUM_SPDIF_OUT_MODES,
+	  OZZY_SPDIF_OUT_CONSUMER, OZZY_QUIRK_SPDIF_OUT },
 };
 
 /*

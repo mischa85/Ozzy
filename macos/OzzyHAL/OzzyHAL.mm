@@ -517,22 +517,8 @@ HRESULT OzzyHALDevice::GetZeroTimeStamp(Float64* outSampleTime, UInt64* outHostT
         return kAudioHardwareNotRunningError;
     }
 
-    auto& ts = shm->audio.timestamp;
     uint64_t sTime = 0, hTime = 0;
-    uint32_t seq1, seq2;
-    int retries = 0;
-
-    do {
-        seq1 = ts.sequence.load(std::memory_order_acquire);
-        if (seq1 & 1) {
-            seq2 = seq1 + 1;    // writer busy: retry
-            continue;
-        }
-        sTime = ts.sample_time.load(std::memory_order_relaxed);
-        hTime = ts.host_time.load(std::memory_order_relaxed);
-        std::atomic_thread_fence(std::memory_order_acquire); 
-        seq2 = ts.sequence.load(std::memory_order_relaxed);
-    } while (seq1 != seq2 && ++retries < 100);
+    ozzy_timestamp_read(&shm->audio.timestamp, &sTime, &hTime);
     ReleaseSHM();
 
     if (outSampleTime) *outSampleTime = (Float64)sTime;

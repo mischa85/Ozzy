@@ -143,6 +143,8 @@ static inline void ozzy_store_release_ptr(const void *volatile *p, const void *v
 static inline void ozzy_store_relaxed_u32(volatile uint32_t *p, uint32_t v) { WRITE_ONCE(*p, v); }
 static inline void ozzy_store_relaxed_u64(volatile uint64_t *p, uint64_t v) { WRITE_ONCE(*p, v); }
 static inline void ozzy_fence_release(void) { smp_wmb(); }
+static inline void ozzy_fence_acquire(void) { smp_rmb(); }
+static inline uint64_t ozzy_load_relaxed_u64(const volatile uint64_t *p) { return READ_ONCE(*p); }
 static inline bool ozzy_xchg_acquire_bool(volatile bool *p, bool v) { return xchg_acquire(p, v); }
 #else
 #if defined(_MSC_VER) && !defined(__clang__)
@@ -160,6 +162,8 @@ static inline bool ozzy_xchg_acquire_bool(volatile bool *p, bool v) { return xch
 #define OZZY_STORE_RELAXED(p, v)         { *(p) = (v); }
 
 static inline void ozzy_fence_release(void) { OZZY_HW_FENCE(); }
+static inline void ozzy_fence_acquire(void) { OZZY_HW_FENCE(); }
+static inline uint64_t ozzy_load_relaxed_u64(const volatile uint64_t *p) { return *p; }
 
 /* Set *@p to @v and return what it was, with acquire ordering (a full barrier on MSVC) */
 static inline bool ozzy_xchg_acquire_bool(volatile bool *p, bool v)
@@ -174,6 +178,8 @@ static inline bool ozzy_xchg_acquire_bool(volatile bool *p, bool v)
 #define OZZY_STORE_RELAXED(p, v)         { __atomic_store_n(p, v, __ATOMIC_RELAXED); }
 
 static inline void ozzy_fence_release(void) { __atomic_thread_fence(__ATOMIC_RELEASE); }
+static inline void ozzy_fence_acquire(void) { __atomic_thread_fence(__ATOMIC_ACQUIRE); }
+static inline uint64_t ozzy_load_relaxed_u64(const volatile uint64_t *p) { return __atomic_load_n(p, __ATOMIC_RELAXED); }
 
 static inline bool ozzy_xchg_acquire_bool(volatile bool *p, bool v)
 {

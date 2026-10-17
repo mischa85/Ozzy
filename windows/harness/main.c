@@ -159,16 +159,6 @@ static double fill_tone(struct ozzy_shared_memory* shm, uint32_t channels, uint3
     return (double)cycles * rate / RING_FRAMES;
 }
 
-/* The latest timestamp anchor (seqlock, writer: the engine's timestamp update) */
-static bool read_anchor(struct ozzy_shared_memory* shm, uint64_t* sample_time, uint64_t* host_time) {
-    volatile struct ozzy_timestamp* ts = &shm->audio.timestamp;
-    uint32_t seq = ozzy_load_acquire_u32(&ts->sequence);
-    if (seq & 1) return false;
-    *sample_time = ts->sample_time;
-    *host_time = ts->host_time;
-    return ozzy_load_acquire_u32(&ts->sequence) == seq;
-}
-
 int main(int argc, char** argv) {
     bool list = false, quiet = false;
     int index = 0, seconds = 0;
@@ -265,7 +255,7 @@ int main(int argc, char** argv) {
         }
 
         uint64_t sample_time, host_time;
-        if (!read_anchor(shm, &sample_time, &host_time) || !sample_time) continue;
+        if (!ozzy_timestamp_read(&shm->audio.timestamp, &sample_time, &host_time) || !sample_time) continue;
         if (!have_first) {
             have_first = true;
             first_sample = sample_time;

@@ -120,28 +120,20 @@ bool ozzy_isoc_output_start(struct ozzy_isoc_output *out, const struct ozzy_bus 
 
 /*
  * publish_timestamps - Advance the device's sample time by the frames this transfer played,
- * and publish an anchor (seqlock, reader: OzzyHAL::GetZeroTimeStamp) in the microframe that
- * reaches each multiple of anchor_frames, at that microframe's completion time.
+ * and publish an anchor (ozzy_timestamp_write) in the microframe that reaches each multiple
+ * of anchor_frames, at that microframe's completion time.
  */
 static void publish_timestamps(struct ozzy_isoc_output *out, const struct ozzy_isoc_output_xfer *t)
 {
 	uint32_t p;
 
 	for (p = 0; p < t->count; p++) {
-		volatile struct ozzy_timestamp *ts;
-		uint32_t seq;
-
 		out->played_frames += t->frames[p];
 		if (out->played_frames < out->next_anchor)
 			continue;
 
-		ts = &out->shm->audio.timestamp;
-		seq = ts->sequence;
-		ozzy_store_relaxed_u32(&ts->sequence, seq + 1);
-		ozzy_fence_release();
-		ozzy_store_relaxed_u64(&ts->sample_time, out->next_anchor);
-		ozzy_store_relaxed_u64(&ts->host_time, t->packets[p].time ? t->packets[p].time : ozzy_bus_time(out->bus));
-		ozzy_store_release_u32(&ts->sequence, seq + 2);
+		ozzy_timestamp_write(&out->shm->audio.timestamp, out->next_anchor,
+				     t->packets[p].time ? t->packets[p].time : ozzy_bus_time(out->bus));
 		out->next_anchor += out->config.anchor_frames;
 	}
 }

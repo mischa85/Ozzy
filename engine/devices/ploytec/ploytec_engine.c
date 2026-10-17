@@ -257,14 +257,11 @@ static void encode_pcm_out(struct ploytec_engine *pe, uint32_t idx)
 
 /*
  * update_timestamp - The device's clock: 80 more frames played. Every OZZY_TIMESTAMP_PACKETS
- * an anchor (seqlock, reader: OzzyHAL::GetZeroTimeStamp); the fences keep the odd sequence
- * visible before the new values, and the new values before the even sequence.
+ * an anchor (ozzy_timestamp_write; reader: OzzyHAL::GetZeroTimeStamp).
  */
 static void update_timestamp(struct ploytec_engine *pe)
 {
 	volatile struct ozzy_shared_memory *shm = pe->base.shm;
-	volatile struct ozzy_timestamp *ts = &shm->audio.timestamp;
-	uint32_t seq;
 
 	if (!shm->audio.driver_ready)
 		return;
@@ -272,12 +269,7 @@ static void update_timestamp(struct ploytec_engine *pe)
 	if (ozzy_mod_u64(pe->hw_sample_time, PLOYTEC_FRAMES_PER_PKT * OZZY_TIMESTAMP_PACKETS))
 		return;
 
-	seq = ts->sequence;
-	ozzy_store_relaxed_u32(&ts->sequence, seq + 1);
-	ozzy_fence_release();
-	ozzy_store_relaxed_u64(&ts->sample_time, pe->hw_sample_time);
-	ozzy_store_relaxed_u64(&ts->host_time, ozzy_bus_time(pe->base.bus));
-	ozzy_store_release_u32(&ts->sequence, seq + 2);
+	ozzy_timestamp_write(&shm->audio.timestamp, pe->hw_sample_time, ozzy_bus_time(pe->base.bus));
 }
 
 static void ploytec_complete(struct ozzy_engine *e, uint8_t pipe, void *xfer, int status, uint32_t bytes)

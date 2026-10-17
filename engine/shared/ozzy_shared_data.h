@@ -169,6 +169,59 @@ struct ozzy_shared_memory {
 	OZZY_CACHE_ALIGN struct ozzy_audio_buffer audio;
 };
 
+/*
+ * --- The timestamp seqlock ---
+ * ozzy_timestamp_write (engine): the odd sequence is visible before the new values, the new
+ * values before the even sequence. ozzy_timestamp_read (engine side and clients): false if
+ * the writer kept it busy (try again next time).
+ */
+#ifdef OZZY_ENGINE_SIDE
+static inline void ozzy_timestamp_write(volatile struct ozzy_timestamp *ts, uint64_t sample_time, uint64_t host_time)
+{
+	uint32_t seq = ts->sequence;
+
+	ozzy_store_relaxed_u32(&ts->sequence, seq + 1);
+	ozzy_fence_release();
+	ozzy_store_relaxed_u64(&ts->sample_time, sample_time);
+	ozzy_store_relaxed_u64(&ts->host_time, host_time);
+	ozzy_store_release_u32(&ts->sequence, seq + 2);
+}
+
+static inline bool ozzy_timestamp_read(volatile struct ozzy_timestamp *ts, uint64_t *sample_time, uint64_t *host_time)
+{
+	unsigned int tries;
+
+	for (tries = 0; tries < 100; tries++) {
+		uint32_t seq = ozzy_load_acquire_u32(&ts->sequence);
+
+		if (seq & 1)
+			continue;
+		*sample_time = ozzy_load_relaxed_u64(&ts->sample_time);
+		*host_time = ozzy_load_relaxed_u64(&ts->host_time);
+		ozzy_fence_acquire();
+		if (ts->sequence == seq)
+			return true;
+	}
+	return false;
+}
+#else
+static inline bool ozzy_timestamp_read(struct ozzy_timestamp *ts, uint64_t *sample_time, uint64_t *host_time)
+{
+	for (unsigned int tries = 0; tries < 100; tries++) {
+		uint32_t seq = ts->sequence.load(std::memory_order_acquire);
+
+		if (seq & 1)
+			continue;
+		*sample_time = ts->sample_time.load(std::memory_order_relaxed);
+		*host_time = ts->host_time.load(std::memory_order_relaxed);
+		std::atomic_thread_fence(std::memory_order_acquire);
+		if (ts->sequence.load(std::memory_order_relaxed) == seq)
+			return true;
+	}
+	return false;
+}
+#endif
+
 #ifdef OZZY_ENGINE_SIDE
 /* --- MIDI rings, engine side: it fills midi_in and drains midi_out --- */
 

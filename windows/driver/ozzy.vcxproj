@@ -70,6 +70,7 @@
     <ClCompile Include="..\..\engine\core\ozzy_engine.c" />
     <ClCompile Include="..\..\engine\core\ozzy_isoc_output.c" />
     <ClCompile Include="..\..\engine\devices\ploytec\ploytec_engine.c" />
+    <ClCompile Include="..\..\engine\devices\ploytec\ploytec_io.c" />
     <ClCompile Include="..\..\engine\devices\ploytec\ploytec_isoc_engine.c" />
     <ClCompile Include="..\..\engine\devices\usbmidi\usb_midi_engine.c" />
     <ClCompile Include="..\..\common\devices\ploytec\ploytec_handshake.c" />

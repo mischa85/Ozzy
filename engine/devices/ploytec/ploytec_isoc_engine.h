@@ -16,6 +16,7 @@
 #include "../../core/ozzy_isoc_output.h"
 #include "../../../common/devices/ploytec/ploytec_protocol.h"
 #include "../../../common/devices/ploytec/ploytec_midi.h"
+#include "../../../common/devices/ploytec/ploytec_codec.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -41,6 +42,7 @@ struct ploytec_isoc_engine {
 
 	struct ozzy_isoc_output output;
 	bool midi_out_busy;
+	ploytec_frame_fn decode;   /* PCM in, for the model's channels */
 };
 
 void ploytec_isoc_engine_init(struct ploytec_isoc_engine *pe, const struct ozzy_device *model);

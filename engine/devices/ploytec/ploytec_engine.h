@@ -25,8 +25,6 @@ extern "C" {
  * @default_rate:   the highest rate the device lists (what start asks for without a request)
  * @running:        completions resubmit (cleared by stop and suspend)
  * @pcm_in_int1024: PCM IN is interrupt, wMaxPacketSize 1024 (ploytec_midi.h)
- * @pcm_ring:       the rings (ozzy_engine_set_pcm_ring) as the completion path has them
- * @pcm_pos:        ring position of each ring's next frame
  * @encode/@decode: frame codecs for the model's channel counts
  * @mirror:         ESU1808 S/PDIF mirror (bulk layout, 8 out)
  */
@@ -40,8 +38,6 @@ struct ploytec_engine {
 	uint32_t packet_size_out;
 	bool pcm_in_int1024;
 	struct ploytec_midi midi;
-	const struct ozzy_pcm_ring *pcm_ring[OZZY_PCM_DIRS];
-	uint64_t pcm_pos[OZZY_PCM_DIRS];
 	ploytec_frame_fn encode;
 	ploytec_frame_fn decode;
 	bool mirror;

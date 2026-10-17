@@ -100,3 +100,17 @@ void ozzy_engine_publish_settings(struct ozzy_engine *e, const struct ozzy_clock
 	shm->audio.settings.lock_rate = clock->locked ? clock->lock_rate : 0;
 	shm->audio.settings.clock_locked = clock->locked;
 }
+
+const struct ozzy_pcm_ring *ozzy_engine_take_pcm_ring(struct ozzy_engine *e, enum ozzy_pcm_dir dir)
+{
+	const struct ozzy_pcm_ring *ring = (const struct ozzy_pcm_ring *)
+		ozzy_load_acquire_ptr((const void *const volatile *)&e->pcm_ring_set[dir]);
+	uint32_t channels = dir == OZZY_PCM_OUT ? e->model->out_channels : e->model->in_channels;
+
+	if (ring != e->pcm_ring[dir]) {
+		e->pcm_ring[dir] = ring;
+		if (ring)
+			e->pcm_pos[dir] = ring->start;
+	}
+	return ring && ring->frames && ring->channels == channels ? ring : NULL;
+}

@@ -21,6 +21,8 @@ static bool submit_out(struct ozzy_isoc_output *out, uint32_t i)
 	const struct ozzy_isoc_output_config *c = &out->config;
 	uint32_t p;
 
+	uint64_t first = out->out_frame;
+
 	t->count = isoc_fb_packets(out->out_uframes);
 	isoc_fb_layout(&out->fb, t->count, out->out_uframes, out->out_max_frames, t->frames);
 	for (p = 0; p < t->count; p++) {
@@ -28,6 +30,9 @@ static bool submit_out(struct ozzy_isoc_output *out, uint32_t i)
 		t->packets[p].length = t->frames[p] * c->frame_bytes;
 		out->out_frame += t->frames[p];
 	}
+	if (c->fill)
+		c->fill(c->owner, (uint8_t *)out->shm->audio.output_buffer, c->ring_frames, first,
+			(uint32_t)(out->out_frame - first));
 	if (ozzy_bus_submit_isoc(out->bus, c->out_addr, (void *)out->shm->audio.output_buffer,
 				 c->ring_frames * c->frame_bytes, t->packets, t->count, (void *)(uintptr_t)i))
 		return true;

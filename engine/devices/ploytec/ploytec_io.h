@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: MIT */
 /*
  * What every Ploytec engine (ploytec_engine, ploytec_isoc_engine) does the same way: the
- * handshake's host services over the bus, PCM in and MIDI in.
+ * handshake's host services over the bus, PCM in and MIDI in (ploytec_io.c).
  *
  * Copyright (C) 2024 Marcel Bierling <marcel@hackerman.art>
  */
@@ -12,6 +12,7 @@
 #include "../../core/ozzy_engine.h"
 #include "../../../common/devices/ploytec/ploytec_midi.h"
 #include "../../../common/devices/ploytec/ploytec_protocol.h"
+#include "../../../common/devices/ploytec/ploytec_codec.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -59,6 +60,13 @@ static inline void ploytec_midi_in_to_ring(const struct ploytec_midi *midi, vola
 
 	ozzy_midi_ring_push(&shm->midi_in, out, count);
 }
+
+/*
+ * PCM in into the attached ring (ploytec_io.c): the frames of completed IN transfer @idx,
+ * decoded straight from the shared memory into the ring with the input routing. A short (or
+ * failed, @bytes 0) transfer leaves silence, so the ring keeps the device's clock.
+ */
+void ploytec_decode_pcm_in(struct ozzy_engine *e, ploytec_frame_fn decode, uint32_t idx, uint32_t bytes);
 
 #ifdef __cplusplus
 }

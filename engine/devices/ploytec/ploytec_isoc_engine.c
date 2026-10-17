@@ -52,6 +52,38 @@ static void submit_midi_in(struct ploytec_isoc_engine *pe, uint32_t slot)
 		ploytec_log("isoc: MIDI input submission failed (slot %u)", slot);
 }
 
+/*
+ * fill_out - The plain frames of one OUT transfer from the attached ring, with the output
+ * routing; silence on a platform with rings and none attached (Linux: ozzy_pcm_fill_iso_out).
+ */
+static void fill_out(void *owner, uint8_t *dst_ring, uint32_t dst_frames, uint64_t first, uint32_t frames)
+{
+	struct ozzy_engine *e = (struct ozzy_engine *)owner;
+	const struct ozzy_pcm_ring *ring = ozzy_engine_take_pcm_ring(e, OZZY_PCM_OUT);
+	uint32_t frame_bytes = e->model->out_channels * 3;
+	uint32_t d = (uint32_t)(first % dst_frames), r, f;
+
+	if (!ring) {
+		if (ozzy_engine_ring_platform(e))
+			for (f = 0; f < frames; f++, d = d + 1 == dst_frames ? 0 : d + 1)
+				memset(dst_ring + d * frame_bytes, 0, frame_bytes);
+		return;
+	}
+	r = (uint32_t)(e->pcm_pos[OZZY_PCM_OUT] % ring->frames);
+	for (f = 0; f < frames; f++) {
+		if (e->out_route.identity)
+			memcpy(dst_ring + d * frame_bytes, ring->base + r * frame_bytes, frame_bytes);
+		else
+			ozzy_route_frame(dst_ring + d * frame_bytes, ring->base + r * frame_bytes, &e->out_route, 2 * 3);
+		if (++r == ring->frames)
+			r = 0;
+		if (++d == dst_frames)
+			d = 0;
+	}
+	e->pcm_pos[OZZY_PCM_OUT] += frames;
+	ozzy_bus_pcm_progress(e->bus, OZZY_PCM_OUT, e->pcm_pos[OZZY_PCM_OUT]);
+}
+
 static bool isoc_start(struct ozzy_engine *e)
 {
 	struct ploytec_isoc_engine *pe = to_isoc(e);
@@ -123,6 +155,9 @@ static bool isoc_start(struct ozzy_engine *e)
 	out.fb_max_packet = pe->fb_max_packet;
 	out.fb_interval = pe->fb_interval;
 	out.feedback = feedback;
+	out.fill = fill_out;
+	out.owner = e;
+	pe->decode = ploytec_frame_decoder(model->in_channels);
 	if (!ozzy_isoc_output_start(&pe->output, e->bus, shm, &out))
 		return false;
 
@@ -183,6 +218,7 @@ static void isoc_complete(struct ozzy_engine *e, uint8_t pipe, void *xfer, int s
 		return;
 
 	if (pipe == pe->in_addr) {
+		ploytec_decode_pcm_in(e, pe->decode, idx, status == 0 ? bytes : 0);
 		if (!ploytec_submit_pcm_in(e->bus, shm, pe->in_addr, idx + IN_TRANSFERS))
 			ploytec_log("isoc: input submission failed (idx: %u)", idx + IN_TRANSFERS);
 	} else if (pipe == pe->midi_in_addr) {

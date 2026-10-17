@@ -198,6 +198,7 @@ SOURCES=(
     "../engine/core/ozzy_engine.c"
     "../engine/core/ozzy_isoc_output.c"
     "../engine/devices/ploytec/ploytec_engine.c"
+    "../engine/devices/ploytec/ploytec_io.c"
     "../engine/devices/ploytec/ploytec_isoc_engine.c"
     "../engine/devices/usbmidi/usb_midi_engine.c"
     "../common/devices/ploytec/ploytec_handshake.c"

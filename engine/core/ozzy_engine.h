@@ -96,6 +96,8 @@ struct ozzy_engine_ops {
  * @rate:         the rate start() asks for (ozzy_engine_set_rate; 0: the highest the device
  *                lists)
  * @pcm_ring_set: ozzy_engine_set_pcm_ring(); the completion path picks it up
+ * @pcm_ring/@pcm_pos: the rings as the completion path has them, and the ring position of
+ *                each one's next frame (ozzy_engine_take_pcm_ring; completion path only)
  */
 struct ozzy_engine {
 	const struct ozzy_engine_ops *ops;
@@ -108,6 +110,8 @@ struct ozzy_engine {
 	struct ozzy_route out_route;
 	uint32_t rate;
 	const struct ozzy_pcm_ring *volatile pcm_ring_set[OZZY_PCM_DIRS];
+	const struct ozzy_pcm_ring *pcm_ring[OZZY_PCM_DIRS];
+	uint64_t pcm_pos[OZZY_PCM_DIRS];
 };
 
 /* Bytes to allocate for @model's engine (0 if Ozzy has none for its family) */
@@ -196,6 +200,18 @@ static inline void ozzy_engine_set_rate(struct ozzy_engine *e, uint32_t rate)
 static inline uint32_t ozzy_engine_start_rate(const struct ozzy_engine *e, uint32_t fallback)
 {
 	return e->rate && ozzy_device_has_rate(e->model, e->rate) ? e->rate : fallback;
+}
+
+/*
+ * For the families' completion path: the ring attached for @dir, picked up here (a new ring
+ * starts at its own start position); NULL if none, or if its channels aren't the model's.
+ */
+const struct ozzy_pcm_ring *ozzy_engine_take_pcm_ring(struct ozzy_engine *e, enum ozzy_pcm_dir dir);
+
+/* Whether the platform attaches PCM rings (without one attached, PCM out is silence) */
+static inline bool ozzy_engine_ring_platform(const struct ozzy_engine *e)
+{
+	return e->bus->ops->pcm_progress != NULL;
 }
 
 /* --- Device settings (common/ozzy_settings.h) --- */

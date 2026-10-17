@@ -209,43 +209,25 @@ static void midi_out(struct ploytec_engine *pe, uint32_t idx)
 }
 
 /*
- * take_pcm_ring - The ring attached for @dir, picked up here in the completion path: a new
- * ring starts at its own start position. NULL if none (or its channels don't match the model).
- */
-static const struct ozzy_pcm_ring *take_pcm_ring(struct ploytec_engine *pe, enum ozzy_pcm_dir dir)
-{
-	const struct ozzy_pcm_ring *ring = (const struct ozzy_pcm_ring *)
-		ozzy_load_acquire_ptr((const void *const volatile *)&pe->base.pcm_ring_set[dir]);
-	uint32_t channels = dir == OZZY_PCM_OUT ? pe->base.model->out_channels : pe->base.model->in_channels;
-
-	if (ring != pe->pcm_ring[dir]) {
-		pe->pcm_ring[dir] = ring;
-		if (ring)
-			pe->pcm_pos[dir] = ring->start;
-	}
-	return ring && ring->frames && ring->channels == channels ? ring : NULL;
-}
-
-/*
  * encode_pcm_out - PCM out from the attached ring: packet @idx's 80 frames, encoded straight
  * from the ring into the packet about to be sent (the MIDI and sync bytes are already in place).
  */
 static void encode_pcm_out(struct ploytec_engine *pe, uint32_t idx)
 {
-	const struct ozzy_pcm_ring *ring = take_pcm_ring(pe, OZZY_PCM_OUT);
+	const struct ozzy_pcm_ring *ring = ozzy_engine_take_pcm_ring(&pe->base, OZZY_PCM_OUT);
 	uint8_t *packet = (uint8_t *)pe->base.shm->audio.output_buffer + (idx % OZZY_NUM_PACKETS) * OZZY_MAX_PACKET_SIZE;
 	uint32_t frame_bytes, r, f;
 
 	if (!ring || !pe->encode) {
 		/* A platform with rings and none attached (stopped): silence, as Linux's
 		 * init_out_urb, not the last audio encoded into this slot */
-		if (pe->base.bus->ops->pcm_progress)
+		if (ozzy_engine_ring_platform(&pe->base))
 			for (f = 0; f < PLOYTEC_FRAMES_PER_PKT; f++)
 				memset(packet + ploytec_out_frame_offset(pe->out_layout, f), 0, PLOYTEC_OUT_FRAME_SIZE);
 		return;
 	}
 	frame_bytes = ring->channels * 3;
-	r = (uint32_t)(pe->pcm_pos[OZZY_PCM_OUT] % ring->frames);
+	r = (uint32_t)(pe->base.pcm_pos[OZZY_PCM_OUT] % ring->frames);
 	for (f = 0; f < PLOYTEC_FRAMES_PER_PKT; f++) {
 		const uint8_t *src = ring->base + r * frame_bytes;
 		uint8_t routed[PLOYTEC_MAX_OUT_CHANNELS * 3];
@@ -275,46 +257,8 @@ static void encode_pcm_out(struct ploytec_engine *pe, uint32_t idx)
 		}
 	}
 
-	pe->pcm_pos[OZZY_PCM_OUT] += PLOYTEC_FRAMES_PER_PKT;
-	ozzy_bus_pcm_progress(pe->base.bus, OZZY_PCM_OUT, pe->pcm_pos[OZZY_PCM_OUT]);
-}
-
-/*
- * decode_pcm_in - PCM in into the attached ring: the frames of a completed IN transfer,
- * decoded straight from the shared memory into the ring. A short (or failed, @bytes 0)
- * transfer leaves silence, so the ring keeps the device's clock.
- */
-static void decode_pcm_in(struct ploytec_engine *pe, uint32_t idx, uint32_t bytes)
-{
-	const struct ozzy_pcm_ring *ring = take_pcm_ring(pe, OZZY_PCM_IN);
-	const uint8_t *packet;
-	uint32_t frame_bytes, got, r, f;
-
-	if (!ring || !pe->decode)
-		return;
-	packet = (const uint8_t *)pe->base.shm->audio.input_buffer + (idx % OZZY_NUM_PACKETS) * OZZY_MAX_PACKET_SIZE;
-	frame_bytes = ring->channels * 3;
-	got = bytes / PLOYTEC_IN_FRAME_SIZE;
-	r = (uint32_t)(pe->pcm_pos[OZZY_PCM_IN] % ring->frames);
-	for (f = 0; f < PLOYTEC_FRAMES_PER_PKT; f++) {
-		uint8_t *dst = ring->base + r * frame_bytes;
-		uint8_t decoded[PLOYTEC_MAX_IN_CHANNELS * 3];
-
-		if (f >= got) {
-			memset(dst, 0, frame_bytes);
-		} else if (pe->base.in_route.identity) {
-			pe->decode(dst, packet + f * PLOYTEC_IN_FRAME_SIZE);
-		} else {
-			/* Input routing (US-144MKII, US-600): decode, then move the pairs */
-			pe->decode(decoded, packet + f * PLOYTEC_IN_FRAME_SIZE);
-			ozzy_route_frame(dst, decoded, &pe->base.in_route, 2 * 3);
-		}
-		if (++r == ring->frames)
-			r = 0;
-	}
-
-	pe->pcm_pos[OZZY_PCM_IN] += PLOYTEC_FRAMES_PER_PKT;
-	ozzy_bus_pcm_progress(pe->base.bus, OZZY_PCM_IN, pe->pcm_pos[OZZY_PCM_IN]);
+	pe->base.pcm_pos[OZZY_PCM_OUT] += PLOYTEC_FRAMES_PER_PKT;
+	ozzy_bus_pcm_progress(pe->base.bus, OZZY_PCM_OUT, pe->base.pcm_pos[OZZY_PCM_OUT]);
 }
 
 /*
@@ -359,7 +303,7 @@ static void ploytec_complete(struct ozzy_engine *e, uint8_t pipe, void *xfer, in
 		encode_pcm_out(pe, next);
 		submit_pcm_out(pe, next);
 	} else if (pipe == EP_PCM_IN) {
-		decode_pcm_in(pe, finished, status == 0 ? bytes : 0);
+		ploytec_decode_pcm_in(e, pe->decode, finished, status == 0 ? bytes : 0);
 		if (!ploytec_submit_pcm_in(e->bus, shm, EP_PCM_IN, next))
 			ploytec_log("input submission failed (idx: %u)", next);
 	} else if (pipe == EP_MIDI_IN) {

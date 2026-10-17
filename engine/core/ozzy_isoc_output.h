@@ -31,6 +31,9 @@ extern "C" {
  * @anchor_frames:  timestamp anchor spacing (the HAL's zero timestamp period)
  * @out_max_packet: bytes per service interval
  * @fb_addr:        0: no feedback endpoint, nominal rate
+ * @fill:           optional: called before each OUT transfer to write its @frames frames,
+ *                  from ring position @first (wrapping at @ring_frames), into @ring; without
+ *                  it the HAL has written them (macOS)
  */
 struct ozzy_isoc_output_config {
 	uint32_t rate;
@@ -44,6 +47,8 @@ struct ozzy_isoc_output_config {
 	uint16_t fb_max_packet;
 	uint8_t fb_interval;
 	struct isoc_fb_config feedback;
+	void (*fill)(void *owner, uint8_t *ring, uint32_t ring_frames, uint64_t first, uint32_t frames);
+	void *owner;
 };
 
 struct ozzy_isoc_output_xfer {

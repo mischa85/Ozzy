@@ -35,44 +35,17 @@ static void ozzy_midi_send_push(struct midi_runtime *rt, u8 byte)
 	rt->send_head = (rt->send_head + 1) & SEND_MASK;
 }
 
-/* Data bytes that follow a channel status byte (0x80..0xEF) */
-static u8 ozzy_midi_data_len(u8 status)
-{
-	return ((status & 0xF0) == 0xC0 || (status & 0xF0) == 0xD0) ? 1 : 2;
-}
-
 /*
- * ozzy_midi_put_out - Queue one byte from the application, expanding running status.
- *
- * The ALSA sequencer's rawmidi bridge drops a status byte equal to the previous one
- * (seq_midi.c never calls snd_midi_event_no_status()). The official driver only ever
- * sends complete messages (CoreMIDI packets carry no running status), and at least
- * one Ploytec firmware ignores running status (PR #80), so put the status back in
- * front of every channel message. Needs room for 2 bytes.
+ * ozzy_midi_put_out - Queue one byte from the application, expanding running status
+ * (common/midi_running_status.h). Needs room for 2 bytes.
  */
 static void ozzy_midi_put_out(struct midi_runtime *rt, u8 byte)
 {
-	if (byte >= 0xF8) {
-		/* real-time: may appear anywhere, doesn't affect running status */
-		ozzy_midi_send_push(rt, byte);
-	} else if (byte >= 0xF0) {
-		/* SysEx and system common cancel running status; their data passes as is */
-		ozzy_midi_send_push(rt, byte);
-		rt->run_status = 0;
-		rt->run_remaining = 0;
-	} else if (byte & 0x80) {
-		ozzy_midi_send_push(rt, byte);
-		rt->run_status = byte;
-		rt->run_remaining = ozzy_midi_data_len(byte);
-	} else {
-		if (rt->run_status && !rt->run_remaining) {
-			ozzy_midi_send_push(rt, rt->run_status);
-			rt->run_remaining = ozzy_midi_data_len(rt->run_status);
-		}
-		ozzy_midi_send_push(rt, byte);
-		if (rt->run_remaining)
-			rt->run_remaining--;
-	}
+	u8 out[2];
+	unsigned int i, n = midi_running_status_expand(&rt->run_status, byte, out);
+
+	for (i = 0; i < n; i++)
+		ozzy_midi_send_push(rt, out[i]);
 }
 
 /*
@@ -458,8 +431,7 @@ int ozzy_midi_init(struct ozzy_chip *chip)
 	rt->chip = chip;
 	rt->send_head = 0;
 	rt->send_tail = 0;
-	rt->run_status = 0;
-	rt->run_remaining = 0;
+	memset(&rt->run_status, 0, sizeof(rt->run_status));
 
 	spin_lock_init(&rt->in_lock);
 	spin_lock_init(&rt->out_lock);

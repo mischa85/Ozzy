@@ -8,6 +8,7 @@
 #ifndef OZZY_MIDI_H
 #define OZZY_MIDI_H
 
+#include "../common/midi_running_status.h"
 #include <linux/hrtimer.h>
 #include <sound/rawmidi.h>
 
@@ -61,9 +62,8 @@ struct midi_runtime {
 	unsigned int send_head;             /* write position */
 	unsigned int send_tail;             /* read position */
 
-	/* Running status expansion of the outgoing stream (see ozzy_midi_put_out) */
-	u8 run_status;                      /* last channel status byte, 0 = none */
-	u8 run_remaining;                   /* data bytes left in the current message */
+	/* Running status expansion of the outgoing stream (ozzy_midi_put_out) */
+	struct midi_running_status run_status;
 };
 
 /*

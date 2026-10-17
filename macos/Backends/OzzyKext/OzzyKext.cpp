@@ -226,10 +226,9 @@ void OzzyKext::MidiOutPending() {
 }
 
 /* OZZY_METHOD_APPLY_SETTING: restart the engine with setting @id = @value, the way the official
- * driver suspends streaming, sends the setting and resumes. The engine stops resubmitting, every
- * pipe is aborted, and Start() runs the handshake again with the setting (it also re-reads the
- * digital lock, so the same value again re-checks it). hardwarePresent and driverReady stay set,
- * so the HAL keeps the device; it calls this with IO stopped. */
+ * driver suspends streaming, sends the setting and resumes (ozzy_engine_restart). The same value
+ * again restarts too: the handshake re-reads the digital lock. hardwarePresent and driverReady
+ * stay set, so the HAL keeps the device; it calls this with IO stopped. */
 IOReturn OzzyKext::ApplySetting(uint32_t id, uint32_t value) {
     if (!mSettingsLock) return kIOReturnNotReady;
     IOLockLock(mSettingsLock);
@@ -241,21 +240,12 @@ IOReturn OzzyKext::ApplySetting(uint32_t id, uint32_t value) {
 IOReturn OzzyKext::ApplySettingLocked(uint32_t id, uint32_t value) {
     if (!mRunning || !mEngine) return kIOReturnNotReady;
     // Device settings only: the HAL applies routes itself
-    if (!ozzy_engine_has_setting(mEngine, id) || ozzy_setting_descs[id].kind != OZZY_SETTING_DEVICE ||
-        value >= ozzy_setting_descs[id].num_values)
+    if (id >= OZZY_NUM_SETTINGS || ozzy_setting_descs[id].kind != OZZY_SETTING_DEVICE ||
+        ozzy_engine_change_setting(mEngine, id, value) == OZZY_SETTING_INVALID)
         return kIOReturnBadArgument;
-
-    ozzy_log("%s: %s", ozzy_setting_descs[id].name, ozzy_setting_descs[id].value_names[value]);
-    ozzy_engine_suspend(mEngine);
-    for (int i = 0; i < kMaxPipes; i++) {
-        if (mPipes[i]) mPipes[i]->abort(IOUSBHostIOSource::kAbortSynchronous);
-    }
-    ozzy_engine_set_setting(mEngine, id, (uint8_t)value);
-    if (!ozzy_engine_start(mEngine)) {
+    if (!ozzy_engine_restart(mEngine)) {
         // The device didn't take it: let the HAL drop it, as on a failed start
-        ozzy_log("engine restart failed");
         mRunning = false;
-        ozzy_engine_stop(mEngine);
         return kIOReturnIOError;
     }
     return kIOReturnSuccess;
@@ -275,7 +265,7 @@ IOReturn OzzyKext::message(UInt32 type, IOService* provider, void* argument) {
             mSHM->audio.driver_ready = false;
         }
         
-        // CRITICAL: Stop engine and abort transfers NOW to prevent callback deadlocks
+        // CRITICAL: Stop the engine, which aborts every transfer, NOW to prevent callback deadlocks
         if (mEngine) {
             ozzy_engine_stop(mEngine);
         }
@@ -290,13 +280,9 @@ IOReturn OzzyKext::message(UInt32 type, IOService* provider, void* argument) {
     return IOService::message(type, provider, argument);
 }
 
-/* Abort all transfers, then close the interfaces and the device. Safe to call twice. */
+/* Close the interfaces and the device (ozzy_engine_stop has aborted every transfer). Safe to
+ * call twice. */
 void OzzyKext::CloseProviders() {
-    for (int i = 0; i < kMaxPipes; i++) {
-        if (mPipes[i]) {
-            mPipes[i]->abort();
-        }
-    }
     for (int i = 0; i < kMaxInterfaces; i++) {
         if (mInterfaces[i] && mInterfaces[i]->isOpen(this)) {
             mInterfaces[i]->close(this);
@@ -315,13 +301,13 @@ void OzzyKext::stop(IOService* provider) {
         mSHM->magic = 0;
     }
     
-    // 1. Stop the engine first (clears flags, signals HAL)
+    // 1. Stop the engine first (clears flags, signals HAL, aborts every transfer)
     mRunning = false;
     if (mEngine) { 
         ozzy_engine_stop(mEngine);
     }
     
-    // 2. Abort all pending USB transfers and close interfaces and device (if not done on termination)
+    // 2. Close interfaces and device (if not done on termination)
     CloseProviders();
     
     // 3. Give USB stack time to complete callbacks

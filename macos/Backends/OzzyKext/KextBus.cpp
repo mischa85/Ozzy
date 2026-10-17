@@ -126,10 +126,12 @@ static bool OpsStartTimer(void* ctx, uint32_t intervalUs) { return ((KextBus*)ct
 static void OpsStopTimer(void* ctx) { ((KextBus*)ctx)->StopTimer(); }
 static void OpsSleep(void* ctx, unsigned int ms) { ((KextBus*)ctx)->Sleep(ms); }
 static uint64_t OpsTime(void* ctx) { return ((KextBus*)ctx)->GetTime(); }
+static void OpsAbort(void* ctx) { ((KextBus*)ctx)->Abort(); }
 
 // No PCM rings on macOS: the HAL writes the shared memory itself
 const struct ozzy_bus_ops KextBus::sOps = {
-    OpsSubmit, OpsSubmitIsoc, OpsControl, OpsClearHalt, OpsStartTimer, OpsStopTimer, nullptr, OpsSleep, OpsTime
+    OpsSubmit, OpsSubmitIsoc, OpsControl, OpsClearHalt, OpsStartTimer, OpsStopTimer, nullptr, OpsSleep, OpsTime,
+    OpsAbort
 };
 
 KextBus::KextBus(IOUSBHostDevice* device, IOService* driver) 
@@ -325,6 +327,13 @@ int KextBus::ClearHalt(uint8_t address) {
     if (!pipe) return -ENODEV;
     IOReturn err = pipe->clearStall(true);
     return err == kIOReturnSuccess ? 0 : -EIO;
+}
+
+/* Every pipe, synchronously: the completions have run (kIOReturnAborted) when it returns */
+void KextBus::Abort() {
+    for (int i = 0; i < mPipeCount; i++) {
+        if (mPipes[i]) mPipes[i]->abort(IOUSBHostIOSource::kAbortSynchronous);
+    }
 }
 
 void KextBus::Sleep(uint32_t ms) { IOSleep(ms); }

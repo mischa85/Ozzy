@@ -116,7 +116,6 @@ struct ozzy_chip {
 /* bus.c */
 int ozzy_urb_init(struct ozzy_urb_bus *bus, struct ozzy_chip *chip);
 int ozzy_urb_add_pipe(struct ozzy_urb_bus *bus, const struct usb_endpoint_descriptor *epd);
-void ozzy_urb_kill(struct ozzy_urb_bus *bus);
 void ozzy_urb_wait_completions(struct ozzy_urb_bus *bus);
 void ozzy_urb_free(struct ozzy_urb_bus *bus);
 

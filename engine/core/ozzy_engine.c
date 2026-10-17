@@ -91,10 +91,35 @@ uint32_t ozzy_engine_setting_quirks(const struct ozzy_engine *e)
 	return e->ops->setting_quirks ? e->ops->setting_quirks(e) : e->model->quirks;
 }
 
+unsigned int ozzy_engine_setting_values(const struct ozzy_engine *e, unsigned int id)
+{
+	return ozzy_setting_values(ozzy_engine_setting_quirks(e), e->model->in_channels, e->model->out_channels, id);
+}
+
 bool ozzy_engine_has_setting(const struct ozzy_engine *e, unsigned int id)
 {
-	return ozzy_setting_values(ozzy_engine_setting_quirks(e), e->model->in_channels,
-				   e->model->out_channels, id) > 0;
+	return ozzy_engine_setting_values(e, id) > 0;
+}
+
+enum ozzy_setting_change ozzy_engine_change_setting(struct ozzy_engine *e, unsigned int id, unsigned int value)
+{
+	if (id >= OZZY_NUM_SETTINGS || value >= ozzy_engine_setting_values(e, id))
+		return OZZY_SETTING_INVALID;
+	if (e->settings.value[id] == value)
+		return OZZY_SETTING_SAME;
+	ozzy_log("%s: %s", ozzy_setting_descs[id].name, ozzy_setting_descs[id].value_names[value]);
+	ozzy_engine_set_setting(e, id, (uint8_t)value);
+	return ozzy_setting_descs[id].kind == OZZY_SETTING_DEVICE ? OZZY_SETTING_RESTART : OZZY_SETTING_ROUTED;
+}
+
+bool ozzy_engine_restart(struct ozzy_engine *e)
+{
+	ozzy_engine_suspend(e);
+	if (ozzy_engine_start(e))
+		return true;
+	ozzy_log("restart failed");
+	ozzy_engine_stop(e);
+	return false;
 }
 
 void ozzy_engine_set_setting(struct ozzy_engine *e, unsigned int id, uint8_t value)

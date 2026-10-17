@@ -34,6 +34,7 @@ struct fake_bus {
 	bool timer_on;
 	uint64_t progress[OZZY_PCM_DIRS];  /* last pcm_progress */
 	bool rings;                        /* has pcm_progress (a ring platform) */
+	struct ozzy_engine *engine;        /* of the last completion: abort completes to it */
 };
 
 /* A bus on @shm; @rings: a platform that attaches PCM rings */

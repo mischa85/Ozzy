@@ -85,7 +85,7 @@ static int ozzy_pcm_close(struct snd_pcm_substream *substream)
 	return 0;
 }
 
-/* Process context: a new rate restarts the engine (suspend, kill, handshake at the rate) */
+/* Process context: a new rate restarts the engine (the handshake at the rate) */
 static int ozzy_pcm_prepare(struct snd_pcm_substream *substream)
 {
 	struct ozzy_chip *chip = snd_pcm_substream_chip(substream);

@@ -71,6 +71,11 @@ static bool midi_start(struct ozzy_engine *e)
 	return true;
 }
 
+static void midi_suspend(struct ozzy_engine *e)
+{
+	to_midi(e)->running = false;
+}
+
 static void midi_stop(struct ozzy_engine *e)
 {
 	volatile struct ozzy_shared_memory *shm = e->shm;
@@ -143,7 +148,7 @@ static void midi_complete(struct ozzy_engine *e, uint8_t pipe, void *xfer, int s
 {
 	struct usb_midi_engine *me = to_midi(e);
 
-	if (!e->bus || !me->running)
+	if (!e->bus || !me->running || status == OZZY_STATUS_ABORTED)
 		return;
 
 	if (pipe == EP_MIDI_IN) {
@@ -180,7 +185,7 @@ static const struct ozzy_engine_ops usb_midi_engine_ops = {
 	midi_set_endpoint,
 	midi_start,
 	midi_stop,
-	NULL,                   /* suspend: no settings */
+	midi_suspend,
 	midi_complete,
 	NULL,                   /* isoc_complete */
 	midi_out_pending,

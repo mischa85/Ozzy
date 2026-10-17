@@ -56,12 +56,13 @@ void kbus_release(struct kmdf_bus* kb);
 
 /* The USB target and its configuration (EvtDevicePrepareHardware) */
 NTSTATUS kbus_create(struct kmdf_bus* kb, WDFDEVICE device);
-/* Claim the profile's interfaces with its alternate setting, find each pipe, report it with
- * ozzy_engine_set_endpoint and create its requests on @shm (the transfers' memory) */
+/* Claim the profile's interfaces with its alternate setting, list their endpoints for
+ * ozzy_engine_bind_endpoints and create the requests of the pipes it picks, on @shm (the
+ * transfers' memory) */
 NTSTATUS kbus_configure(struct kmdf_bus* kb, void* shm, size_t shm_size);
 
-/* Cancel every request in flight and wait for them (the engine has stopped resubmitting);
- * kbus_start_io makes the pipes usable again */
+/* Power: cancel every request in flight and wait for them, and refuse new ones (D0Exit, after
+ * ozzy_engine_stop); kbus_start_io makes the pipes usable again (D0Entry) */
 void kbus_stop_io(struct kmdf_bus* kb);
 void kbus_start_io(struct kmdf_bus* kb);
 

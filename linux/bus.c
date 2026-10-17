@@ -247,6 +247,12 @@ static uint64_t ozzy_urb_time(void *ctx)
 	return ktime_get_ns();
 }
 
+/* Process context: kill everything in flight; the engine has stopped resubmitting */
+static void ozzy_urb_abort(void *ctx)
+{
+	usb_kill_anchored_urbs(&to_lbus(ctx)->anchor);
+}
+
 static const struct ozzy_bus_ops ozzy_urb_ops = {
 	.submit       = ozzy_urb_submit,
 	.submit_isoc  = ozzy_urb_submit_isoc,
@@ -257,6 +263,7 @@ static const struct ozzy_bus_ops ozzy_urb_ops = {
 	.pcm_progress = ozzy_urb_pcm_progress,
 	.sleep_ms     = ozzy_urb_sleep,
 	.time         = ozzy_urb_time,
+	.abort        = ozzy_urb_abort,
 };
 
 int ozzy_urb_init(struct ozzy_urb_bus *bus, struct ozzy_chip *chip)
@@ -312,13 +319,6 @@ int ozzy_urb_add_pipe(struct ozzy_urb_bus *bus, const struct usb_endpoint_descri
 	}
 	bus->num_pipes++;
 	return 0;
-}
-
-/* Process context: kill everything in flight (the engine has stopped resubmitting) */
-void ozzy_urb_kill(struct ozzy_urb_bus *bus)
-{
-	ozzy_urb_stop_timer(bus);
-	usb_kill_anchored_urbs(&bus->anchor);
 }
 
 /*

@@ -172,6 +172,17 @@ static void wbus_stop_timer(void* ctx) {
     wb->timer_thread = NULL;
 }
 
+/* Abort what is in flight and wait until the completion thread has delivered it */
+static void wbus_abort(void* ctx) {
+    struct winusb_bus* wb = ctx;
+    for (int s = 0; s < WBUS_PIPE_SLOTS; s++) {
+        if (wb->pipe_intf[s]) WinUsb_AbortPipe(wb->pipe_intf[s], wb->pipe_addr[s]);
+    }
+    for (int i = 0; i < 2000 && InterlockedCompareExchange(&wb->pending, 0, 0) > 0; i++) Sleep(1);
+    LONG pending = InterlockedCompareExchange(&wb->pending, 0, 0);
+    if (pending > 0) wbus_log("[WinUsbBus] %ld transfers still pending after abort", pending);
+}
+
 /* No isochronous transfers (WinUSB can't give each packet its own length) and no PCM rings
  * (the harness plays the HAL's part of the shared memory) */
 static const struct ozzy_bus_ops wbus_ops = {
@@ -182,6 +193,7 @@ static const struct ozzy_bus_ops wbus_ops = {
     .stop_timer = wbus_stop_timer,
     .sleep_ms = wbus_sleep,
     .time = wbus_time,
+    .abort = wbus_abort,
 };
 
 bool wbus_open(struct winusb_bus* wb, const wchar_t* path, struct ozzy_engine* engine) {
@@ -232,13 +244,8 @@ bool wbus_open(struct winusb_bus* wb, const wchar_t* path, struct ozzy_engine* e
 void wbus_close(struct winusb_bus* wb) {
     wbus_stop_timer(wb);
 
-    /* Abort what is in flight; the engine has stopped resubmitting (ozzy_engine_stop first) */
-    for (int s = 0; s < WBUS_PIPE_SLOTS; s++) {
-        if (wb->pipe_intf[s]) WinUsb_AbortPipe(wb->pipe_intf[s], wb->pipe_addr[s]);
-    }
-    for (int i = 0; i < 2000 && InterlockedCompareExchange(&wb->pending, 0, 0) > 0; i++) Sleep(1);
-    LONG pending = InterlockedCompareExchange(&wb->pending, 0, 0);
-    if (pending > 0) wbus_log("[WinUsbBus] %ld transfers still pending at close", pending);
+    /* Anything still in flight (ozzy_engine_stop has aborted what the engine had) */
+    wbus_abort(wb);
 
     if (wb->completion_thread) {
         PostQueuedCompletionStatus(wb->port, 0, quit_key, NULL);

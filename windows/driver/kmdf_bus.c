@@ -158,6 +158,13 @@ static void kbus_pcm_progress(void* ctx, enum ozzy_pcm_dir dir, uint64_t frames)
     if (stream) wstream_progress(stream, frames, kbus_time(kb));
 }
 
+/* PASSIVE_LEVEL: cancel what is in flight and wait for it, then make the pipes usable again */
+static void kbus_abort(void* ctx) {
+    struct kmdf_bus* kb = ctx;
+    kbus_stop_io(kb);
+    kbus_start_io(kb);
+}
+
 /* Isochronous URBs (per-packet lengths, ring wrap) come with the Ploytec isochronous family */
 static const struct ozzy_bus_ops kbus_ops = {
     .submit = kbus_submit,
@@ -168,6 +175,7 @@ static const struct ozzy_bus_ops kbus_ops = {
     .pcm_progress = kbus_pcm_progress,
     .sleep_ms = kbus_sleep,
     .time = kbus_time,
+    .abort = kbus_abort,
 };
 
 void kbus_init(struct kmdf_bus* kb, struct ozzy_engine* engine) {

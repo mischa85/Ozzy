@@ -66,6 +66,9 @@ enum ozzy_pcm_dir {
  *                shared memory itself).
  * @sleep_ms:     sleep (handshake only, never from a completion)
  * @time:         the platform's clock (macOS mach_absolute_time, Windows QPC)
+ * @abort:        cancel every transfer in flight and return once their completions have run
+ *                (with OZZY_STATUS_ABORTED); the pipes stay usable. Process context, never
+ *                from a completion. The engine calls it when it stops or suspends.
  */
 struct ozzy_bus_ops {
 	bool (*submit)(void *ctx, uint8_t pipe, void *buf, uint32_t size, void *xfer);
@@ -79,6 +82,7 @@ struct ozzy_bus_ops {
 	void (*pcm_progress)(void *ctx, enum ozzy_pcm_dir dir, uint64_t frames);
 	void (*sleep_ms)(void *ctx, unsigned int ms);
 	uint64_t (*time)(void *ctx);
+	void (*abort)(void *ctx);
 };
 
 struct ozzy_bus {
@@ -113,6 +117,11 @@ static inline void ozzy_bus_pcm_progress(const struct ozzy_bus *bus, enum ozzy_p
 {
 	if (bus->ops->pcm_progress)
 		bus->ops->pcm_progress(bus->ctx, dir, frames);
+}
+
+static inline void ozzy_bus_abort(const struct ozzy_bus *bus)
+{
+	bus->ops->abort(bus->ctx);
 }
 
 static inline uint64_t ozzy_bus_time(const struct ozzy_bus *bus)

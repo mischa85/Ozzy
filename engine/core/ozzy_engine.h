@@ -11,7 +11,8 @@
  *      endpoints for ozzy_engine_bind_endpoints() and opens the pipes it picks
  *   3. calls ozzy_engine_attach() with its bus and the shared memory, then ozzy_engine_start()
  *   4. hands every completion to ozzy_engine_complete() / ozzy_engine_isoc_complete()
- *   5. calls ozzy_engine_stop(), aborts its pipes, and frees the memory (no destructor)
+ *   5. calls ozzy_engine_stop(), which aborts every transfer (ozzy_bus_ops.abort), and frees
+ *      the memory (no destructor)
  *
  * Copyright (C) 2024 Marcel Bierling <marcel@hackerman.art>
  */
@@ -147,8 +148,9 @@ struct ozzy_allocator {
 struct ozzy_engine;
 
 /*
- * struct ozzy_engine_ops - One per device family. Optional: @suspend, @isoc_complete,
- * @midi_out_pending, @timer, @setting_quirks.
+ * struct ozzy_engine_ops - One per device family. Optional: @isoc_complete, @midi_out_pending,
+ * @timer, @setting_quirks. @stop and @suspend end resubmitting (completions
+ * with OZZY_STATUS_ABORTED resubmit nothing); the wrappers then abort what is in flight.
  */
 struct ozzy_engine_ops {
 	void (*set_endpoint)(struct ozzy_engine *e, enum ozzy_pipe_role role, uint8_t address,
@@ -259,21 +261,33 @@ static inline bool ozzy_engine_start(struct ozzy_engine *e)
 	return e->ops->start(e);
 }
 
+/* No more transfers: stop resubmitting and the timer, abort what is in flight, and tell the
+ * HAL the device is gone. Process context. */
 static inline void ozzy_engine_stop(struct ozzy_engine *e)
 {
 	e->ops->stop(e);
+	if (e->bus)
+		ozzy_bus_abort(e->bus);
 }
 
 /*
- * Restart for changed settings: stop resubmitting transfers and the timer; the platform then
- * aborts every pipe and calls ozzy_engine_start() again. Unlike stop it keeps hardware_present
- * and driver_ready, so the HAL keeps the device published (CoreAudio has stopped IO).
+ * Pause for a restart (ozzy_engine_restart, or the platform's own around a USB reset): like
+ * stop, but hardware_present and driver_ready stay set, so the HAL keeps the device published
+ * (CoreAudio has stopped IO). ozzy_engine_start() runs the handshake again. Process context.
  */
 static inline void ozzy_engine_suspend(struct ozzy_engine *e)
 {
-	if (e->ops->suspend)
-		e->ops->suspend(e);
+	e->ops->suspend(e);
+	if (e->bus)
+		ozzy_bus_abort(e->bus);
 }
+
+/*
+ * ozzy_engine_restart - Take the rate and device settings that changed: suspend, then the
+ * handshake again. False if the device didn't take it; the engine is stopped then. Process
+ * context, not concurrently with itself or stop.
+ */
+bool ozzy_engine_restart(struct ozzy_engine *e);
 
 /* A transfer completed. Transfer type bits as bmAttributes & 3. */
 static inline void ozzy_engine_complete(struct ozzy_engine *e, uint8_t pipe, void *xfer, int status, uint32_t bytes)
@@ -346,9 +360,21 @@ static inline bool ozzy_engine_ring_platform(const struct ozzy_engine *e)
 /* The model's quirks as far as settings go (a family drops what its transport can't do) */
 uint32_t ozzy_engine_setting_quirks(const struct ozzy_engine *e);
 bool ozzy_engine_has_setting(const struct ozzy_engine *e, unsigned int id);
-/* A device setting takes effect with the next start (ozzy_engine_suspend first); a route
- * setting at once */
+/* How many values setting @id has on this device (0: it doesn't have it) */
+unsigned int ozzy_engine_setting_values(const struct ozzy_engine *e, unsigned int id);
+/* A device setting takes effect with the next start (ozzy_engine_restart); a route setting at
+ * once. No checks: ozzy_engine_change_setting is the one with them. */
 void ozzy_engine_set_setting(struct ozzy_engine *e, unsigned int id, uint8_t value);
+
+enum ozzy_setting_change {
+	OZZY_SETTING_INVALID = -1,   /* the device has no such setting or value */
+	OZZY_SETTING_SAME = 0,       /* the value it already has */
+	OZZY_SETTING_ROUTED = 1,     /* a route: applied, the next packet has it */
+	OZZY_SETTING_RESTART = 2,    /* a device setting: ozzy_engine_restart sends it */
+};
+
+/* A setting from the user (ALSA control, the HAL, ozzyctl): checked, logged and set */
+enum ozzy_setting_change ozzy_engine_change_setting(struct ozzy_engine *e, unsigned int id, unsigned int value);
 
 /* For the families: publish @e->settings and the clock status of the handshake start() just ran */
 void ozzy_engine_publish_settings(struct ozzy_engine *e, const struct ozzy_clock_status *clock);

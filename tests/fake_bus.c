@@ -101,14 +101,49 @@ static uint64_t fb_time(void *ctx)
 	return ++((struct fake_bus *)ctx)->ticks;
 }
 
+/* Everything queued completes as aborted (to the engine of the last completion, if any) */
+static void fb_abort(void *ctx)
+{
+	struct fake_bus *fb = ctx;
+	struct fake_xfer x;
+	unsigned int n = 0;
+
+	while (fake_bus_pop(fb, &x)) {
+		n++;
+		if (!fb->engine)
+			continue;
+		if (x.isoc)
+			ozzy_engine_isoc_complete(fb->engine, x.pipe, x.xfer, OZZY_STATUS_ABORTED, x.packets, x.count);
+		else
+			ozzy_engine_complete(fb->engine, x.pipe, x.xfer, OZZY_STATUS_ABORTED, 0);
+	}
+	if (fb->trace)
+		fprintf(fb->trace, "abort %u\n", n);
+}
+
 static const struct ozzy_bus_ops fake_ops = {
-	fb_submit, fb_submit_isoc, fb_control, fb_clear_halt, fb_start_timer, fb_stop_timer,
-	fb_pcm_progress, fb_sleep, fb_time,
+	.submit = fb_submit,
+	.submit_isoc = fb_submit_isoc,
+	.control = fb_control,
+	.clear_halt = fb_clear_halt,
+	.start_timer = fb_start_timer,
+	.stop_timer = fb_stop_timer,
+	.pcm_progress = fb_pcm_progress,
+	.sleep_ms = fb_sleep,
+	.time = fb_time,
+	.abort = fb_abort,
 };
 
 static const struct ozzy_bus_ops fake_ops_no_rings = {
-	fb_submit, fb_submit_isoc, fb_control, fb_clear_halt, fb_start_timer, fb_stop_timer,
-	NULL, fb_sleep, fb_time,
+	.submit = fb_submit,
+	.submit_isoc = fb_submit_isoc,
+	.control = fb_control,
+	.clear_halt = fb_clear_halt,
+	.start_timer = fb_start_timer,
+	.stop_timer = fb_stop_timer,
+	.sleep_ms = fb_sleep,
+	.time = fb_time,
+	.abort = fb_abort,
 };
 
 void fake_bus_init(struct fake_bus *fb, struct ozzy_shared_memory *shm, bool rings, FILE *trace)
@@ -139,6 +174,7 @@ void fake_bus_complete(struct fake_bus *fb, struct ozzy_engine *e, struct fake_x
 {
 	uint32_t i;
 
+	fb->engine = e;
 	if ((x->pipe & 0x80) && fill)
 		fill(x, arg);
 	if (x->isoc) {

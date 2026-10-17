@@ -14,18 +14,12 @@
 
 #include "ozzy.h"
 
-static unsigned int setting_count(const struct ozzy_chip *chip, unsigned int id)
-{
-	return ozzy_setting_values(ozzy_engine_setting_quirks(chip->engine), chip->model->in_channels,
-				   chip->model->out_channels, id);
-}
-
 static int setting_info(struct snd_kcontrol *kctl, struct snd_ctl_elem_info *uinfo)
 {
 	struct ozzy_chip *chip = snd_kcontrol_chip(kctl);
 	const struct ozzy_setting_desc *desc = &ozzy_setting_descs[kctl->private_value];
 
-	return snd_ctl_enum_info(uinfo, 1, setting_count(chip, kctl->private_value), desc->value_names);
+	return snd_ctl_enum_info(uinfo, 1, ozzy_engine_setting_values(chip->engine, kctl->private_value), desc->value_names);
 }
 
 static int setting_get(struct snd_kcontrol *kctl, struct snd_ctl_elem_value *ucontrol)
@@ -40,23 +34,18 @@ static int setting_get(struct snd_kcontrol *kctl, struct snd_ctl_elem_value *uco
 static int setting_put(struct snd_kcontrol *kctl, struct snd_ctl_elem_value *ucontrol)
 {
 	struct ozzy_chip *chip = snd_kcontrol_chip(kctl);
-	unsigned int id = kctl->private_value;
-	unsigned int value = ucontrol->value.enumerated.item[0];
+	enum ozzy_setting_change change;
 	int ret = 0;
 
-	if (value >= setting_count(chip, id))
-		return -EINVAL;
-
 	mutex_lock(&chip->lock);
-	if (chip->engine->settings.value[id] == value) {
-		mutex_unlock(&chip->lock);
-		return 0;
-	}
-	chip_log(chip, "%s: %s", ozzy_setting_descs[id].name, ozzy_setting_descs[id].value_names[value]);
-	ozzy_engine_set_setting(chip->engine, id, (uint8_t)value);
-	if (ozzy_setting_descs[id].kind == OZZY_SETTING_DEVICE && chip->running)
+	change = ozzy_engine_change_setting(chip->engine, kctl->private_value, ucontrol->value.enumerated.item[0]);
+	if (change == OZZY_SETTING_RESTART && chip->running)
 		ret = ozzy_chip_restart(chip);
 	mutex_unlock(&chip->lock);
+	if (change == OZZY_SETTING_INVALID)
+		return -EINVAL;
+	if (change == OZZY_SETTING_SAME)
+		return 0;
 
 	if (chip->clock_lock_kctl)
 		snd_ctl_notify(chip->card, SNDRV_CTL_EVENT_MASK_VALUE, &chip->clock_lock_kctl->id);

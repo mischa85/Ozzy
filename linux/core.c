@@ -5,8 +5,7 @@
  * The device's family engine (engine/) says which interfaces and endpoints it needs; this
  * claims them, gives the engine its bus and memory, runs the handshake and puts ALSA PCM,
  * rawmidi and the settings controls on top. The device streams from probe to disconnect; a
- * rate change or a device setting restarts the engine (suspend, kill every URB, start: no USB
- * reset).
+ * rate change or a device setting restarts the engine (ozzy_engine_restart: no USB reset).
  *
  * Copyright (C) 2024 Marcel Bierling <marcel@hackerman.art>
  */
@@ -50,25 +49,15 @@ MODULE_DEVICE_TABLE(usb, ozzy_id_table);
 
 /*
  * ozzy_chip_restart - Process context, chip->lock held: apply the engine's rate and settings.
- * Running streams stop with an xrun; the engine stops resubmitting, every URB is killed,
- * then the handshake runs again with what changed.
+ * Running streams stop with an xrun, then the engine restarts with what changed.
  */
 int ozzy_chip_restart(struct ozzy_chip *chip)
 {
 	ozzy_pcm_stop_streams(chip);
-	ozzy_engine_suspend(chip->engine);
-	ozzy_urb_kill(&chip->bus);
 	if (chip->gone)
 		return -ENODEV;
-	if (!ozzy_engine_start(chip->engine)) {
-		chip_err(chip, "restart failed");
-		chip->running = false;
-		ozzy_engine_stop(chip->engine);
-		ozzy_urb_kill(&chip->bus);
-		return -EIO;
-	}
-	chip->running = true;
-	return 0;
+	chip->running = ozzy_engine_restart(chip->engine);
+	return chip->running ? 0 : -EIO;
 }
 
 /* Claim the profile's interfaces (the probed one is interface 0) and select its alternate setting */
@@ -258,7 +247,6 @@ static int ozzy_chip_probe(struct usb_interface *intf, const struct usb_device_i
 
 err_stop:
 	ozzy_engine_stop(chip->engine);
-	ozzy_urb_kill(&chip->bus);
 err_intf:
 	ozzy_chip_release_interfaces(chip);
 err_card:
@@ -278,7 +266,6 @@ static void ozzy_chip_disconnect(struct usb_interface *intf)
 	chip->gone = true;
 	chip->running = false;
 	ozzy_engine_stop(chip->engine);
-	ozzy_urb_kill(&chip->bus);
 	mutex_unlock(&chip->lock);
 
 	snd_card_disconnect(chip->card);
@@ -296,7 +283,6 @@ static int ozzy_chip_pre_reset(struct usb_interface *intf)
 	mutex_lock(&chip->lock);
 	ozzy_pcm_stop_streams(chip);
 	ozzy_engine_suspend(chip->engine);
-	ozzy_urb_kill(&chip->bus);
 	return 0;
 }
 

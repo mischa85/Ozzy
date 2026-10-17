@@ -233,12 +233,17 @@ static const struct ozzy_pcm_ring *take_pcm_ring(struct ploytec_engine *pe, enum
 static void encode_pcm_out(struct ploytec_engine *pe, uint32_t idx)
 {
 	const struct ozzy_pcm_ring *ring = take_pcm_ring(pe, OZZY_PCM_OUT);
-	uint8_t *packet;
+	uint8_t *packet = (uint8_t *)pe->base.shm->audio.output_buffer + (idx % OZZY_NUM_PACKETS) * OZZY_MAX_PACKET_SIZE;
 	uint32_t frame_bytes, r, f;
 
-	if (!ring || !pe->encode)
+	if (!ring || !pe->encode) {
+		/* A platform with rings and none attached (stopped): silence, as Linux's
+		 * init_out_urb, not the last audio encoded into this slot */
+		if (pe->base.bus->ops->pcm_progress)
+			for (f = 0; f < PLOYTEC_FRAMES_PER_PKT; f++)
+				memset(packet + ploytec_out_frame_offset(pe->out_layout, f), 0, PLOYTEC_OUT_FRAME_SIZE);
 		return;
-	packet = (uint8_t *)pe->base.shm->audio.output_buffer + (idx % OZZY_NUM_PACKETS) * OZZY_MAX_PACKET_SIZE;
+	}
 	frame_bytes = ring->channels * 3;
 	r = (uint32_t)(pe->pcm_pos[OZZY_PCM_OUT] % ring->frames);
 	for (f = 0; f < PLOYTEC_FRAMES_PER_PKT; f++) {

@@ -53,7 +53,9 @@ enum ozzy_pcm_dir {
  *                for a call in progress. Optional.
  * @pcm_progress: the engine moved PCM through an attached ring (ozzy_engine_set_pcm_ring):
  *                @frames is the ring position after the packet. From the completion path.
- *                Optional.
+ *                Optional: a platform that attaches rings has it, and without a ring
+ *                attached its PCM out is silence (macOS has none: the HAL fills the
+ *                shared memory itself).
  * @sleep_ms:     sleep (handshake only, never from a completion)
  * @time:         the platform's clock (macOS mach_absolute_time, Windows QPC)
  */

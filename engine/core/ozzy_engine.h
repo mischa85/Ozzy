@@ -93,6 +93,8 @@ struct ozzy_engine_ops {
  * @in_route/@out_route: the route settings' routing, which the ring path applies (on macOS
  *                the HAL routes); updated from ozzy_engine_set_setting() without a lock, as
  *                on Linux: a packet during a change may mix the old and new routing
+ * @rate:         the rate start() asks for (ozzy_engine_set_rate; 0: the highest the device
+ *                lists)
  * @pcm_ring_set: ozzy_engine_set_pcm_ring(); the completion path picks it up
  */
 struct ozzy_engine {
@@ -104,6 +106,7 @@ struct ozzy_engine {
 	struct ozzy_settings settings;
 	struct ozzy_route in_route;
 	struct ozzy_route out_route;
+	uint32_t rate;
 	const struct ozzy_pcm_ring *volatile pcm_ring_set[OZZY_PCM_DIRS];
 };
 
@@ -176,6 +179,23 @@ static inline void ozzy_engine_set_pcm_ring(struct ozzy_engine *e, enum ozzy_pcm
 					    const struct ozzy_pcm_ring *ring)
 {
 	ozzy_store_release_ptr((const void *volatile *)&e->pcm_ring_set[dir], ring);
+}
+
+/*
+ * The sample rate the next ozzy_engine_start() asks for, in Hz (0, or one the model doesn't
+ * list: the highest it lists). Like a device setting, a running engine takes it with a
+ * restart (ozzy_engine_suspend, abort, ozzy_engine_start). Locked to S/PDIF the device runs
+ * at the lock rate instead; shm->audio.sample_rate says what it runs at.
+ */
+static inline void ozzy_engine_set_rate(struct ozzy_engine *e, uint32_t rate)
+{
+	e->rate = rate;
+}
+
+/* The rate to ask for: the requested one if the model lists it, else @fallback */
+static inline uint32_t ozzy_engine_start_rate(const struct ozzy_engine *e, uint32_t fallback)
+{
+	return e->rate && ozzy_device_has_rate(e->model, e->rate) ? e->rate : fallback;
 }
 
 /* --- Device settings (common/ozzy_settings.h) --- */

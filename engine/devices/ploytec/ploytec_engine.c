@@ -131,7 +131,7 @@ static bool ploytec_start(struct ozzy_engine *e)
 
 	/* 2. The handshake, with the settings; locked to S/PDIF it sets the lock rate */
 	memset(&hs, 0, sizeof(hs));
-	if (ploytec_handshake(&xone_host_ops, (void *)e->bus, pe->default_rate, model->quirks,
+	if (ploytec_handshake(&xone_host_ops, (void *)e->bus, ozzy_engine_start_rate(e, pe->default_rate), model->quirks,
 			      &e->settings, &hs) < 0)
 		return false;
 	if (!ozzy_device_has_rate(model, hs.rate)) {

@@ -24,7 +24,7 @@ extern "C" {
 /*
  * struct ploytec_isoc_engine
  * @sample_rate:   what the device runs at (the S/PDIF lock rate while locked)
- * @default_rate:  what start asks for: the highest rate
+ * @default_rate:  the highest rate (what start asks for without a request)
  * @*_addr etc.:   the endpoints as the platform found them
  * @midi_out_busy: one MIDI OUT transfer in flight
  */

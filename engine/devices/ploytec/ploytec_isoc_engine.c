@@ -85,7 +85,7 @@ static bool isoc_start(struct ozzy_engine *e)
 	eps.pcm_in = pe->in_addr;
 	eps.pcm_out = pe->out_addr;
 	memset(&hs, 0, sizeof(hs));
-	if (ploytec_handshake_eps(&ploytec_bus_host_ops, (void *)e->bus, pe->default_rate, &eps, model->quirks,
+	if (ploytec_handshake_eps(&ploytec_bus_host_ops, (void *)e->bus, ozzy_engine_start_rate(e, pe->default_rate), &eps, model->quirks,
 				  &e->settings, &hs) < 0)
 		return false;
 	if (!ozzy_device_has_rate(model, hs.rate)) {

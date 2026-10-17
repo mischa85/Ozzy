@@ -22,7 +22,7 @@ extern "C" {
  * struct ploytec_engine
  * @hw_sample_time: frames of completed PCM out packets (the device's clock)
  * @sample_rate:    what the device runs at (the S/PDIF lock rate while locked)
- * @default_rate:   what start asks for: the highest rate the device lists
+ * @default_rate:   the highest rate the device lists (what start asks for without a request)
  * @running:        completions resubmit (cleared by stop and suspend)
  * @pcm_in_int1024: PCM IN is interrupt, wMaxPacketSize 1024 (ploytec_midi.h)
  * @pcm_ring:       the rings (ozzy_engine_set_pcm_ring) as the completion path has them

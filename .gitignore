@@ -43,3 +43,6 @@ DerivedData/
 
 # Logs
 *.log
+
+# ozzyctl binary
+ozzyctl/ozzyctl

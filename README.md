@@ -167,6 +167,8 @@ The installer automatically:
 
 **Leaving devices out:** `OZZY_DISABLE="TascamUS144 NumarkNS7" ./install.command` builds without those devices (names are the keys in [`common/ozzy_devices.def`](common/ozzy_devices.def)), so another driver can keep them.
 
+**Device settings:** the installer also puts `ozzyctl` in `/usr/local/bin`. `ozzyctl` lists the devices, `ozzyctl show` a device's settings (clock source, S/PDIF out mode, routing, for the devices that have them) and `ozzyctl set clock-source internal` changes one. The clock source is also in Audio MIDI Setup.
+
 **Uninstall:** Run `macos/uninstall.command`
 
 **Troubleshooting:** Run `macos/debuglogs.command` to collect diagnostic logs
@@ -184,6 +186,8 @@ The installer automatically:
     ```bash
     sudo modprobe snd-usb-ozzy
     ```
+
+**Device settings** are ALSA controls ("Clock Source", "IEC958 Playback Mode", "Output 1-2 Source", ..., for the devices that have them): `amixer -c <card> contents`, `alsamixer`, kept across reboots by `alsactl store`.
 
 **Leaving devices out:** `make OZZY_DISABLE="NumarkNS7 ReloopIQ2MIDI"` builds without those devices (names are the keys in [`common/ozzy_devices.def`](common/ozzy_devices.def)). By default the Linux build leaves out the Tascam US-144 and US-144MKII, which the kernel's own drivers handle; `make OZZY_DISABLE=` builds them in.
 

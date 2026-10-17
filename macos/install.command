@@ -187,7 +187,7 @@ echo "======================================================"
 
 # Compile Kext
 echo ""
-echo "🔨 [1/3] Compiling Kernel Extension..."
+echo "🔨 [1/4] Compiling Kernel Extension..."
 
 # Kext Configuration
 KEXT_NAME="OzzyKext"
@@ -287,7 +287,7 @@ echo "✅ Kernel Extension compiled and signed"
 
 # Compile HAL
 echo ""
-echo "🔨 [2/3] Compiling HAL Driver..."
+echo "🔨 [2/4] Compiling HAL Driver..."
 xcodebuild -project "Ozzy.xcodeproj" \
            -scheme "OzzyHAL" \
            -configuration Release \
@@ -303,7 +303,7 @@ echo "✅ HAL Driver compiled and signed"
 
 # Compile MIDI
 echo ""
-echo "🔨 [3/3] Compiling MIDI Driver..."
+echo "🔨 [3/4] Compiling MIDI Driver..."
 xcodebuild -project "Ozzy.xcodeproj" \
            -scheme "OzzyMIDI" \
            -configuration Release \
@@ -315,6 +315,15 @@ xcodebuild -project "Ozzy.xcodeproj" \
 MIDI_PATH="$DIR/Build/Release/OzzyMIDI.plugin"
 codesign --sign "$CODE_SIGN_IDENTITY" --force --options runtime "$MIDI_PATH"
 echo "✅ MIDI Driver compiled and signed"
+
+# Compile ozzyctl (settings from the command line)
+echo ""
+echo "🔨 [4/4] Compiling ozzyctl..."
+if ! make -s -C "$DIR/../ozzyctl" > /dev/null; then
+    echo "❌ Error: building ozzyctl failed"
+    exit 1
+fi
+echo "✅ ozzyctl compiled"
 
 echo ""
 echo "======================================================"
@@ -387,6 +396,11 @@ sudo cp -R "$MIDI_PATH" "/Library/Audio/MIDI Drivers/"
 sudo chown -R root:wheel "/Library/Audio/MIDI Drivers/OzzyMIDI.plugin"
 sudo chmod -R 755 "/Library/Audio/MIDI Drivers/OzzyMIDI.plugin"
 sudo touch "/Library/Audio/MIDI Drivers"
+
+# Install ozzyctl
+sudo mkdir -p /usr/local/bin
+sudo install -m 755 "$DIR/../ozzyctl/ozzyctl" /usr/local/bin/ozzyctl
+echo "✅ ozzyctl installed to /usr/local/bin"
 echo "✅ MIDI Driver installed"
 
 echo ""

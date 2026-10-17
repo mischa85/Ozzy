@@ -1,8 +1,11 @@
 # Device settings: plan and facts (clock source, digital I/O, routing)
 
 Status: clock source, S/PDIF out mode, routing (US-144MKII, US-600, US-200) and the ESU1808 S/PDIF
-mirror pair implemented 2026-10-17, untested on hardware; US-3xx mixer modes, reverb/levels and
-firmware update are still plan. Written 2026-10-17 at the end of the device-list work; start here.
+mirror pair implemented 2026-10-17, untested on hardware, with `ozzyctl` for them. Every setting of
+the devices Ozzy supports is done. The rest of the table belongs to devices or tools Ozzy doesn't
+have yet: the US-3xx mixer modes and the 'B' reverb buffer, 'M' routing table and 'T' mixer values
+(Tascam US-322/US-366, not in the device list; #91), and the firmware updater (#21, protocol not
+reverse engineered). Written 2026-10-17 at the end of the device-list work; start here.
 
 ## Goal
 
@@ -165,9 +168,18 @@ keeps `pcmTo24LSB`: no effect found. Needs a capture of the official driver or a
 no digital lock (`chooseInputPostprocessor`, AjExtData+0x28 = 0), so with an S/PDIF lock inputs
 3/4 probably carry the digital input. Ozzy offers 2 inputs; not changed (untested).
 
-**App interface on macOS**: `kOzzyPropertySetting` ('ozst') on the device object, qualifier UInt32
-setting id, data UInt32 value, settable, for every setting the device has: device settings go
-through the configuration change to the kext, the rest apply in the HAL at once.
+**App interface on macOS**: `kOzzyPropertySetting` ('ozst') on the device object, declared in
+`kAudioObjectPropertyCustomPropertyInfoList` as property-list data without qualifier (a plug-in's
+custom properties only cross from coreaudiod to a client with a CFString or CFPropertyList type;
+the first version, raw UInt32s, couldn't have worked). Get: dictionary setting name -> number for
+every setting the device has, plus "Clock Locked" / "Lock Rate"; set: dictionary of one or more
+name -> number. Device settings go through the configuration change to the kext, the rest apply in
+the HAL at once.
+
+**ozzyctl** (`ozzyctl/`): console tool, platform-neutral core (`ozzyctl.c`: list / show / set, names
+as slugs of `ozzy_setting_descs`) plus a backend per platform (`ozzyctl.h`); macOS backend through
+`kOzzyPropertySetting`, installed by `install.command`. Linux has the ALSA controls (amixer); a
+Linux/Windows backend can follow. `set` waits until a device setting reads back changed.
 
 ## Open
 

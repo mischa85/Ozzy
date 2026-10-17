@@ -14,7 +14,8 @@ PloytecIsocEngine::PloytecIsocEngine(const struct ozzy_device* device) {
     // Channels and rates per device (common/ozzy_devices.def); run at the highest rate
     uint32_t rates[OZZY_MAX_RATES];
     mModel = device;
-    mSampleRate = rates[ozzy_device_rates(device, rates) - 1];
+    mDefaultRate = rates[ozzy_device_rates(device, rates) - 1];
+    mSampleRate = mDefaultRate;
 
     // Endpoints found by type, as both platforms describe them (ploytec_defs.h)
     mProfile.interfaceCount = PLOYTEC_NUM_INTERFACES;
@@ -51,20 +52,30 @@ bool PloytecIsocEngine::Start() {
     // 1. What the HAL needs: a plain frame ring for output, Ploytec packets for input
     uint32_t frameBytes = mModel->out_channels * 3;
     shm->audio.deviceFlags = kOzzyDeviceFlagPlainOutput;
-    shm->audio.sampleRate = mSampleRate;
     shm->audio.framesPerPacket = PLOYTEC_FRAMES_PER_PKT;
     shm->audio.samplesPerPacket = PLOYTEC_FRAMES_PER_OUT_SUBPKT;
     shm->audio.outputBytesPerFrame = frameBytes;
     shm->audio.inputBytesPerFrame = PLOYTEC_IN_FRAME_SIZE;
     shm->audio.inputChannels = mModel->in_channels;
     shm->audio.outputChannels = mModel->out_channels;
-    shm->audio.safetyOffsetFrames = OzzyIsocOutput::SafetyOffsetFrames(mSampleRate);
     LogPloytec("model: %s, %u in / %u out", mModel->name, mModel->in_channels, mModel->out_channels);
 
-    // 2. Handshake, with the rate requests on the PCM endpoints found
+    // 2. Handshake with the settings, with the rate requests on the PCM endpoints found;
+    // locked to S/PDIF it sets the lock rate
     struct ploytec_rate_endpoints eps = { mInAddr, mOutAddr };
-    if (ploytec_handshake_eps(&kPloytecHostOps, mBus, mSampleRate, &eps, mModel->quirks, nullptr) < 0)
+    struct ploytec_handshake_info hs = {};
+    if (ploytec_handshake_eps(&kPloytecHostOps, mBus, mDefaultRate, &eps, mModel->quirks,
+                              &mSettings, &hs) < 0)
         return false;
+    if (!ozzy_device_has_rate(mModel, hs.rate)) {
+        // Locked to an S/PDIF rate the device doesn't list (Linux: ploytec_adopt_rate)
+        LogPloytec("device runs at %u Hz, which it doesn't list", hs.rate);
+        return false;
+    }
+    mSampleRate = hs.rate;
+    shm->audio.sampleRate = mSampleRate;
+    shm->audio.safetyOffsetFrames = OzzyIsocOutput::SafetyOffsetFrames(mSampleRate);
+    PublishSettings(hs.clock);
     // MIDI framing on its own endpoints, as the device's kInACR picks it (ploytec_midi.h)
     ploytec_midi_init_xfer(&mMidi, mSampleRate, (mModel->quirks & OZZY_QUIRK_MIDI_NS7) ?
                            PLOYTEC_MIDI_XFER_NS7 : PLOYTEC_MIDI_XFER_M4_C1);
@@ -97,6 +108,13 @@ bool PloytecIsocEngine::Start() {
 
     OzzyStoreRelease(&shm->audio.driverReady, true);
     return true;
+}
+
+void PloytecIsocEngine::Suspend() {
+    mRunning = false;
+    mOutput.Stop();
+    if (mBus) mBus->StopTimer();
+    LogPloytec("isoc engine suspended");
 }
 
 void PloytecIsocEngine::Stop() {

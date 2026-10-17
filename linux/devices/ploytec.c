@@ -53,7 +53,6 @@ struct ploytec_private {
 	ploytec_frame_fn decode;
 	struct ploytec_midi midi;       /* MIDI framing at the current rate */
 	unsigned int rates[OZZY_MAX_RATES];  /* this device's rates (common/ozzy_devices.def) */
-	u32 quirks;                     /* this device's OZZY_QUIRK_xxx bits */
 };
 
 static unsigned int ploytec_process_out_packet_spdif12(struct ozzy_chip *chip,
@@ -82,7 +81,7 @@ static int ploytec_apply_model(struct ozzy_chip *chip, struct ploytec_private *p
 		return -ENODEV;
 	}
 
-	priv->quirks = dev->quirks;
+	chip->quirks = dev->quirks;
 	priv->base_info = chip->info;
 	priv->info = *chip->info;
 	priv->info.capture_channels = dev->in_channels;
@@ -234,13 +233,36 @@ static int ploytec_private_init(struct ozzy_chip *chip)
 }
 
 /*
+ * ploytec_adopt_rate - After the handshake: the rate it set (the S/PDIF lock rate while
+ * locked) becomes the current rate, and the chip gets the clock status.
+ */
+static int ploytec_adopt_rate(struct ozzy_chip *chip, const struct ploytec_handshake_info *hs)
+{
+	unsigned int i;
+
+	chip->clock = hs->clock;
+	for (i = 0; i < chip->info->num_rates; i++) {
+		if (chip->info->rates[i] == hs->rate) {
+			chip->requested_rate = i;
+			chip->current_rate = i;
+			return 0;
+		}
+	}
+	ploytec_err(&chip->dev->dev, "device runs at %u Hz, which it doesn't list\n", hs->rate);
+	chip->clock.locked = false;
+	return -EINVAL;
+}
+
+/*
  * ploytec_init - Perform the Ploytec vendor handshake after USB probe or reset.
  * On the first call, allocates private data and applies the model. Then runs the
- * shared handshake at the requested rate. Private data is kept on failure because
+ * shared handshake at the requested rate (or the S/PDIF lock rate) with the
+ * chip's settings. Private data is kept on failure because
  * chip->info points into it; ploytec_free() releases it.
  */
 static int ploytec_init(struct ozzy_chip *chip)
 {
+	struct ploytec_handshake_info hs;
 	struct ploytec_private *priv;
 	int ret;
 
@@ -249,12 +271,14 @@ static int ploytec_init(struct ozzy_chip *chip)
 		return ret;
 	priv = chip->private_data;
 
-	ret = ploytec_handshake(&ploytec_host_ops, chip,
-				chip->info->rates[chip->requested_rate], priv->quirks, NULL);
+	ret = ploytec_handshake(&ploytec_host_ops, chip, chip->info->rates[chip->requested_rate],
+				chip->quirks, &chip->settings, &hs);
+	if (ret < 0)
+		return ret;
+	ret = ploytec_adopt_rate(chip, &hs);
 	if (ret < 0)
 		return ret;
 
-	chip->current_rate = chip->requested_rate;
 	ploytec_midi_init(&priv->midi, chip->info->rates[chip->current_rate],
 			  ploytec_pcm_in_int_1024(chip));
 	return 0;
@@ -277,13 +301,22 @@ static void ploytec_free(struct ozzy_chip *chip)
 }
 
 /*
- * ploytec_reset - Perform a USB device reset for sample rate changes.
+ * ploytec_reset - Perform a USB device reset for sample rate and settings changes.
  * The core's pre_reset/post_reset callbacks handle URB teardown/reinit.
+ * usb_reset_device() wants the device lock, which an interface driver takes
+ * with usb_lock_device_for_reset().
  */
 static int ploytec_reset(struct ozzy_chip *chip)
 {
-	ploytec_notice(&chip->dev->dev, "resetting device for sample rate change\n");
-	return usb_reset_device(chip->dev);
+	int ret;
+
+	ploytec_notice(&chip->dev->dev, "resetting device\n");
+	ret = usb_lock_device_for_reset(chip->dev, chip->intf);
+	if (ret < 0)
+		return ret;
+	ret = usb_reset_device(chip->dev);
+	usb_unlock_device(chip->dev);
+	return ret;
 }
 
 /* ========================================================================
@@ -445,8 +478,8 @@ static const struct ploytec_host_ops ploytec_isoc_host_ops = {
  */
 static int ploytec_isoc_init(struct ozzy_chip *chip)
 {
+	struct ploytec_handshake_info hs;
 	struct ploytec_private *priv;
-	uint32_t rate;
 	int ret;
 
 	/* The 4-channel format table is the High Speed one (the Full Speed one is 2 channels) */
@@ -460,15 +493,17 @@ static int ploytec_isoc_init(struct ozzy_chip *chip)
 		return ret;
 	priv = chip->private_data;
 
-	rate = chip->info->rates[chip->requested_rate];
-	ret = ploytec_handshake_eps(&ploytec_isoc_host_ops, chip, rate,
-				    &ploytec_isoc_rate_endpoints, priv->quirks, NULL);
+	ret = ploytec_handshake_eps(&ploytec_isoc_host_ops, chip,
+				    chip->info->rates[chip->requested_rate],
+				    &ploytec_isoc_rate_endpoints, chip->quirks, &chip->settings, &hs);
+	if (ret < 0)
+		return ret;
+	ret = ploytec_adopt_rate(chip, &hs);
 	if (ret < 0)
 		return ret;
 
-	chip->current_rate = chip->requested_rate;
 	/* MIDI framing on its own endpoints, as the device's kInACR picks it (ploytec_midi.h) */
-	ploytec_midi_init_xfer(&priv->midi, rate, (priv->quirks & OZZY_QUIRK_MIDI_NS7) ?
+	ploytec_midi_init_xfer(&priv->midi, hs.rate, (chip->quirks & OZZY_QUIRK_MIDI_NS7) ?
 			       PLOYTEC_MIDI_XFER_NS7 : PLOYTEC_MIDI_XFER_M4_C1);
 	priv->info.midi_in_size = priv->midi.xfer_size;
 	return 0;

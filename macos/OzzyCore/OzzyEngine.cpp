@@ -1,4 +1,5 @@
 #include "OzzyEngine.h"
+#include "../Shared/OzzySharedData.h"
 
 // The base class implementation is minimal because most logic is protocol-specific.
 // However, we can implement shared helpers here if needed in the future.
@@ -12,10 +13,24 @@
 void OzzyEngine::Init(IOzzyBus* bus, void* sharedMemory) {
     mBus = bus;
     mSharedMemory = sharedMemory;
+    ozzy_settings_defaults(&mSettings);
     
     if (mBus) {
         mBus->Log("OzzyEngine Base Initialized");
     }
+}
+
+void OzzyEngine::PublishSettings(const struct ozzy_clock_status& clock) {
+    auto* shm = (volatile OzzySharedMemory*)mSharedMemory;
+    if (!shm) return;
+    uint32_t available = 0;
+    for (unsigned int i = 0; i < OZZY_NUM_SETTINGS; i++) {
+        if (HasSetting(i)) available |= 1u << i;
+        shm->audio.settings.value[i] = mSettings.value[i];
+    }
+    shm->audio.settings.available = available;
+    shm->audio.settings.lockRate = clock.locked ? clock.lock_rate : 0;
+    shm->audio.settings.clockLocked = clock.locked;
 }
 
 // We can provide a default "do nothing" implementation for callbacks 

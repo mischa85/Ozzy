@@ -13,7 +13,9 @@ extern const struct ploytec_host_ops kPloytecHostOps;   // handshake host servic
 class PloytecEngine : public OzzyEngine {
     uint64_t mHwSampleTime = 0;
     enum ploytec_out_layout mOutLayout = PLOYTEC_OUT_LAYOUT_INT;
-    uint32_t mSampleRate = 96000;
+    uint32_t mSampleRate = 96000;   // what the device runs at (the S/PDIF lock rate while locked)
+    uint32_t mDefaultRate = 96000;  // what Start() asks for: the highest rate
+    volatile bool mRunning = false; // completions resubmit (cleared by Suspend/Stop)
     const struct ozzy_device* mModel = nullptr;   // row in common/ozzy_devices.def
     uint32_t mPacketSizeOut = 0;
     bool mPcmInInt1024 = false;     // PCM IN is interrupt, wMaxPacketSize 1024 (ploytec_midi.h)
@@ -34,6 +36,8 @@ public:
     virtual bool Start() override;
     virtual void Stop() override;
     virtual void OnPacketComplete(uint8_t pipeID, void* ctx, int status, uint32_t bytes) override;
+    virtual uint32_t GetQuirks() const override { return mModel->quirks; }
+    virtual void Suspend() override;
     
 private:
     void SubmitPCMOut(uint32_t packetIdx);

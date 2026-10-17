@@ -373,6 +373,22 @@ static void ozzy_pcm_fb_urb_handler(struct urb *usb_urb)
  * ======================================================================== */
 
 /*
+ * ozzy_pcm_rule_locked_rate - hw_params rule: while the device is locked to S/PDIF,
+ * only the lock rate (the official driver offers CoreAudio only the current rate).
+ */
+static int ozzy_pcm_rule_locked_rate(struct snd_pcm_hw_params *params,
+				     struct snd_pcm_hw_rule *rule)
+{
+	struct ozzy_chip *chip = rule->private;
+	struct snd_interval lock = { .integer = 1 };
+
+	if (!chip->clock.locked)
+		return 0;
+	lock.min = lock.max = chip->clock.lock_rate;
+	return snd_interval_refine(hw_param_interval(params, SNDRV_PCM_HW_PARAM_RATE), &lock);
+}
+
+/*
  * ozzy_pcm_open - ALSA PCM open callback.
  * Builds snd_pcm_hardware dynamically from the device's info descriptor.
  */
@@ -390,9 +406,17 @@ static int ozzy_pcm_open(struct snd_pcm_substream *alsa_sub)
 		info->out_isoc ? info->rate_max * ISOC_TRANSFER_UFRAMES / ISOC_FB_UFRAMES_PER_SEC :
 		info->frames_per_out_packet;
 	unsigned int alsa_pkt_bytes = frames_per_packet * channels * info->bytes_per_sample;
+	int ret;
 
 	if (rt->panic)
 		return -EPIPE;
+
+	/* Locked to S/PDIF: only the lock rate (rechecked at every hw_params) */
+	ret = snd_pcm_hw_rule_add(alsa_rt, 0, SNDRV_PCM_HW_PARAM_RATE,
+				  ozzy_pcm_rule_locked_rate, chip,
+				  SNDRV_PCM_HW_PARAM_CHANNELS, -1);
+	if (ret < 0)
+		return ret;
 
 	mutex_lock(&rt->stream_mutex);
 
@@ -526,6 +550,13 @@ static int ozzy_pcm_prepare(struct snd_pcm_substream *alsa_sub)
 			mutex_unlock(&rt->stream_mutex);
 			ozzy_pcm_err(&chip->dev->dev, "Invalid sample rate %d\n",
 				alsa_rt->rate);
+			return -EINVAL;
+		}
+
+		if (chip->clock.locked && alsa_rt->rate != chip->clock.lock_rate) {
+			mutex_unlock(&rt->stream_mutex);
+			ozzy_pcm_err(&chip->dev->dev, "%d Hz while locked to S/PDIF at %u Hz\n",
+				     alsa_rt->rate, chip->clock.lock_rate);
 			return -EINVAL;
 		}
 
@@ -844,8 +875,9 @@ int ozzy_pcm_init_urbs(struct ozzy_chip *chip)
 		}
 	}
 
-	/* Submit all URBs */
+	/* Submit all URBs; after a reset this ends the panic ozzy_pcm_abort() set */
 	mutex_lock(&rt->stream_mutex);
+	rt->panic = false;
 	for (i = 0; i < OZZY_PCM_N_URBS; i++) {
 		usb_anchor_urb(&rt->pcm_in_urbs[i].instance,
 			       &rt->pcm_in_urbs[i].submitted);
@@ -922,6 +954,26 @@ void ozzy_pcm_drain(struct ozzy_chip *chip)
 
 	rt->stream_state = STREAM_STOPPING;
 	msleep(20);
+}
+
+/*
+ * ozzy_pcm_reconfigure - Apply changed device settings, the way the official driver
+ * suspends streaming, sends them and resumes: running streams stop with an xrun (their
+ * clients prepare again, at the rate the device now allows), then the device is reset
+ * and its post-reset handshake sends chip->settings. Call with chip->settings_mutex held.
+ */
+int ozzy_pcm_reconfigure(struct ozzy_chip *chip)
+{
+	struct pcm_runtime *rt = chip->pcm;
+
+	mutex_lock(&rt->stream_mutex);
+	if (rt->playback.instance)
+		snd_pcm_stop_xrun(rt->playback.instance);
+	if (rt->capture.instance)
+		snd_pcm_stop_xrun(rt->capture.instance);
+	mutex_unlock(&rt->stream_mutex);
+
+	return chip->ops->reset(chip);
 }
 
 /*

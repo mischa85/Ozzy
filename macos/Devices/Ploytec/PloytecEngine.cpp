@@ -2,6 +2,7 @@
 #include "PloytecProtocol.h"
 #include "PloytecIO.h"
 #include "../../../common/devices/ploytec/ploytec_handshake.h"
+#include <IOKit/IOReturn.h>
 #include "../../Shared/OzzyLog.h"
 #include <libkern/libkern.h>
 #include <sys/errno.h>
@@ -38,7 +39,8 @@ PloytecEngine::PloytecEngine(const struct ozzy_device* device) {
     // the highest rate the device supports (the DB2 is 48 kHz only)
     uint32_t rates[OZZY_MAX_RATES];
     mModel = device;
-    mSampleRate = rates[ozzy_device_rates(device, rates) - 1];
+    mDefaultRate = rates[ozzy_device_rates(device, rates) - 1];
+    mSampleRate = mDefaultRate;
 
     // --- Define Hardware Topology ---
     // The Xone:DB4 presents two interfaces:
@@ -88,7 +90,6 @@ bool PloytecEngine::Start() {
     bool bulk = mOutLayout == PLOYTEC_OUT_LAYOUT_BULK;
     shm->audio.deviceFlags = (bulk ? kOzzyDeviceFlagPloytecBulk : 0) |
                              (bulk && (mModel->quirks & OZZY_QUIRK_SPDIF_MIRROR_12) ? kOzzyDeviceFlagSpdifMirror12 : 0);
-    shm->audio.sampleRate = mSampleRate;
     shm->audio.framesPerPacket = PLOYTEC_FRAMES_PER_PKT;  // 80 frames per logical packet
     shm->audio.samplesPerPacket = 10;  // 10 samples per USB sub-packet
     shm->audio.outputBytesPerFrame = PLOYTEC_OUT_FRAME_SIZE;
@@ -97,9 +98,18 @@ bool PloytecEngine::Start() {
     shm->audio.outputChannels = mModel->out_channels;
     LogPloytec("model: %s, %u in / %u out", mModel->name, mModel->in_channels, mModel->out_channels);
     
-    // 2. Hardware Handshake Sequence
-    if (ploytec_handshake(&kPloytecHostOps, mBus, mSampleRate, mModel->quirks, nullptr) < 0)
+    // 2. Hardware Handshake Sequence, with the settings; locked to S/PDIF it sets the lock rate
+    struct ploytec_handshake_info hs = {};
+    if (ploytec_handshake(&kPloytecHostOps, mBus, mDefaultRate, mModel->quirks, &mSettings, &hs) < 0)
         return false;
+    if (!ozzy_device_has_rate(mModel, hs.rate)) {
+        // Locked to an S/PDIF rate the device doesn't list (Linux: ploytec_adopt_rate)
+        LogPloytec("device runs at %u Hz, which it doesn't list", hs.rate);
+        return false;
+    }
+    mSampleRate = hs.rate;
+    shm->audio.sampleRate = mSampleRate;
+    PublishSettings(hs.clock);
     ploytec_midi_init(&mMidi, mSampleRate, mPcmInInt1024);
     
     // Hardware is confirmed working and communicating (release: the format fields above first)
@@ -115,6 +125,7 @@ bool PloytecEngine::Start() {
     }
 
     // 5. Kickstart USB transfers
+    mRunning = true;
     for(uint32_t i=0; i<2; i++) {
         SubmitPCMIn(i);
         SubmitPCMOut(i);
@@ -127,7 +138,13 @@ bool PloytecEngine::Start() {
     return true;
 }
 
+void PloytecEngine::Suspend() {
+    mRunning = false;
+    LogPloytec("engine suspended");
+}
+
 void PloytecEngine::Stop() {
+    mRunning = false;
     auto* shm = GetSHM();
     if (!shm) return;
     
@@ -164,7 +181,8 @@ void PloytecEngine::ProcessMIDIInput(uint32_t bytesReceived) {
 }
 
 void PloytecEngine::OnPacketComplete(uint8_t pipeID, void* ctx, int status, uint32_t bytes) {
-    if (!mBus) return;
+    // Aborted (Suspend/Stop): no resubmit, a synchronous abort would accept it
+    if (!mBus || !mRunning || status == (int)kIOReturnAborted) return;
 
     uint32_t finishedIdx = (uint32_t)(uintptr_t)ctx;
     uint32_t nextIdx = finishedIdx + 2;

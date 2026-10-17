@@ -98,6 +98,12 @@ int ozzy_pcm_init_urbs(struct ozzy_chip *chip);
 void ozzy_pcm_abort(struct ozzy_chip *chip);
 
 /*
+ * ozzy_pcm_reconfigure - Stop running streams with an xrun and reset the device,
+ * whose post-reset handshake sends chip->settings. Returns the reset's result.
+ */
+int ozzy_pcm_reconfigure(struct ozzy_chip *chip);
+
+/*
  * ozzy_pcm_drain - Stop resubmitting and let in-flight URBs complete.
  * Call before ozzy_pcm_abort when the device stays connected.
  */

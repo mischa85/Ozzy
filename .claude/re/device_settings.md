@@ -1,6 +1,7 @@
 # Device settings: plan and facts (clock source, digital I/O, routing)
 
-Status: plan, nothing implemented. Written 2026-10-17 at the end of the device-list work; start here.
+Status: clock source implemented 2026-10-17 (untested on hardware: no device with digital in);
+the other settings are still plan. Written 2026-10-17 at the end of the device-list work; start here.
 
 ## Goal
 
@@ -31,6 +32,48 @@ the OS can't show. Order: external clock first (it's what users need, and it bui
 | US-3xx mixer modes | PipeWire profiles | app | app |
 | Reverb / level processors | volume / enum kcontrols | app | app |
 | Firmware update (#21) | app | app | app |
+
+## Clock source: how it is built
+
+- **Model** (`common/ozzy_settings.h`): `ozzy_setting_descs[]` (name, value names, default, the
+  quirk that enables it), `struct ozzy_settings` (the user's values), `struct ozzy_clock_status`
+  (lock, lock rate). Devices with `OZZY_QUIRK_DIGITAL_IN` have it: MPC Renaissance, Lexicon
+  IO42/IO82, Tascam US-144/MKII/600/1641/1800/2000. Not ESI (3-state selector, open mapping), not
+  the M-Track Quad (its plist flags weren't decoded for this; it has no S/PDIF jack).
+- **Protocol** (`ploytec_handshake.c`): `hs_selector` sets bit 1 from the clock source with
+  `ploytec_aj_clock_byte()` (Internal = bit 1 set, **inferred**; the one place to flip). With
+  S/PDIF, `hs_follow_lock` re-reads the selector and, when locked, the rate (up to 20 tries while
+  it reads 192000, as the official driver). Locked: the handshake sets and verifies the lock rate
+  instead of the requested one; `info->rate` / `info->clock` say what it did. A device clocked at
+  a rate it can't stream (192k) fails the handshake's rate verify. Defaults send the same requests
+  as before settings existed.
+- **Linux**: `chip->settings` / `chip->clock` (kept across resets), `linux/ozzy_controls.c`: enum
+  control "Clock Source" and read-only "S/PDIF Clock Validity". Names as snd-usb-audio builds
+  them (`sound/usb/mixer.c` v6.18, copy in the investigation folder's `linux_ref/sound_usb/`):
+  a UAC2 clock selector is "<selector name> Clock Source", a clock source's validity a read-only
+  mixer boolean "<clock source string> Validity". A change runs
+  `ozzy_pcm_reconfigure`: xrun on running substreams, then the USB reset whose post-reset handshake
+  sends it. While locked a hw_params rule allows only the lock rate and prepare rejects other
+  rates. `alsactl store/restore` persists the value. Also fixed on the way: `ozzy_pcm_init_urbs`
+  ends the panic of the pre-reset abort (before, a reset outside prepare left PCM refusing to open),
+  and `ploytec_reset` takes the device lock (`usb_lock_device_for_reset`).
+- **macOS**: there was no rate-change path (the kext ran the highest rate, the HAL offered only
+  it). Now: the HAL publishes a clock source selector control object (4th object per device slot,
+  `kAudioClockSourceControlClassID`; CoreAudio derives `kAudioDevicePropertyClockSource` from it,
+  per AudioHardware.h). Setting it → `RequestDeviceConfigurationChange` (action = id << 32 | value)
+  → CoreAudio stops IO → `PerformDeviceConfigurationChange` → user client selector 1
+  (`kOzzyMethodApplySetting`, in: id, value) → kext:
+  `engine->Suspend()` (no resubmits), synchronous abort of every pipe, `engine->Start()` again with
+  the setting; `hardwarePresent`/`driverReady` stay set so the HAL keeps the device. A lock rate
+  the device doesn't list fails the start on both platforms (`ozzy_device_has_rate`). The engine
+  publishes the result in `audio.settings` (SHM version 6); the HAL re-reads format and rate,
+  stores the value with `WriteToStorage` (key "<device UID> Clock Source") and notifies. On attach
+  the HAL sends a stored value the kext doesn't have before publishing the device. The S/PDIF item
+  name says "(locked, N Hz)" / "(no lock)".
+- **Still to check on hardware**: the bit mapping; that the lock bit and GET_CUR behave as the
+  decompile says; that Audio MIDI Setup shows the Clock Source menu for this plug-in; that a lock
+  gained or lost while streaming is picked up only at the next change (selecting the same source
+  again re-reads it on macOS; on Linux any reset does).
 
 ## Facts from the official driver (EIE kext 3.3.17 decompile `AKAI_EIE/AKAI_EIE_kext_all.c`, DB2 `DB2_decompile/XONE_DB2_kext_all.c`)
 
@@ -67,11 +110,11 @@ has pair 1/2 (`ploytec_spdif_mirror_12`).
 = in pair r_k), output `pcmTo24LSB_US144_*` (AjExtData[5..9], user client dispatch 0x28); details in
 the Tascam section of `device_inventory.md`.
 
-## Open before coding
+## Open
 
-- Where settings persist (official: AjExtData in the kext's data block, reloaded per session?).
-- macOS: kext ↔ HAL path for a setting (SHM field + doorbell, like the rate change).
-- Linux: kcontrol put while streaming → the official suspends/resumes; Ozzy's rate change already
-  does a device reset (`ploytec_reset`), reuse that.
 - Confirm the clock source bit mapping on a device with digital in (capture of the official driver
   switching source, or a tester).
+- Lock changes while streaming: the official driver only reads lock in `updateAjInputSelector`;
+  polling would need a test that an 'I' read during streaming is safe.
+- ESI U-series clock source (states A/B/C), 192k lock handling (alt setting), and the remaining
+  settings in the table above.

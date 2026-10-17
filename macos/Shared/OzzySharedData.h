@@ -2,6 +2,7 @@
 #define OzzySharedData_h
 
 #include <stdint.h>
+#include "../../common/ozzy_settings.h"
 
 // --- KERNEL vs USER SPACE SHIM ---
 #ifdef KERNEL
@@ -35,9 +36,14 @@
 #define kOzzyMagic                  0x4F5A5A59 // "OZZY"
 // OzzyKext user client: external method selectors and registry property
 #define kOzzyMethodMidiOutPending   0          // OzzyMIDI queued bytes in midiOut
+// OzzyHAL changes a device setting (common/ozzy_settings.h). Scalars in: setting id, value.
+// The kext stops the transfers, re-runs the handshake with the setting and restarts them, then
+// returns; the result is in audio.settings and audio.sampleRate. The HAL calls it from
+// PerformDeviceConfigurationChange, with IO stopped.
+#define kOzzyMethodApplySetting     1
 #define kOzzyAudioPropertyKey       "OzzyAudio" // true if the device has audio channels
 
-#define kOzzySharedVersion          4          // bump when OzzySharedMemory changes layout
+#define kOzzySharedVersion          6          // bump when OzzySharedMemory changes layout
 
 // Sizing: 8KB covers High Speed USB max packet size, devices use what they need
 #define kOzzyMaxPacketSize          8192
@@ -79,6 +85,16 @@ struct OzzyAudioBuffer {
     uint32_t inputChannels;       // Audio channels the device sends (e.g., 8, or 16 for the WZ4)
     uint32_t outputChannels;      // Audio channels the device receives (e.g., 8, or 2 for the WZ4)
     uint32_t safetyOffsetFrames;  // How far ahead of the clock the engine reads output (0 = 2 packets)
+
+    // Device settings (common/ozzy_settings.h) as the engine applied them at its last
+    // handshake, and what the device reported. Written before driverReady at start, and before
+    // kOzzyMethodApplySetting returns, which is when the HAL reads them.
+    struct {
+        uint32_t available;                   // bit (1 << enum ozzy_setting) per setting the device has
+        uint8_t  value[OZZY_NUM_SETTINGS];
+        uint8_t  clockLocked;                 // locked to S/PDIF (clock source S/PDIF only)
+        uint32_t lockRate;                    // Hz while clockLocked
+    } settings;
 
     struct {
         AtomicU32 sequence; 

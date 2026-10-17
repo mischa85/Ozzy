@@ -7,6 +7,7 @@
 #include <IOKit/usb/IOUSBHostInterface.h>
 #include <IOKit/usb/IOUSBHostPipe.h>
 #include <IOKit/IOBufferMemoryDescriptor.h> // Added include
+#include <IOKit/IOLocks.h>
 
 class KextBus;
 class OzzyEngine;
@@ -27,6 +28,7 @@ public:
 
     IOMemoryDescriptor* GetMemory() { return mShmDescriptor; }
     void MidiOutPending();
+    IOReturn ApplySetting(uint32_t id, uint32_t value);
     OzzySharedMemory* GetSHM() { return mSHM; }
 
 private:
@@ -34,12 +36,14 @@ private:
     void UnmapSharedMemory();
     bool ConfigureHardware();
     void CloseProviders();
+    IOReturn ApplySettingLocked(uint32_t id, uint32_t value);
 
     IOUSBHostDevice* mHostDevice = nullptr;
     KextBus* mBus = nullptr;
     OzzyEngine* mEngine = nullptr;
     size_t mEngineSize = 0;
     volatile bool mRunning = false;   // engine started and device present
+    IOLock* mSettingsLock = nullptr;  // serializes ApplySetting with itself and termination
     
     // MASTER MEMORY OBJECTS
     IOBufferMemoryDescriptor* mShmDescriptor = nullptr; // The Owner

@@ -46,12 +46,18 @@ public:
     }
 
     // Selector 0 (no arguments): OzzyMIDI queued bytes in the midiOut ring
+    // Selector 1 (in: setting id, value): OzzyHAL changes a setting
     virtual IOReturn externalMethod(uint32_t selector, IOExternalMethodArguments* args,
                                     IOExternalMethodDispatch* dispatch, OSObject* target,
                                     void* reference) override {
         if (selector == kOzzyMethodMidiOutPending) {
             if (mOwner) mOwner->MidiOutPending();
             return kIOReturnSuccess;
+        }
+        if (selector == kOzzyMethodApplySetting) {
+            if (!mOwner || args->scalarInputCount != 2) return kIOReturnBadArgument;
+            if (args->scalarInput[0] > 0xFFFF || args->scalarInput[1] > 0xFF) return kIOReturnBadArgument;
+            return mOwner->ApplySetting((uint32_t)args->scalarInput[0], (uint32_t)args->scalarInput[1]);
         }
         return IOUserClient::externalMethod(selector, args, dispatch, target, reference);
     }
@@ -164,6 +170,8 @@ bool OzzyKext::start(IOService* provider) {
     }
 
     if (!MapSharedMemory()) return false;
+    mSettingsLock = IOLockAlloc();
+    if (!mSettingsLock) return false;
 
     // Clear pools
     for(int i=0; i<kMaxPipes; i++) mPipes[i] = nullptr;
@@ -232,10 +240,46 @@ void OzzyKext::MidiOutPending() {
     if (mRunning && mEngine) mEngine->OnMidiOutPending();
 }
 
+/* kOzzyMethodApplySetting: restart the engine with setting @id = @value, the way the official
+ * driver suspends streaming, sends the setting and resumes. The engine stops resubmitting, every
+ * pipe is aborted, and Start() runs the handshake again with the setting (it also re-reads the
+ * digital lock, so the same value again re-checks it). hardwarePresent and driverReady stay set,
+ * so the HAL keeps the device; it calls this with IO stopped. */
+IOReturn OzzyKext::ApplySetting(uint32_t id, uint32_t value) {
+    if (!mSettingsLock) return kIOReturnNotReady;
+    IOLockLock(mSettingsLock);
+    IOReturn ret = ApplySettingLocked(id, value);
+    IOLockUnlock(mSettingsLock);
+    return ret;
+}
+
+IOReturn OzzyKext::ApplySettingLocked(uint32_t id, uint32_t value) {
+    if (!mRunning || !mEngine) return kIOReturnNotReady;
+    if (!mEngine->HasSetting(id) || !ozzy_setting_valid(id, value)) return kIOReturnBadArgument;
+
+    LogOzzyKext("%s: %s", ozzy_setting_descs[id].name, ozzy_setting_descs[id].value_names[value]);
+    mEngine->Suspend();
+    for (int i = 0; i < kMaxPipes; i++) {
+        if (mPipes[i]) mPipes[i]->abort(IOUSBHostIOSource::kAbortSynchronous);
+    }
+    mEngine->SetSetting(id, (uint8_t)value);
+    if (!mEngine->Start()) {
+        // The device didn't take it: let the HAL drop it, as on a failed start
+        LogOzzyKext("engine restart failed");
+        mRunning = false;
+        mEngine->Stop();
+        return kIOReturnIOError;
+    }
+    return kIOReturnSuccess;
+}
+
 IOReturn OzzyKext::message(UInt32 type, IOService* provider, void* argument) {
     if (type == kIOMessageServiceIsTerminated) {
         LogOzzyKext("device disconnected");
+        // Wait for a settings restart in progress (its requests fail fast once the device is gone)
+        if (mSettingsLock) IOLockLock(mSettingsLock);
         mRunning = false;
+        if (mSettingsLock) IOLockUnlock(mSettingsLock);
         
         // Immediately signal HAL that hardware is gone
         if (mSHM) {
@@ -332,6 +376,10 @@ void OzzyKext::stop(IOService* provider) {
 
 void OzzyKext::free() {
     LogOzzyKext("free");
+    if (mSettingsLock) {
+        IOLockFree(mSettingsLock);
+        mSettingsLock = nullptr;
+    }
     IOService::free();
 }
 

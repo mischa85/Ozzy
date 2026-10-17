@@ -16,12 +16,13 @@ typedef void (*WriteOutputFunc)(uint8_t* ringBuffer, const float* srcFrames, uin
 typedef void (*ReadInputFunc)(float* dstFrames, const uint8_t* ringBuffer, uint64_t sampleTime, uint32_t frameCount, uint32_t ringSize, uint32_t bytesPerFrame);
 typedef void (*ClearOutputFunc)(uint8_t* outputBuffer, uint32_t bufferSize);
 
-// One audio device per OzzyKext instance with audio. Device slot i owns three object IDs:
-// the device (kOzzyObjectIDBase + 3i), its input stream (+1) and its output stream (+2).
+// One audio device per OzzyKext instance with audio. Device slot i owns four object IDs:
+// the device (kOzzyObjectIDBase + 4i), its input stream (+1), its output stream (+2) and its
+// clock source control (+3, published only for devices with the Clock Source setting).
 // A slot keeps its IDs and UID when its device is replugged.
 #define kOzzyMaxDevices         8
 #define kOzzyObjectIDBase       100
-#define kOzzyObjectsPerDevice   3
+#define kOzzyObjectsPerDevice   4
 
 class OzzyHALDevice {
 public:
@@ -30,6 +31,7 @@ public:
     AudioObjectID GetDeviceID() const { return kOzzyObjectIDBase + mSlot * kOzzyObjectsPerDevice; }
     AudioObjectID GetInputStreamID() const { return GetDeviceID() + 1; }
     AudioObjectID GetOutputStreamID() const { return GetDeviceID() + 2; }
+    AudioObjectID GetClockControlID() const { return GetDeviceID() + 3; }
 
     // Connection to the kext (monitor thread)
     bool IsMapped() const { return mSHM.load(std::memory_order_relaxed) != nullptr; }
@@ -65,6 +67,18 @@ public:
     UInt32 GetSafetyOffset() const { return mSafetyOffset; }  // frames the engine reads ahead (ApplyDeviceConfig)
     UInt32 GetZeroTimestampPeriod() const { return kOzzyTimestampPackets * mFramesPerPacket; }  // spacing of the kext's timestamp anchors
 
+    // Device settings (common/ozzy_settings.h). The clock source is a clock source selector
+    // control (kAudioClockSourceControlClassID), from which CoreAudio derives the device's
+    // kAudioDevicePropertyClockSource (Audio MIDI Setup's Clock Source menu). Item IDs are
+    // the setting's values (enum ozzy_clock_source).
+    bool HasSetting(unsigned int id) const { return id < OZZY_NUM_SETTINGS && (mSettingsAvailable & (1u << id)); }
+    UInt32 GetSetting(unsigned int id) const { return mSettings.value[id]; }
+    CFStringRef CopyClockSourceName(UInt32 item) const;
+    // A client set a setting: ask CoreAudio to stop IO and call PerformSettingChange
+    OSStatus RequestSetting(AudioServerPlugInHostRef host, unsigned int id, UInt32 value);
+    // CoreAudio stopped IO for the change: send it to the kext, re-read the format, keep it
+    OSStatus PerformSettingChange(AudioServerPlugInHostRef host, UInt64 action);
+
     AudioChannelLayout* GetPreferredChannelLayout(AudioObjectPropertyScope inScope);
     UInt32 GetPreferredChannelLayoutSize(AudioObjectPropertyScope inScope) const;
 
@@ -99,6 +113,12 @@ private:
     AudioBufferList mOutputConfig;
     AudioValueRange mAvailableSampleRates;
 
+    // Settings as the kext applied them (ApplyDeviceConfig)
+    uint32_t mSettingsAvailable = 0;   // bit (1 << enum ozzy_setting) per setting the device has
+    struct ozzy_settings mSettings = {};
+    bool mClockLocked = false;
+    uint32_t mLockRate = 0;
+
     bool mConnected = false;     // published to CoreAudio
     bool mIOStarted = false;
     uint32_t mTimestampSeed = 1;
@@ -119,6 +139,9 @@ private:
     OzzySharedMemory* AcquireSHM();
     void ReleaseSHM();
     void ApplyDeviceConfig();
+    kern_return_t CallApplySetting(unsigned int id, uint32_t value);
+    CFStringRef CopySettingKey(unsigned int id) const;
+    void RestoreSettings(AudioServerPlugInHostRef host);
     void UpdateMetadata();
     void RebuildStreamConfigs();
     void ClearOutputBuffer();
@@ -135,6 +158,7 @@ public:
     // Object ID lookup: the device that owns @objectID, or null
     OzzyHALDevice* DeviceForObject(AudioObjectID objectID);
     UInt32 GetDeviceList(AudioObjectID* outIDs, UInt32 maxIDs) const;
+    AudioServerPlugInHostRef GetHost() const { return mHost; }
 
 private:
     OzzyHAL() = default;

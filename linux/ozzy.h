@@ -18,6 +18,7 @@
 
 #include "../common/isoc_feedback.h"
 #include "../common/ozzy_ep.h"
+#include "../common/ozzy_settings.h"
 
 struct ozzy_chip;
 struct pcm_runtime;
@@ -85,8 +86,10 @@ struct ozzy_device_info {
 struct ozzy_device_ops {
 	/*
 	 * init - Perform device-specific initialization after USB probe.
-	 * Called once after the chip struct is populated. Should perform the
-	 * vendor handshake sequence (firmware version, status, sample rate).
+	 * Called once after the chip struct is populated, and again after each
+	 * reset. Should perform the vendor handshake sequence (firmware version,
+	 * status, sample rate) with chip->settings, set chip->quirks (the first
+	 * time), chip->current_rate and chip->clock.
 	 * Allocate chip->private_data here if needed.
 	 * Returns 0 on success, negative errno on failure.
 	 */
@@ -100,7 +103,8 @@ struct ozzy_device_ops {
 
 	/*
 	 * reset - Perform a USB device reset (e.g. for sample rate changes).
-	 * Called when the rate change requires a full device reset.
+	 * Called when the rate change requires a full device reset, and to apply
+	 * changed settings (init sends chip->settings).
 	 * The core's pre_reset/post_reset callbacks handle URB teardown/reinit.
 	 * Returns 0 on success, negative errno on failure.
 	 */
@@ -216,6 +220,13 @@ struct ozzy_chip {
 	unsigned int current_rate;        /* rate index currently active on hardware */
 	unsigned int requested_rate;      /* rate index requested by ALSA */
 	bool is_bulk;                     /* true if output EP uses bulk transfers */
+
+	/* Device settings (common/ozzy_settings.h, ozzy_controls.c) */
+	uint32_t quirks;                  /* this model's OZZY_QUIRK_xxx bits, set by ops->init */
+	struct ozzy_settings settings;    /* the user's values, kept across resets */
+	struct ozzy_clock_status clock;   /* digital lock as of the last handshake */
+	struct mutex settings_mutex;      /* serializes setting changes */
+	struct snd_kcontrol *clock_lock_kctl;  /* "S/PDIF Clock Validity", NULL if none */
 
 	/* Endpoint numbers resolved from info at probe (0 = none) */
 	unsigned int out_ep;

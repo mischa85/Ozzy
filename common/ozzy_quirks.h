@@ -89,6 +89,15 @@ enum ozzy_quirk {
 	 * plain 8-channel encoder.
 	 */
 	OZZY_QUIRK_SPDIF_MIRROR_12 = 1u << 10,
+
+	/*
+	 * S/PDIF in that can clock the device: the Clock Source setting (ozzy_settings.h),
+	 * bit 1 of 'I' wIndex 0, and following the rate the device locks to. Rows whose plist
+	 * has digital in (no flag 0x7a0, which makes the official driver force lock off):
+	 * MPC Renaissance, Lexicon IO42/IO82, Tascam US-144/MKII/600/1641/1800/2000. Not the
+	 * ESI devices, whose selector has three states with an open mapping.
+	 */
+	OZZY_QUIRK_DIGITAL_IN = 1u << 11,
 };
 
 #endif /* OZZY_QUIRKS_H */

@@ -22,6 +22,7 @@
 #include "ozzy_log.h"
 #include "ozzy_pcm.h"
 #include "ozzy_midi.h"
+#include "ozzy_controls.h"
 #include "devices/ploytec.h"
 #include "../common/ozzy_version.h"
 
@@ -223,6 +224,8 @@ static int ozzy_probe(struct usb_interface *intf,
 
 	/* Default to highest rate */
 	chip->requested_rate = chip->info->num_rates - 1;
+	ozzy_settings_defaults(&chip->settings);
+	mutex_init(&chip->settings_mutex);
 
 	strscpy(card->driver, DRIVER_NAME, sizeof(card->driver));
 	strscpy(card->shortname, device->product, sizeof(card->shortname));
@@ -309,6 +312,13 @@ static int ozzy_probe(struct usb_interface *intf,
 			ozzy_err(&device->dev, "MIDI initialization failed\n");
 			goto err_device;
 		}
+	}
+
+	/* Device settings controls (Clock Source, ...) */
+	ret = ozzy_controls_init(chip);
+	if (ret < 0) {
+		ozzy_err(&device->dev, "Cannot add the settings controls\n");
+		goto err_device;
 	}
 
 	/* Register the card */

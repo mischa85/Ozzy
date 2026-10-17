@@ -3,6 +3,7 @@
 
 #include "IOzzyBus.h"
 #include "../../common/ozzy_ep.h"
+#include "../../common/ozzy_settings.h"
 
 // --- Hardware Description ---
 
@@ -40,6 +41,10 @@ class OzzyEngine {
 protected:
     IOzzyBus* mBus = nullptr;
     void* mSharedMemory = nullptr; // Opaque pointer to OzzySharedMemory
+    struct ozzy_settings mSettings = {};  // what Start() sends (Init: the defaults)
+
+    // Publish mSettings and the clock status of the handshake Start() just ran
+    void PublishSettings(const struct ozzy_clock_status& clock);
 
 public:
     virtual ~OzzyEngine() {}
@@ -69,6 +74,17 @@ public:
 
     // The bus timer (IOzzyBus::StartTimer) fired
     virtual void OnTimer() {}
+
+    // --- Device settings (common/ozzy_settings.h) ---
+    // The model's OZZY_QUIRK_xxx bits, which say which settings it has
+    virtual uint32_t GetQuirks() const { return 0; }
+    bool HasSetting(unsigned int id) const { return ozzy_has_setting(GetQuirks(), id); }
+    void SetSetting(unsigned int id, uint8_t value) { if (id < OZZY_NUM_SETTINGS) mSettings.value[id] = value; }
+
+    // Restart for changed settings: Suspend() stops resubmitting transfers and the timer, the
+    // kext aborts every pipe, then calls Start() again. Unlike Stop() it keeps hardwarePresent
+    // and driverReady, so the HAL keeps the device published (CoreAudio has stopped IO).
+    virtual void Suspend() {}
 };
 
 #endif

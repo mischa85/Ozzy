@@ -21,7 +21,8 @@ class PloytecIsocEngine : public OzzyEngine {
 
     OzzyDeviceProfile mProfile;
     const struct ozzy_device* mModel = nullptr;   // row in common/ozzy_devices.def
-    uint32_t mSampleRate = 0;
+    uint32_t mSampleRate = 0;       // what the device runs at (the S/PDIF lock rate while locked)
+    uint32_t mDefaultRate = 0;      // what Start() asks for: the highest rate
     struct ploytec_midi mMidi = {};
     volatile bool mRunning = false;
 
@@ -46,6 +47,8 @@ public:
     virtual void OnPacketComplete(uint8_t pipeID, void* ctx, int status, uint32_t bytes) override;
     virtual void OnIsocComplete(uint8_t pipeID, void* ctx, int status, OzzyIsocPacket* packets, uint32_t count) override;
     virtual void OnTimer() override;
+    virtual uint32_t GetQuirks() const override { return mModel->quirks; }
+    virtual void Suspend() override;
 
 private:
     void SubmitMIDIIn(uint32_t slot);

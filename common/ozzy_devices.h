@@ -110,6 +110,20 @@ static inline unsigned int ozzy_device_rates(const struct ozzy_device *dev, uint
 	return n;
 }
 
+/*
+ * ozzy_device_has_rate - Whether @dev lists @rate Hz (e.g. a rate it locked to over S/PDIF).
+ */
+static inline bool ozzy_device_has_rate(const struct ozzy_device *dev, uint32_t rate)
+{
+	uint32_t hz[OZZY_MAX_RATES];
+	unsigned int i, n = ozzy_device_rates(dev, hz);
+
+	for (i = 0; i < n; i++)
+		if (hz[i] == rate)
+			return true;
+	return false;
+}
+
 #ifdef __cplusplus
 }
 #endif

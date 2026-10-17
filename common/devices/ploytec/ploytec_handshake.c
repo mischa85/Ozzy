@@ -160,14 +160,58 @@ static int hs_read_selector(const struct ploytec_host_ops *ops, void *ctx, uint8
 }
 
 /*
- * hs_selector - The generic updateAjInputSelector of the official configurationDone,
- * at its default settings: set bit 1 (input select, AjExtData[1] = 0), clear bit 0
- * on OZZY_QUIRK_AJ_BIT0 devices, and write the byte back only if it changed, then
- * wait 40 ms and read the rate (the device may re-clock). The Xones report bit 1 set
- * at power-up, so they get no write. Following the device's digital lock frequency
- * (the official driver adopts it as the rate) is not done.
+ * hs_follow_lock - With the S/PDIF clock source: read the selector again and, if the
+ * device reports lock, the rate it locked to. The official updateAjInputSelector tries
+ * up to 20 times while the rate reads 192000: it takes 192k only on a device with a
+ * 192k alt setting, which no DIGITAL_IN device has, so a lasting 192000 counts as no
+ * lock here. @clock is cleared first.
  */
-static int hs_selector(const struct ploytec_host_ops *ops, void *ctx, uint32_t quirks)
+static int hs_follow_lock(const struct ploytec_host_ops *ops, void *ctx,
+			  struct ozzy_clock_status *clock)
+{
+	uint8_t buf[1] = { 0 };
+	uint32_t rate = 0;
+	int i, ret;
+
+	clock->locked = false;
+	clock->lock_rate = 0;
+
+	ret = hs_read_selector(ops, ctx, buf);
+	if (ret < 0)
+		return ret;
+	if (!ploytec_aj_locked(buf[0])) {
+		hs_log(ops, ctx, false, "clock source S/PDIF: no lock (selector 0x%02X)", buf[0]);
+		return 0;
+	}
+
+	for (i = 0; i < 20; i++) {
+		ret = hs_read_rate(ops, ctx, &rate);
+		if (ret < 0)
+			return ret;
+		if (rate != 192000)
+			break;
+		ops->sleep_ms(ctx, 10);
+	}
+	if (rate == 192000 || rate == 0) {
+		hs_log(ops, ctx, true, "clock source S/PDIF: locked, but the rate reads %u Hz", rate);
+		return 0;
+	}
+
+	clock->locked = true;
+	clock->lock_rate = rate;
+	hs_log(ops, ctx, false, "clock source S/PDIF: locked at %u Hz", rate);
+	return 0;
+}
+
+/*
+ * hs_selector - The generic updateAjInputSelector of the official configurationDone:
+ * bit 1 from the clock source (ploytec_aj_clock_byte), bit 0 cleared on OZZY_QUIRK_AJ_BIT0
+ * devices, and the byte written back only if it changed, then wait 40 ms and read the
+ * rate (the device may re-clock). The Xones report bit 1 set at power-up, so at the
+ * default (Internal) they get no write. With S/PDIF, @clock gets the lock state and rate.
+ */
+static int hs_selector(const struct ploytec_host_ops *ops, void *ctx, uint32_t quirks,
+		       uint8_t clock_source, struct ozzy_clock_status *clock)
 {
 	uint8_t buf[1] = { 0 };
 	uint32_t rate;
@@ -179,19 +223,22 @@ static int hs_selector(const struct ploytec_host_ops *ops, void *ctx, uint32_t q
 	if (ret < 0)
 		return ret;
 
-	want = buf[0] | PLOYTEC_AJ_INPUT_SELECT_BIT;
+	want = ploytec_aj_clock_byte(buf[0], clock_source);
 	if (quirks & OZZY_QUIRK_AJ_BIT0)
 		want &= (uint8_t)~PLOYTEC_AJ_MODE0_BIT;
-	if (want == buf[0])
-		return 0;
-
-	ret = ops->control(ctx, PLOYTEC_REQTYPE_VENDOR_OUT, PLOYTEC_CMD_STATUS,
-			   (uint16_t)(int16_t)(int8_t)want, PLOYTEC_REG_AJ_INPUT_SEL, 0, 0);
-	if (ret < 0)
-		return ret;
-	ops->sleep_ms(ctx, 40);
-	hs_log(ops, ctx, false, "selector: read 0x%02X, wrote 0x%02X", buf[0], want);
-	return hs_read_rate(ops, ctx, &rate);
+	if (want != buf[0]) {
+		ret = ops->control(ctx, PLOYTEC_REQTYPE_VENDOR_OUT, PLOYTEC_CMD_STATUS,
+				   (uint16_t)(int16_t)(int8_t)want, PLOYTEC_REG_AJ_INPUT_SEL, 0, 0);
+		if (ret < 0)
+			return ret;
+		ops->sleep_ms(ctx, 40);
+		hs_log(ops, ctx, false, "selector: read 0x%02X, wrote 0x%02X", buf[0], want);
+		if (clock_source == OZZY_CLOCK_INTERNAL)
+			return hs_read_rate(ops, ctx, &rate);
+	}
+	if (clock_source != OZZY_CLOCK_INTERNAL)
+		return hs_follow_lock(ops, ctx, clock);
+	return 0;
 }
 
 /*
@@ -350,22 +397,30 @@ const struct ploytec_rate_endpoints ploytec_xone_rate_endpoints = { PLOYTEC_EP_R
 const struct ploytec_rate_endpoints ploytec_isoc_rate_endpoints = { PLOYTEC_EP_RATE_IN, PLOYTEC_ISOC_EP_RATE_OUT };
 
 int ploytec_handshake(const struct ploytec_host_ops *ops, void *ctx, uint32_t rate,
-		      uint32_t quirks, struct ploytec_handshake_info *info)
+		      uint32_t quirks, const struct ozzy_settings *settings,
+		      struct ploytec_handshake_info *info)
 {
-	return ploytec_handshake_eps(ops, ctx, rate, &ploytec_xone_rate_endpoints, quirks, info);
+	return ploytec_handshake_eps(ops, ctx, rate, &ploytec_xone_rate_endpoints, quirks,
+				     settings, info);
 }
 
 int ploytec_handshake_eps(const struct ploytec_host_ops *ops, void *ctx, uint32_t rate,
 			  const struct ploytec_rate_endpoints *eps, uint32_t quirks,
+			  const struct ozzy_settings *settings,
 			  struct ploytec_handshake_info *info)
 {
 	struct ploytec_handshake_info local;
+	uint8_t clock_source = OZZY_CLOCK_INTERNAL;
 	uint32_t verify_rate = 0;
 	int step = 0;
-	int ret;
+	int ret = 0;
 
 	if (!info)
 		info = &local;
+	info->clock.locked = false;
+	info->clock.lock_rate = 0;
+	if (settings && ozzy_has_setting(quirks, OZZY_SETTING_CLOCK_SOURCE))
+		clock_source = settings->value[OZZY_SETTING_CLOCK_SOURCE];
 
 	hs_log(ops, ctx, false, "--- begin handshake sequence ---");
 
@@ -395,10 +450,17 @@ int ploytec_handshake_eps(const struct ploytec_host_ops *ops, void *ctx, uint32_
 		hs_log(ops, ctx, false, "ESI selector and 'A' request...");
 		ret = hs_esi_setup(ops, ctx, quirks);
 	} else if (!(quirks & OZZY_QUIRK_NO_AJ_SELECTOR)) {
-		ret = hs_selector(ops, ctx, quirks);
+		ret = hs_selector(ops, ctx, quirks, clock_source, &info->clock);
 	}
 	if (ret < 0)
 		goto err;
+	/* Locked to S/PDIF: the official driver adopts the lock rate and offers only it */
+	if (info->clock.locked && info->clock.lock_rate != rate) {
+		hs_log(ops, ctx, false, "following the S/PDIF lock: %u Hz instead of %u Hz",
+		       info->clock.lock_rate, rate);
+		rate = info->clock.lock_rate;
+	}
+	info->rate = rate;
 	if (quirks & OZZY_QUIRK_DIGITAL_OUT_SEL) {
 		ret = hs_digital_out_sel(ops, ctx);
 		if (ret < 0)

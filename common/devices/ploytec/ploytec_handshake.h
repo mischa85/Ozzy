@@ -25,6 +25,7 @@
 
 #include "ploytec_protocol.h"
 #include "../../ozzy_quirks.h"
+#include "../../ozzy_settings.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -54,7 +55,9 @@ struct ploytec_host_ops {
 struct ploytec_handshake_info {
 	struct ploytec_firmware_version firmware;
 	uint32_t boot_rate;  /* rate before SET_CUR (the DB2 boots at 44100) */
+	uint32_t rate;       /* rate the device was set to: the requested one, or the S/PDIF lock rate */
 	uint8_t status;      /* AJ input selector byte as read before the confirm write */
+	struct ozzy_clock_status clock;  /* digital lock, with the S/PDIF clock source selected */
 };
 
 /*
@@ -74,11 +77,15 @@ extern const struct ploytec_rate_endpoints ploytec_isoc_rate_endpoints;  /* 0x86
  * ploytec_handshake - Arm a Xone (bulk/interrupt out) device for streaming at @rate Hz.
  * @quirks: the device's enum ozzy_quirk bits (the handshake uses the ones that add,
  * replace or skip setup requests: NO_AJ_SELECTOR, ESI, ESI_U168, ESI_CPLD, WAIT_200MS,
- * WAIT_100MS, AJ_BIT0, SPDIF_OUT, DIGITAL_OUT_SEL). @info may be NULL. Returns 0 on success,
- * negative errno on failure.
+ * WAIT_100MS, AJ_BIT0, SPDIF_OUT, DIGITAL_OUT_SEL, DIGITAL_IN).
+ * @settings: the user's settings (NULL: the defaults). Only the ones the device has
+ * (ozzy_has_setting) are sent. With the S/PDIF clock source and the device locked, the
+ * handshake sets the lock rate instead of @rate, as the official driver does; info->rate
+ * says which. @info may be NULL. Returns 0 on success, negative errno on failure.
  */
 int ploytec_handshake(const struct ploytec_host_ops *ops, void *ctx, uint32_t rate,
-		      uint32_t quirks, struct ploytec_handshake_info *info);
+		      uint32_t quirks, const struct ozzy_settings *settings,
+		      struct ploytec_handshake_info *info);
 
 /*
  * ploytec_handshake_eps - The same sequence with the rate requests sent to @eps.
@@ -88,6 +95,7 @@ int ploytec_handshake(const struct ploytec_host_ops *ops, void *ctx, uint32_t ra
  */
 int ploytec_handshake_eps(const struct ploytec_host_ops *ops, void *ctx, uint32_t rate,
 			  const struct ploytec_rate_endpoints *eps, uint32_t quirks,
+			  const struct ozzy_settings *settings,
 			  struct ploytec_handshake_info *info);
 
 #ifdef __cplusplus

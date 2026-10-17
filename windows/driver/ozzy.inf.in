@@ -1,0 +1,92 @@
+; Ozzy: ACX audio driver for non-class-compliant USB audio devices (MIT)
+
+[Version]
+Signature   = "$WINDOWS NT$"
+Class       = MEDIA
+ClassGuid   = {4d36e96c-e325-11ce-bfc1-08002be10318}
+Provider    = %ProviderName%
+CatalogFile = ozzy.cat
+DriverVer   = 01/01/2026,0.1.0.0
+PnpLockDown = 1
+
+[DestinationDirs]
+Ozzy.CopyFiles = 13
+
+[SourceDisksNames]
+1 = %DiskName%
+
+[SourceDisksFiles]
+ozzy.sys = 1
+
+[Manufacturer]
+%ProviderName% = Ozzy, NT$ARCH$.10.0...22000
+
+[Ozzy.NT$ARCH$.10.0...22000]
+; OZZY_DEVICES: generated from common/ozzy_devices.def by GenInf.c (ozzy.vcxproj)
+
+[Ozzy.Device.NT]
+CopyFiles = Ozzy.CopyFiles
+
+[Ozzy.CopyFiles]
+ozzy.sys
+
+; One render and one capture endpoint: the reference strings are the ACX circuit names
+[Ozzy.Device.NT.Interfaces]
+AddInterface = %KSCATEGORY_AUDIO%,    %KSNAME_Out%, Ozzy.Out
+AddInterface = %KSCATEGORY_RENDER%,   %KSNAME_Out%, Ozzy.Out
+AddInterface = %KSCATEGORY_REALTIME%, %KSNAME_Out%, Ozzy.Out
+AddInterface = %KSCATEGORY_AUDIO%,    %KSNAME_In%,  Ozzy.In
+AddInterface = %KSCATEGORY_CAPTURE%,  %KSNAME_In%,  Ozzy.In
+AddInterface = %KSCATEGORY_REALTIME%, %KSNAME_In%,  Ozzy.In
+
+[Ozzy.Out]
+AddReg = Ozzy.Out.AddReg
+
+[Ozzy.Out.AddReg]
+HKR,,CLSID,,%Proxy.CLSID%
+HKR,,FriendlyName,,%Out.Name%
+HKR,EP\0,%PKEY_AudioEndpoint_Association%,,%KSNODETYPE_ANY%
+HKR,EP\0,%PKEY_AudioEndpoint_Supports_EventDriven_Mode%,0x00010001,0x1
+
+[Ozzy.In]
+AddReg = Ozzy.In.AddReg
+
+[Ozzy.In.AddReg]
+HKR,,CLSID,,%Proxy.CLSID%
+HKR,,FriendlyName,,%In.Name%
+HKR,EP\0,%PKEY_AudioEndpoint_Association%,,%KSNODETYPE_ANY%
+HKR,EP\0,%PKEY_AudioEndpoint_Supports_EventDriven_Mode%,0x00010001,0x1
+
+[Ozzy.Device.NT.Services]
+AddService = Ozzy, 0x00000002, Ozzy.Service
+
+[Ozzy.Service]
+DisplayName   = %ServiceName%
+ServiceType   = 1               ; SERVICE_KERNEL_DRIVER
+StartType     = 3               ; SERVICE_DEMAND_START
+ErrorControl  = 1               ; SERVICE_ERROR_NORMAL
+ServiceBinary = %13%\ozzy.sys
+
+[Ozzy.Device.NT.Wdf]
+KmdfService = Ozzy, Ozzy.WdfSection
+
+[Ozzy.WdfSection]
+KmdfLibraryVersion = $KMDFVERSION$
+
+[Strings]
+ProviderName = "Ozzy"
+DiskName     = "Ozzy installation disk"
+ServiceName  = "Ozzy USB audio"
+Out.Name     = "Ozzy output"
+In.Name      = "Ozzy input"
+KSNAME_Out   = "OzzyOut"
+KSNAME_In    = "OzzyIn"
+
+Proxy.CLSID         = "{17CCA71B-ECD7-11D0-B908-00A0C9223196}"
+KSCATEGORY_AUDIO    = "{6994AD04-93EF-11D0-A3CC-00A0C9223196}"
+KSCATEGORY_RENDER   = "{65E8773E-8F56-11D0-A3B9-00A0C9223196}"
+KSCATEGORY_CAPTURE  = "{65E8773D-8F56-11D0-A3B9-00A0C9223196}"
+KSCATEGORY_REALTIME = "{EB115FFC-10C8-4964-831D-6DCB02E6F23F}"
+KSNODETYPE_ANY      = "{00000000-0000-0000-0000-000000000000}"
+PKEY_AudioEndpoint_Association               = "{1DA5D803-D492-4EDD-8C23-E0C0FFEE7F0E},2"
+PKEY_AudioEndpoint_Supports_EventDriven_Mode = "{1DA5D803-D492-4EDD-8C23-E0C0FFEE7F0E},7"

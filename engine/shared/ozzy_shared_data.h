@@ -228,12 +228,16 @@ static inline bool ozzy_timestamp_read(struct ozzy_timestamp *ts, uint64_t *samp
 }
 #endif
 
+/*
+ * --- MIDI rings: the engine fills midi_in and drains midi_out, a client the other way round ---
+ * ozzy_midi_ring_push appends what fits (returns how many), ozzy_midi_ring_pop takes up to
+ * @max bytes (returns how many). Either side can call either one.
+ */
 #ifdef OZZY_ENGINE_SIDE
-/* --- MIDI rings, engine side: it fills midi_in and drains midi_out --- */
+typedef volatile struct ozzy_midi_buffer ozzy_midi_ring;
 
 /* Append @count bytes to @ring; what doesn't fit is dropped. Returns how many went in. */
-static inline uint32_t ozzy_midi_ring_push(volatile struct ozzy_midi_buffer *ring, const uint8_t *bytes,
-					   uint32_t count)
+static inline uint32_t ozzy_midi_ring_push(ozzy_midi_ring *ring, const uint8_t *bytes, uint32_t count)
 {
 	uint32_t w = ring->write_index;
 	uint32_t r = ozzy_load_acquire_u32(&ring->read_index);
@@ -248,7 +252,7 @@ static inline uint32_t ozzy_midi_ring_push(volatile struct ozzy_midi_buffer *rin
 }
 
 /* Take up to @max bytes from @ring into @dst. Returns how many. */
-static inline uint32_t ozzy_midi_ring_pop(volatile struct ozzy_midi_buffer *ring, uint8_t *dst, uint32_t max)
+static inline uint32_t ozzy_midi_ring_pop(ozzy_midi_ring *ring, uint8_t *dst, uint32_t max)
 {
 	uint32_t r = ring->read_index;
 	uint32_t w = ozzy_load_acquire_u32(&ring->write_index);   /* acquire: the bytes before the index */
@@ -261,6 +265,92 @@ static inline uint32_t ozzy_midi_ring_pop(volatile struct ozzy_midi_buffer *ring
 	ozzy_store_release_u32(&ring->read_index, r);
 	return i;
 }
+#else
+typedef struct ozzy_midi_buffer ozzy_midi_ring;
+
+static inline uint32_t ozzy_midi_ring_push(ozzy_midi_ring *ring, const uint8_t *bytes, uint32_t count)
+{
+	uint32_t w = ring->write_index.load(std::memory_order_relaxed);
+	uint32_t r = ring->read_index.load(std::memory_order_acquire);
+	uint32_t i;
+
+	for (i = 0; i < count && ((w + 1) & OZZY_MIDI_RING_MASK) != r; i++) {
+		ring->buffer[w] = bytes[i];
+		w = (w + 1) & OZZY_MIDI_RING_MASK;
+	}
+	ring->write_index.store(w, std::memory_order_release);
+	return i;
+}
+
+static inline uint32_t ozzy_midi_ring_pop(ozzy_midi_ring *ring, uint8_t *dst, uint32_t max)
+{
+	uint32_t r = ring->read_index.load(std::memory_order_relaxed);
+	uint32_t w = ring->write_index.load(std::memory_order_acquire);
+	uint32_t i;
+
+	for (i = 0; i < max && r != w; i++) {
+		dst[i] = ring->buffer[r];
+		r = (r + 1) & OZZY_MIDI_RING_MASK;
+	}
+	ring->read_index.store(r, std::memory_order_release);
+	return i;
+}
 #endif
+
+/*
+ * struct ozzy_midi_queue - MIDI out waiting for room in midi_out, oldest first: a producer that
+ * gets its bytes pushed (CoreMIDI, a Windows MIDI client) keeps them here, as the device takes
+ * 2500 bytes/s and the ring holds 1 KB. @buf: the producer's storage, @mask + 1 bytes (a power
+ * of two); @dropped: bytes lost because @buf was full too.
+ */
+struct ozzy_midi_queue {
+	uint8_t *buf;
+	uint32_t mask;
+	uint32_t head, tail;
+	uint32_t dropped;
+};
+
+/*
+ * ozzy_midi_queue_write - Into @ring: what waits in @q first, then @data (@length bytes, none
+ * for a flush); the rest waits in @q. Returns how many bytes reached the ring.
+ */
+static inline uint32_t ozzy_midi_queue_write(ozzy_midi_ring *ring, struct ozzy_midi_queue *q, const uint8_t *data,
+					     uint32_t length)
+{
+	uint32_t moved = 0, n;
+
+	while (q->head != q->tail) {
+		uint32_t at = q->head & q->mask;
+		uint32_t run = q->tail - q->head;
+
+		if (run > q->mask + 1 - at)
+			run = q->mask + 1 - at;   /* up to the end of @buf */
+		n = ozzy_midi_ring_push(ring, q->buf + at, run);
+		q->head += n;
+		moved += n;
+		if (n < run)
+			break;
+	}
+	if (q->head == q->tail) {
+		n = ozzy_midi_ring_push(ring, data, length);
+		moved += n;
+		data += n;
+		length -= n;
+	}
+	for (; length; length--, data++) {
+		if (q->tail - q->head > q->mask) {
+			q->dropped += length;
+			break;
+		}
+		q->buf[q->tail++ & q->mask] = *data;
+	}
+	return moved;
+}
+
+/* Whether bytes wait in @q */
+static inline bool ozzy_midi_queue_pending(const struct ozzy_midi_queue *q)
+{
+	return q->head != q->tail;
+}
 
 #endif /* OZZY_SHARED_DATA_H */

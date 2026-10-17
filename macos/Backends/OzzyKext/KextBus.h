@@ -22,6 +22,7 @@ public:
     bool SubmitIsoc(uint8_t pipeID, void* buffer, uint32_t bufferSize,
                     struct ozzy_isoc_packet* packets, uint32_t count, void* contextID);
     bool VendorRequest(uint8_t type, uint8_t req, uint16_t val, uint16_t idx, void* data, uint16_t len);
+    int ClearHalt(uint8_t address);
     void Sleep(uint32_t ms);
     uint64_t GetTime();
     void SetEngine(struct ozzy_engine* engine);

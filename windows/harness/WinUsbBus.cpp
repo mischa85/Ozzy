@@ -20,6 +20,7 @@ static bool OpsSubmit(void* ctx, uint8_t pipe, void* buf, uint32_t size, void* x
 static bool OpsControl(void* ctx, uint8_t type, uint8_t req, uint16_t val, uint16_t idx, void* data, uint16_t len) {
     return ((WinUsbBus*)ctx)->VendorRequest(type, req, val, idx, data, len);
 }
+static int OpsClearHalt(void* ctx, uint8_t endpoint) { return ((WinUsbBus*)ctx)->ClearHalt(endpoint); }
 static bool OpsStartTimer(void* ctx, uint32_t intervalUs) { return ((WinUsbBus*)ctx)->StartTimer(intervalUs); }
 static void OpsStopTimer(void* ctx) { ((WinUsbBus*)ctx)->StopTimer(); }
 static void OpsSleep(void* ctx, unsigned int ms) { ((WinUsbBus*)ctx)->Sleep(ms); }
@@ -28,7 +29,7 @@ static uint64_t OpsTime(void* ctx) { return ((WinUsbBus*)ctx)->GetTime(); }
 // No isochronous transfers (WinUSB can't give each packet its own length) and no PCM rings
 // (the harness plays the HAL's part of the shared memory)
 const struct ozzy_bus_ops WinUsbBus::sOps = {
-    OpsSubmit, nullptr, OpsControl, OpsStartTimer, OpsStopTimer, nullptr, OpsSleep, OpsTime
+    OpsSubmit, nullptr, OpsControl, OpsClearHalt, OpsStartTimer, OpsStopTimer, nullptr, OpsSleep, OpsTime
 };
 
 WinUsbBus::WinUsbBus() {
@@ -219,6 +220,15 @@ bool WinUsbBus::VendorRequest(uint8_t type, uint8_t req, uint16_t val, uint16_t 
     if (WinUsb_ControlTransfer(mIntf[0], setup, (PUCHAR)data, len, &done, nullptr)) return true;
     Log("[WinUsbBus] control request 0x%02x (type 0x%02x, wValue 0x%04x) failed: %lu", req, type, val, GetLastError());
     return false;
+}
+
+/* Clears the stall on the device's endpoint and the pipe's data toggle */
+int WinUsbBus::ClearHalt(uint8_t address) {
+    int slot = PipeSlot(address);
+    if (!mPipeIntf[slot] || mPipeAddr[slot] != address) return -ENODEV;
+    if (WinUsb_ResetPipe(mPipeIntf[slot], address)) return 0;
+    Log("[WinUsbBus] clear halt on pipe 0x%02x failed: %lu", address, GetLastError());
+    return -EIO;
 }
 
 /* Deliver completions to the engine, one at a time. A failed transfer still completes through

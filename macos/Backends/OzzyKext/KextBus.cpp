@@ -121,6 +121,7 @@ static bool OpsSubmitIsoc(void* ctx, uint8_t pipe, void* buf, uint32_t bufSize, 
 static bool OpsControl(void* ctx, uint8_t type, uint8_t req, uint16_t val, uint16_t idx, void* data, uint16_t len) {
     return ((KextBus*)ctx)->VendorRequest(type, req, val, idx, data, len);
 }
+static int OpsClearHalt(void* ctx, uint8_t endpoint) { return ((KextBus*)ctx)->ClearHalt(endpoint); }
 static bool OpsStartTimer(void* ctx, uint32_t intervalUs) { return ((KextBus*)ctx)->StartTimer(intervalUs); }
 static void OpsStopTimer(void* ctx) { ((KextBus*)ctx)->StopTimer(); }
 static void OpsSleep(void* ctx, unsigned int ms) { ((KextBus*)ctx)->Sleep(ms); }
@@ -128,7 +129,7 @@ static uint64_t OpsTime(void* ctx) { return ((KextBus*)ctx)->GetTime(); }
 
 // No PCM rings on macOS: the HAL writes the shared memory itself
 const struct ozzy_bus_ops KextBus::sOps = {
-    OpsSubmit, OpsSubmitIsoc, OpsControl, OpsStartTimer, OpsStopTimer, nullptr, OpsSleep, OpsTime
+    OpsSubmit, OpsSubmitIsoc, OpsControl, OpsClearHalt, OpsStartTimer, OpsStopTimer, nullptr, OpsSleep, OpsTime
 };
 
 KextBus::KextBus(IOUSBHostDevice* device, IOService* driver) 
@@ -316,6 +317,14 @@ bool KextBus::VendorRequest(uint8_t type, uint8_t req, uint16_t val, uint16_t id
     IOReturn err = mDevice->deviceRequest(mDriver, dr, data, bytesTransferred, 5000);
     
     return (err == kIOReturnSuccess);
+}
+
+/* CLEAR_FEATURE(ENDPOINT_HALT) to the device and a reset of the host side of the pipe */
+int KextBus::ClearHalt(uint8_t address) {
+    IOUSBHostPipe* pipe = FindPipe(address);
+    if (!pipe) return -ENODEV;
+    IOReturn err = pipe->clearStall(true);
+    return err == kIOReturnSuccess ? 0 : -EIO;
 }
 
 void KextBus::Sleep(uint32_t ms) { IOSleep(ms); }

@@ -45,6 +45,7 @@ public:
 
     bool SubmitUSBPacket(uint8_t pipeID, void* buffer, uint32_t size, void* contextID);
     bool VendorRequest(uint8_t type, uint8_t req, uint16_t val, uint16_t idx, void* data, uint16_t len);
+    int ClearHalt(uint8_t address);
     bool StartTimer(uint32_t intervalUs);
     void StopTimer();
     void PcmProgress(enum ozzy_pcm_dir dir, uint64_t frames);

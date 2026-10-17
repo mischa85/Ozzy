@@ -12,6 +12,7 @@ static bool OpsSubmit(void* ctx, uint8_t pipe, void* buf, uint32_t size, void* x
 static bool OpsControl(void* ctx, uint8_t type, uint8_t req, uint16_t val, uint16_t idx, void* data, uint16_t len) {
     return ((KmdfBus*)ctx)->VendorRequest(type, req, val, idx, data, len);
 }
+static int OpsClearHalt(void* ctx, uint8_t endpoint) { return ((KmdfBus*)ctx)->ClearHalt(endpoint); }
 static bool OpsStartTimer(void* ctx, uint32_t intervalUs) { return ((KmdfBus*)ctx)->StartTimer(intervalUs); }
 static void OpsStopTimer(void* ctx) { ((KmdfBus*)ctx)->StopTimer(); }
 static void OpsPcmProgress(void* ctx, enum ozzy_pcm_dir dir, uint64_t frames) { ((KmdfBus*)ctx)->PcmProgress(dir, frames); }
@@ -20,7 +21,7 @@ static uint64_t OpsTime(void* ctx) { return ((KmdfBus*)ctx)->GetTime(); }
 
 // Isochronous URBs (per-packet lengths, ring wrap) come with the Ploytec isochronous family
 const struct ozzy_bus_ops KmdfBus::sOps = {
-    OpsSubmit, nullptr, OpsControl, OpsStartTimer, OpsStopTimer, OpsPcmProgress, OpsSleep, OpsTime
+    OpsSubmit, nullptr, OpsControl, OpsClearHalt, OpsStartTimer, OpsStopTimer, OpsPcmProgress, OpsSleep, OpsTime
 };
 
 KmdfBus::KmdfBus() {
@@ -293,6 +294,16 @@ bool KmdfBus::VendorRequest(uint8_t type, uint8_t req, uint16_t val, uint16_t id
     if (NT_SUCCESS(status)) return true;
     Log("[Ozzy] control request 0x%02x (type 0x%02x, wValue 0x%04x) failed: 0x%08x", req, type, val, status);
     return false;
+}
+
+/* PASSIVE_LEVEL (the handshake): CLEAR_FEATURE(ENDPOINT_HALT) and a reset of the pipe */
+int KmdfBus::ClearHalt(uint8_t address) {
+    Pipe* p = FindPipe(address);
+    if (!p) return -ENODEV;
+    NTSTATUS status = WdfUsbTargetPipeResetSynchronously(p->pipe, WDF_NO_HANDLE, nullptr);
+    if (NT_SUCCESS(status)) return 0;
+    Log("[Ozzy] clear halt on pipe 0x%02x failed: 0x%08x", address, status);
+    return -EIO;
 }
 
 void KmdfBus::TimerCallback(PEX_TIMER timer, PVOID context) {

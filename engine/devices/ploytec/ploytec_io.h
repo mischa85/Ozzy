@@ -17,8 +17,8 @@
 extern "C" {
 #endif
 
-/* Host services for the shared handshake (common/devices/ploytec/ploytec_handshake.c); the
- * context is the engine's struct ozzy_bus */
+/* Host services for the shared handshake (common/devices/ploytec/ploytec_handshake.c), without
+ * clear_halt; the context is the engine's struct ozzy_bus */
 extern const struct ploytec_host_ops ploytec_bus_host_ops;
 
 /* One PCM IN transfer: 80 frames into logical packet @idx of input_buffer

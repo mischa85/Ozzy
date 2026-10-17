@@ -46,6 +46,9 @@ enum ozzy_pcm_dir {
  *                @packets over @buf (@buf_size bytes), starting at the next frame; @packets
  *                stay valid until the completion. Optional.
  * @control:      a control request, synchronous (the handshake)
+ * @clear_halt:   clear ENDPOINT_HALT on endpoint @endpoint (with direction bit) and reset the
+ *                host side of its pipe, synchronous (the handshake); 0 or a negative error.
+ *                Optional.
  * @start_timer:  call ozzy_engine_timer() every @interval_us until @stop_timer, which waits
  *                for a call in progress. Optional.
  * @pcm_progress: the engine moved PCM through an attached ring (ozzy_engine_set_pcm_ring):
@@ -60,6 +63,7 @@ struct ozzy_bus_ops {
 			    struct ozzy_isoc_packet *packets, uint32_t count, void *xfer);
 	bool (*control)(void *ctx, uint8_t type, uint8_t request, uint16_t value, uint16_t index,
 			void *data, uint16_t length);
+	int (*clear_halt)(void *ctx, uint8_t endpoint);
 	bool (*start_timer)(void *ctx, uint32_t interval_us);
 	void (*stop_timer)(void *ctx);
 	void (*pcm_progress)(void *ctx, enum ozzy_pcm_dir dir, uint64_t frames);

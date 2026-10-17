@@ -42,6 +42,7 @@
 #if defined(_KERNEL_MODE)
 #define EIO     5
 #define EINVAL  22
+#define ENODEV  19
 #elif defined(KERNEL)
 #include <sys/errno.h>
 #else

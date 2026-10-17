@@ -25,6 +25,17 @@ static int host_control(void *ctx, uint8_t type, uint8_t req, uint16_t val, uint
 	return bus->ops->control(bus->ctx, type, req, val, idx, data, len) ? len : -EIO;
 }
 
+static int host_clear_halt(void *ctx, uint8_t endpoint)
+{
+	const struct ozzy_bus *bus = (const struct ozzy_bus *)ctx;
+
+	if (!bus->ops->clear_halt) {
+		ploytec_log("no clear halt on this platform (endpoint 0x%02x)", endpoint);
+		return 0;
+	}
+	return bus->ops->clear_halt(bus->ctx, endpoint);
+}
+
 static void host_sleep(void *ctx, unsigned int ms)
 {
 	const struct ozzy_bus *bus = (const struct ozzy_bus *)ctx;
@@ -40,8 +51,11 @@ static void host_log(void *ctx, bool error, const char *fmt, va_list args)
 	ploytec_log("%s", line);
 }
 
-/* No clear_halt: the official macOS driver never clears the PCM endpoint halt (only the
- * Windows driver does, see ploytec_handshake.c). Shared with ploytec_isoc_engine. */
+/* The Xones clear the PCM endpoint halts before streaming, as the official Windows driver does
+ * and Linux does: without it the 4D never starts streaming (#75, ploytec_handshake.c) */
+static const struct ploytec_host_ops xone_host_ops = { host_control, host_clear_halt, host_sleep, host_log };
+
+/* Without clear_halt, for ploytec_isoc_engine: the official driver doesn't clear halts there */
 const struct ploytec_host_ops ploytec_bus_host_ops = { host_control, NULL, host_sleep, host_log };
 
 static struct ploytec_engine *to_ploytec(struct ozzy_engine *e)
@@ -111,7 +125,7 @@ static bool ploytec_start(struct ozzy_engine *e)
 
 	/* 2. The handshake, with the settings; locked to S/PDIF it sets the lock rate */
 	memset(&hs, 0, sizeof(hs));
-	if (ploytec_handshake(&ploytec_bus_host_ops, (void *)e->bus, pe->default_rate, model->quirks,
+	if (ploytec_handshake(&xone_host_ops, (void *)e->bus, pe->default_rate, model->quirks,
 			      &e->settings, &hs) < 0)
 		return false;
 	if (!ozzy_device_has_rate(model, hs.rate)) {

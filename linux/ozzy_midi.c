@@ -139,8 +139,14 @@ static void ozzy_midi_in_urb_handler(struct urb *usb_urb)
 	unsigned long flags;
 	int ret;
 
+	/*
+	 * A "gone" status means the driver unlinked the URB itself -- a device
+	 * reset, ozzy_midi_kill_urbs or disconnect. That is expected teardown:
+	 * do not resubmit, and do not report it as a device failure. Only a real
+	 * usb_submit_urb() error is worth logging.
+	 */
 	if (unlikely(ozzy_urb_gone(usb_urb->status)))
-		goto in_fail;
+		return;
 
 	if (chip->ops->decode_midi_in) {
 		len = chip->ops->decode_midi_in(chip, data, len, decoded);
@@ -154,12 +160,7 @@ static void ozzy_midi_in_urb_handler(struct urb *usb_urb)
 
 	ret = usb_submit_urb(&in_urb->instance, GFP_ATOMIC);
 	if (ret < 0)
-		goto in_fail;
-
-	return;
-
-in_fail:
-	ozzy_midi_err(&in_urb->chip->dev->dev, "input URB failure\n");
+		ozzy_midi_err(&in_urb->chip->dev->dev, "input URB resubmit failed (%d)\n", ret);
 }
 
 /*
@@ -398,6 +399,13 @@ error:
 
 /*
  * ozzy_midi_kill_urbs - Kill all MIDI URBs.
+ *
+ * Each input URB is given a short grace period to complete before it is killed
+ * (usb_wait_anchor_empty_timeout, 100). Dropping that wait and killing straight
+ * away was tried and wedged the US-1641: its post-reset handshake then timed out
+ * (-110), i.e. the settle time -- not just in-flight-data delivery -- appears to
+ * be load-bearing for this device. Cost is ~100 ms per idle MIDI IN URB (~400 ms
+ * per reset); only a rate or clock-control change pays it.
  */
 static void ozzy_midi_kill_urbs(struct midi_runtime *rt)
 {

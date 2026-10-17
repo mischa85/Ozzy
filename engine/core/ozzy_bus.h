@@ -20,6 +20,14 @@ extern "C" {
 #define OZZY_MAX_ISOC_PACKETS 32   /* packets per isochronous transfer (4 ms of microframes) */
 
 /*
+ * Transfers that can be in flight at the same time never share an OZZY_DMA_ALIGN block of
+ * memory: the largest cache line DMA has to respect on a non-coherent machine (arm64 Linux's
+ * ARCH_DMA_MINALIGN), so one transfer's cache maintenance can't clobber another's data.
+ */
+#define OZZY_DMA_ALIGN 128
+#define OZZY_DMA_ROUND(n) (((n) + OZZY_DMA_ALIGN - 1) & ~(uint32_t)(OZZY_DMA_ALIGN - 1))
+
+/*
  * One packet (service interval) of an isochronous transfer. The engine fills @offset and
  * @length; the bus fills @actual, @status and @time (the platform's clock) on completion.
  * @offset may run past the end of the buffer and wrap to its start.

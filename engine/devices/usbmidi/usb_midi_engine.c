@@ -34,7 +34,7 @@ static void midi_set_endpoint(struct ozzy_engine *e, enum ozzy_pipe_role role, u
 
 static void submit_read(struct usb_midi_engine *me, uint32_t slot)
 {
-	void *buf = me->base.mem.midi_in + slot * READ_SIZE;
+	void *buf = me->base.mem.midi_in + slot * OZZY_DMA_ALIGN;
 
 	if (!ozzy_bus_submit(me->base.bus, EP_MIDI_IN, buf, READ_SIZE, (void *)(uintptr_t)slot))
 		usb_midi_log("MIDI input submission failed (slot %u)", slot);
@@ -87,7 +87,7 @@ static void midi_stop(struct ozzy_engine *e)
 static void process_read(struct usb_midi_engine *me, uint32_t slot, uint32_t bytes)
 {
 	volatile struct ozzy_shared_memory *shm = me->base.shm;
-	const uint8_t *packets = me->base.mem.midi_in + slot * READ_SIZE;
+	const uint8_t *packets = me->base.mem.midi_in + slot * OZZY_DMA_ALIGN;
 	uint32_t offset;
 
 	for (offset = 0; offset + USB_MIDI_PACKET_SIZE <= bytes; offset += USB_MIDI_PACKET_SIZE) {

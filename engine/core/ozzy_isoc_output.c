@@ -58,7 +58,7 @@ static bool submit_feedback(struct ozzy_isoc_output *out, uint32_t i)
 {
 	struct ozzy_isoc_output_xfer *t = &out->fb_xfer[i];
 	const struct ozzy_isoc_output_config *c = &out->config;
-	uint32_t base = i * ISOC_TRANSFER_UFRAMES * c->fb_max_packet;
+	uint32_t base = i * OZZY_DMA_ROUND(ISOC_TRANSFER_UFRAMES * c->fb_max_packet);   /* own DMA block */
 	uint32_t p;
 
 	t->count = isoc_fb_packets(out->fb.uframes);
@@ -87,7 +87,7 @@ bool ozzy_isoc_output_start(struct ozzy_isoc_output *out, const struct ozzy_bus 
 		return false;
 
 	fb_fits = config->fb_addr && config->fb_buf &&
-		  ISOC_FB_TRANSFERS * ISOC_TRANSFER_UFRAMES * config->fb_max_packet <= config->fb_size;
+		  ISOC_FB_TRANSFERS * OZZY_DMA_ROUND(ISOC_TRANSFER_UFRAMES * config->fb_max_packet) <= config->fb_size;
 	if (config->fb_addr && !fb_fits)
 		ozzy_log("isoc: feedback wMaxPacketSize %u too large", config->fb_max_packet);
 	if (!isoc_fb_init(&out->fb, config->rate, fb_fits ? &config->feedback : &no_feedback,

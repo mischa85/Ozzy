@@ -32,11 +32,10 @@ static inline bool ploytec_submit_pcm_in(const struct ozzy_engine *e, uint8_t ad
 
 /*
  * MIDI IN: PLOYTEC_MIDI_IN_XFERS reads of the framing's transfer size (9 bytes on the Xones,
- * as Linux reads them), each into its own slot of the MIDI IN memory, so no two transfers
- * share memory or a cache line
+ * as Linux reads them), each into its own OZZY_DMA_ALIGN slot of the MIDI IN memory
  */
 #define PLOYTEC_MIDI_IN_XFERS   4
-#define PLOYTEC_MIDI_IN_SLOT    64     /* >= PLOYTEC_MIDI_XFER_MAX, a cache line */
+#define PLOYTEC_MIDI_IN_SLOT    OZZY_DMA_ALIGN   /* >= PLOYTEC_MIDI_XFER_MAX */
 
 static inline uint8_t *ploytec_midi_in_slot(const struct ozzy_engine *e, uint32_t slot)
 {

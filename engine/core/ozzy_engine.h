@@ -80,11 +80,11 @@ struct ozzy_pcm_ring {
  *                    which the HAL writes; else one buffer per OUT transfer
  *                    (ISOC_OUT_TRANSFERS, @isoc_out_size bytes each), filled at submit
  * @isoc_in:          the feedback transfers (@isoc_in_size bytes)
- * @midi_in:          MIDI IN transfers, OZZY_MIDI_IN_SIZE bytes
+ * @midi_in:          MIDI IN transfers, OZZY_MIDI_IN_SIZE bytes (OZZY_DMA_ALIGN aligned)
  * @midi_out:         one MIDI OUT transfer, OZZY_MIDI_OUT_SIZE bytes
  */
 #define OZZY_PCM_SLOT_MIN   5120   /* the largest PCM transfer (Ploytec PCM in) */
-#define OZZY_MIDI_IN_SIZE   256
+#define OZZY_MIDI_IN_SIZE   512    /* 4 transfers in flight, OZZY_DMA_ALIGN apart */
 #define OZZY_MIDI_OUT_SIZE  64
 
 struct ozzy_engine_memory {

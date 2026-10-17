@@ -22,8 +22,8 @@ NTSTATUS wdev_evt_add(WDFDRIVER driver, PWDFDEVICE_INIT init) {
 
     const struct ozzy_device* model = lookup_model(init);
     if (!model) return STATUS_NOT_SUPPORTED;
-    /* The Ploytec isochronous family and USB MIDI come later (isochronous URBs, a MIDI circuit) */
-    if (model->family != OZZY_FAMILY_PLOYTEC_XONE) {
+    /* USB MIDI (the Xone:1D) needs a MIDI port, which comes later */
+    if (model->family == OZZY_FAMILY_USB_MIDI) {
         DbgPrintEx(DPFLTR_IHVAUDIO_ID, DPFLTR_ERROR_LEVEL, "[Ozzy] %s: not supported on Windows yet\n", model->name);
         return STATUS_NOT_SUPPORTED;
     }
@@ -100,9 +100,10 @@ static NTSTATUS wdev_evt_prepare_hardware(WDFDEVICE device, WDFCMRESLIST resourc
     if (!ctx->configured) {
         kbus_init(&ctx->bus, ctx->engine);
         NTSTATUS status = kbus_create(&ctx->bus, device);
-        if (NT_SUCCESS(status)) status = kbus_configure(&ctx->bus, ctx->shm, sizeof(*ctx->shm));
+        if (NT_SUCCESS(status)) status = kbus_configure(&ctx->bus);
         if (!NT_SUCCESS(status)) return status;
         ozzy_engine_attach(ctx->engine, &ctx->bus.bus, ctx->shm);
+        if (!ozzy_engine_alloc_memory(ctx->engine, &ctx->bus.allocator)) return STATUS_INSUFFICIENT_RESOURCES;
         wsettings_restore(ctx, device);
         ctx->configured = true;
     }
@@ -132,6 +133,7 @@ static NTSTATUS wdev_evt_release_hardware(WDFDEVICE device, WDFCMRESLIST transla
         ctx->circuits_added = false;
     }
     /* D0Exit has stopped the engine and its transfers */
+    if (ctx->engine) ozzy_engine_free_memory(ctx->engine);
     kbus_release(&ctx->bus);
     if (ctx->engine) ExFreePoolWithTag(ctx->engine, OZZY_POOL_TAG);
     ctx->engine = NULL;

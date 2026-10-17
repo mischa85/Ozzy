@@ -36,29 +36,36 @@ static struct kbus_pipe* kbus_find_pipe(struct kmdf_bus* kb, uint8_t address) {
     return NULL;
 }
 
-static bool kbus_submit(void* ctx, uint8_t address, void* buf, uint32_t size, void* xfer) {
-    struct kmdf_bus* kb = ctx;
-    struct kbus_pipe* p = kbus_find_pipe(kb, address);
-    if (!p || !kb->shm) return false;
+/* The transfer buffer @buf lies in, or NULL */
+static struct kbus_block* kbus_find_block(struct kmdf_bus* kb, const uint8_t* buf, uint32_t size) {
+    for (int i = 0; i < KBUS_MAX_BLOCKS; i++) {
+        struct kbus_block* b = &kb->blocks[i];
+        if (b->base && buf >= b->base && buf + size <= b->base + b->size) return b;
+    }
+    return NULL;
+}
 
-    /* A free request: claim its bit */
-    int i;
+/* A free request of @p: claim its bit; -1 if all are in flight */
+static int kbus_claim(struct kbus_pipe* p) {
     for (;;) {
         LONG busy = p->busy;
+        int i;
         for (i = 0; i < KBUS_REQUESTS_PER_PIPE && (busy & (1 << i)); i++) {}
-        if (i == KBUS_REQUESTS_PER_PIPE) return false;
-        if (InterlockedCompareExchange(&p->busy, busy | (1 << i), busy) == busy) break;
+        if (i == KBUS_REQUESTS_PER_PIPE) return -1;
+        if (InterlockedCompareExchange(&p->busy, busy | (1 << i), busy) == busy) return i;
     }
-    WDFREQUEST request = p->requests[i];
+}
 
+static WDFREQUEST kbus_reuse(struct kbus_pipe* p, int i) {
     WDF_REQUEST_REUSE_PARAMS reuse;
     WDF_REQUEST_REUSE_PARAMS_INIT(&reuse, WDF_REQUEST_REUSE_NO_FLAGS, STATUS_SUCCESS);
-    WdfRequestReuse(request, &reuse);
+    WdfRequestReuse(p->requests[i], &reuse);
+    return p->requests[i];
+}
 
-    /* Zero copy: the request points into the shared memory */
-    WDFMEMORY_OFFSET offset = { (size_t)((uint8_t*)buf - kb->shm_base), size };
-    NTSTATUS status = (address & 0x80) ? WdfUsbTargetPipeFormatRequestForRead(p->pipe, request, kb->shm, &offset)
-                                       : WdfUsbTargetPipeFormatRequestForWrite(p->pipe, request, kb->shm, &offset);
+/* Send request @i of @p, formatted with @status; on failure release it */
+static bool kbus_send(struct kbus_pipe* p, int i, NTSTATUS status, void* xfer) {
+    WDFREQUEST request = p->requests[i];
     if (NT_SUCCESS(status)) {
         p->slots[i].xfer = xfer;
         WdfRequestSetCompletionRoutine(request, kbus_completion, &p->slots[i]);
@@ -66,8 +73,59 @@ static bool kbus_submit(void* ctx, uint8_t address, void* buf, uint32_t size, vo
         status = WdfRequestGetStatus(request);
     }
     InterlockedAnd(&p->busy, ~(1 << i));
-    if (status != STATUS_CANCELLED) kbus_log("[Ozzy] pipe 0x%02x submit failed: 0x%08x", address, status);
+    if (status != STATUS_CANCELLED) kbus_log("[Ozzy] pipe 0x%02x submit failed: 0x%08x", p->address, status);
     return false;
+}
+
+static bool kbus_submit(void* ctx, uint8_t address, void* buf, uint32_t size, void* xfer) {
+    struct kmdf_bus* kb = ctx;
+    struct kbus_pipe* p = kbus_find_pipe(kb, address);
+    struct kbus_block* b = kbus_find_block(kb, buf, size);
+    if (!p || !b) return false;
+    int i = kbus_claim(p);
+    if (i < 0) return false;
+    WDFREQUEST request = kbus_reuse(p, i);
+
+    /* Zero copy: the request points into the engine's buffer */
+    WDFMEMORY_OFFSET offset = { (size_t)((uint8_t*)buf - b->base), size };
+    NTSTATUS status = (address & 0x80) ? WdfUsbTargetPipeFormatRequestForRead(p->pipe, request, b->memory, &offset)
+                                       : WdfUsbTargetPipeFormatRequestForWrite(p->pipe, request, b->memory, &offset);
+    return kbus_send(p, i, status, xfer);
+}
+
+/* One isochronous URB: the packets back to back from the first one's offset (the engine's
+ * transfer buffers on Windows, which no packet wraps), each OUT packet as long as the gap to
+ * the next. Starts at the next frame (ASAP). */
+static bool kbus_submit_isoc(void* ctx, uint8_t address, void* buf, uint32_t buf_size,
+                             struct ozzy_isoc_packet* packets, uint32_t count, void* xfer) {
+    struct kmdf_bus* kb = ctx;
+    struct kbus_pipe* p = kbus_find_pipe(kb, address);
+    if (!p || p->type != 1 || !count || count > OZZY_MAX_ISOC_PACKETS) return false;
+    uint32_t base = packets[0].offset, total = 0;
+    for (uint32_t k = 0; k < count; k++) {
+        if (packets[k].offset != base + total) return false;
+        total += packets[k].length;
+    }
+    if (base + total > buf_size) return false;
+    int i = kbus_claim(p);
+    if (i < 0) return false;
+    WDFREQUEST request = kbus_reuse(p, i);
+
+    struct kbus_slot* s = &p->slots[i];
+    struct _URB_ISOCH_TRANSFER* iso = &s->urb->UrbIsochronousTransfer;
+    RtlZeroMemory(iso, GET_ISO_URB_SIZE(count));
+    iso->Hdr.Length = (USHORT)GET_ISO_URB_SIZE(count);
+    iso->Hdr.Function = URB_FUNCTION_ISOCH_TRANSFER;
+    iso->PipeHandle = WdfUsbTargetPipeWdmGetPipeHandle(p->pipe);
+    iso->TransferFlags = USBD_START_ISO_TRANSFER_ASAP |
+                         ((address & 0x80) ? USBD_TRANSFER_DIRECTION_IN : USBD_TRANSFER_DIRECTION_OUT);
+    iso->TransferBuffer = (uint8_t*)buf + base;
+    iso->TransferBufferLength = total;
+    iso->NumberOfPackets = count;
+    for (uint32_t k = 0; k < count; k++) iso->IsoPacket[k].Offset = packets[k].offset - base;
+    s->packets = packets;
+    s->count = count;
+    return kbus_send(p, i, WdfUsbTargetPipeFormatRequestForUrb(p->pipe, request, s->urb_memory, NULL), xfer);
 }
 
 /* DISPATCH_LEVEL: release the request, then hand the result to the engine, which resubmits and
@@ -81,7 +139,22 @@ static void kbus_completion(WDFREQUEST request, WDFIOTARGET target, PWDF_REQUEST
     struct kbus_pipe* p = &kb->pipes[slot->pipe];
     void* xfer = slot->xfer;
     NTSTATUS status = params->IoStatus.Status;
-    ULONG bytes = (p->address & 0x80) ? params->Parameters.Usb.Completion->Parameters.PipeRead.Length
+    struct ozzy_isoc_packet* packets = slot->packets;
+    uint32_t count = slot->count;
+
+    if (p->type == 1) {
+        /* Each packet's result, at the completion's time (no per-frame times through a URB) */
+        const struct _URB_ISOCH_TRANSFER* iso = &slot->urb->UrbIsochronousTransfer;
+        uint64_t now = kbus_time(kb);
+        for (uint32_t k = 0; k < count; k++) {
+            bool ok = USBD_SUCCESS(iso->IsoPacket[k].Status);
+            packets[k].actual = !ok ? 0 : (p->address & 0x80) ? iso->IsoPacket[k].Length : packets[k].length;
+            packets[k].status = ok ? 0 : (int32_t)iso->IsoPacket[k].Status;
+            packets[k].time = now;
+        }
+    }
+    ULONG bytes = p->type == 1 ? 0
+                : (p->address & 0x80) ? params->Parameters.Usb.Completion->Parameters.PipeRead.Length
                                       : params->Parameters.Usb.Completion->Parameters.PipeWrite.Length;
 
     InterlockedAnd(&p->busy, ~(1 << (int)(slot - p->slots)));
@@ -89,7 +162,10 @@ static void kbus_completion(WDFREQUEST request, WDFIOTARGET target, PWDF_REQUEST
     InterlockedIncrement(&kb->in_completion);
     if (!NT_SUCCESS(status) && status != STATUS_CANCELLED)
         DbgPrintEx(DPFLTR_IHVAUDIO_ID, DPFLTR_ERROR_LEVEL, "[Ozzy] pipe 0x%02x error: 0x%08x\n", p->address, status);
-    if (kb->engine) ozzy_engine_complete(kb->engine, p->address, xfer, (int)status, bytes);
+    if (kb->engine) {
+        if (p->type == 1) ozzy_engine_isoc_complete(kb->engine, p->address, xfer, (int)status, packets, count);
+        else ozzy_engine_complete(kb->engine, p->address, xfer, (int)status, bytes);
+    }
     InterlockedDecrement(&kb->in_completion);
 }
 
@@ -165,9 +241,9 @@ static void kbus_abort(void* ctx) {
     kbus_start_io(kb);
 }
 
-/* Isochronous URBs (per-packet lengths, ring wrap) come with the Ploytec isochronous family */
 static const struct ozzy_bus_ops kbus_ops = {
     .submit = kbus_submit,
+    .submit_isoc = kbus_submit_isoc,
     .control = kbus_control,
     .clear_halt = kbus_clear_halt,
     .start_timer = kbus_start_timer,
@@ -178,10 +254,44 @@ static const struct ozzy_bus_ops kbus_ops = {
     .abort = kbus_abort,
 };
 
+/* PASSIVE_LEVEL (PrepareHardware): a nonpaged buffer for the engine, with its WDFMEMORY */
+static void* kbus_alloc(void* ctx, size_t size) {
+    struct kmdf_bus* kb = ctx;
+    for (int i = 0; i < KBUS_MAX_BLOCKS; i++) {
+        struct kbus_block* b = &kb->blocks[i];
+        if (b->base) continue;
+        b->base = ExAllocatePool2(POOL_FLAG_NON_PAGED, size, OZZY_POOL_TAG);
+        if (!b->base) return NULL;
+        if (!NT_SUCCESS(WdfMemoryCreatePreallocated(WDF_NO_OBJECT_ATTRIBUTES, b->base, size, &b->memory))) {
+            ExFreePoolWithTag(b->base, OZZY_POOL_TAG);
+            b->base = NULL;
+            return NULL;
+        }
+        b->size = size;
+        return b->base;
+    }
+    return NULL;
+}
+
+static void kbus_free(void* ctx, void* p) {
+    struct kmdf_bus* kb = ctx;
+    for (int i = 0; i < KBUS_MAX_BLOCKS; i++) {
+        struct kbus_block* b = &kb->blocks[i];
+        if (b->base != p) continue;
+        WdfObjectDelete(b->memory);
+        ExFreePoolWithTag(b->base, OZZY_POOL_TAG);
+        RtlZeroMemory(b, sizeof(*b));
+        return;
+    }
+}
+
 void kbus_init(struct kmdf_bus* kb, struct ozzy_engine* engine) {
     kb->bus.ops = &kbus_ops;
     kb->bus.ctx = kb;
     kb->engine = engine;
+    kb->allocator.alloc = kbus_alloc;
+    kb->allocator.free = kbus_free;
+    kb->allocator.ctx = kb;
 }
 
 void kbus_release(struct kmdf_bus* kb) {
@@ -191,7 +301,6 @@ void kbus_release(struct kmdf_bus* kb) {
             if (kb->pipes[i].requests[k]) WdfObjectDelete(kb->pipes[i].requests[k]);
         }
     }
-    if (kb->shm) WdfObjectDelete(kb->shm);
     if (kb->usb) WdfObjectDelete(kb->usb);
     if (kb->config) ExFreePoolWithTag(kb->config, OZZY_POOL_TAG);
     RtlZeroMemory(kb, sizeof(*kb));
@@ -247,12 +356,14 @@ static const USB_ENDPOINT_DESCRIPTOR* kbus_find_endpoint(const struct kmdf_bus* 
     return NULL;
 }
 
-/* The pipe's requests, created once and reused for every transfer */
-static NTSTATUS kbus_add_pipe(struct kmdf_bus* kb, WDFUSBPIPE pipe, uint8_t address) {
+/* The pipe's requests, created once and reused for every transfer; an isochronous pipe's each
+ * with a URB for the most packets a transfer has */
+static NTSTATUS kbus_add_pipe(struct kmdf_bus* kb, WDFUSBPIPE pipe, uint8_t address, uint8_t type) {
     if (kb->pipe_count == KBUS_MAX_PIPES) return STATUS_INSUFFICIENT_RESOURCES;
     struct kbus_pipe* p = &kb->pipes[kb->pipe_count];
     p->pipe = pipe;
     p->address = address;
+    p->type = type;
     p->busy = 0;
     if (address & 0x80) WdfUsbTargetPipeSetNoMaximumPacketSizeCheck(pipe);
 
@@ -265,17 +376,21 @@ static NTSTATUS kbus_add_pipe(struct kmdf_bus* kb, WDFUSBPIPE pipe, uint8_t addr
         p->slots[i].bus = kb;
         p->slots[i].pipe = (uint8_t)kb->pipe_count;
         p->slots[i].xfer = NULL;
+        if (type == 1) {
+            WDF_OBJECT_ATTRIBUTES_INIT(&attributes);
+            attributes.ParentObject = p->requests[i];
+            status = WdfUsbTargetDeviceCreateIsochUrb(kb->usb, &attributes, OZZY_MAX_ISOC_PACKETS,
+                                                      &p->slots[i].urb_memory, &p->slots[i].urb);
+            if (!NT_SUCCESS(status)) return status;
+        }
     }
     kb->pipe_count++;
     return STATUS_SUCCESS;
 }
 
-NTSTATUS kbus_configure(struct kmdf_bus* kb, void* shm, size_t shm_size) {
+NTSTATUS kbus_configure(struct kmdf_bus* kb) {
     const struct ozzy_device_profile* profile = &kb->engine->profile;
-
-    kb->shm_base = shm;
-    NTSTATUS status = WdfMemoryCreatePreallocated(WDF_NO_OBJECT_ATTRIBUTES, shm, shm_size, &kb->shm);
-    if (!NT_SUCCESS(status)) return status;
+    NTSTATUS status;
 
     /* The profile's interfaces, with its alternate setting */
     WDFUSBINTERFACE by_index[4] = { 0 };
@@ -326,7 +441,8 @@ NTSTATUS kbus_configure(struct kmdf_bus* kb, void* shm, size_t shm_size) {
     ozzy_engine_bind_endpoints(kb->engine, eps, n, bound);
     for (int role = 0; role < OZZY_PIPE_ROLES; role++) {
         if (!bound[role]) continue;
-        status = kbus_add_pipe(kb, (WDFUSBPIPE)bound[role]->handle, bound[role]->address);
+        status = kbus_add_pipe(kb, (WDFUSBPIPE)bound[role]->handle, bound[role]->address,
+                               bound[role]->attributes & 3);
         if (!NT_SUCCESS(status)) return status;
     }
     return STATUS_SUCCESS;

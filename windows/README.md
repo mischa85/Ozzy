@@ -20,13 +20,18 @@ USB completion path:
 | `circuit.c` | render and capture circuits: host and bridge pins, the one S24_3LE format |
 | `stream.c` | RT stream: WaveRT packets as one ring, positions, packet completion |
 | `settings.c` | the device settings for `ozzyctl`: a KS property set on each circuit (`ozzy_ksproperty.h`), kept in the device's registry key |
-| `kmdf_bus.c` | the engine's bus (`ozzy_bus`) on KMDF USB: requests into the shared memory, control requests |
+| `kmdf_bus.c` | the engine's bus (`ozzy_bus`) on KMDF USB: bulk/interrupt requests and isochronous URBs on the engine's own transfer buffers (`ozzy_engine_alloc_memory`), control requests |
 | `ozzy.inf.in` | INF template: endpoints, service; the build fills in the devices |
 | `GenInf.c` | writes `ozzy.inf`: one line per supported device in `common/ozzy_devices.def` (compiled and run by `ozzy.vcxproj` before the build, like `GenPersonalities.c` for the kext) |
 
-Supported so far: the Ploytec bulk/interrupt family (the Xones and their relatives). Not yet:
-- the Ploytec isochronous family (Akai EIE Pro, M-Track Quad): needs isochronous URBs
-- USB MIDI and MIDI in/out: needs a MIDI circuit
+Supported so far: the Ploytec bulk/interrupt family (the Xones and their relatives) and the
+Ploytec isochronous family (Akai EIE Pro, M-Track Quad, the Lexicon I-ONIX range, ...): an
+isochronous transfer is one `URB_FUNCTION_ISOCH_TRANSFER` (started ASAP) over a buffer of its
+own, its packets back to back, so each OUT packet's length is the gap to the next. The URB
+reports no per-frame times; every packet gets the completion's time.
+
+Not yet: MIDI (the Xones' MIDI in/out, and the Xone:1D): ACX has no MIDI, so it needs a
+Windows MIDI port of its own.
 
 Sample rates: each endpoint offers a format per rate the device lists (the highest first). A
 stream at another rate restarts the engine at it (`ozzy_engine_change_rate`), unless the other

@@ -3,8 +3,8 @@
  * The engine on transfer memory of the platform's own (ozzy_engine_alloc_memory), as Linux has
  * it: separate buffers, 4 PCM slots per direction, a buffer per isochronous OUT transfer.
  * Every transfer must use that memory (never the shared memory's HAL rings), the frames on
- * the wire must be the ring's frames in order, no isochronous packet may wrap, and everything
- * allocated must be freed.
+ * the wire must be the ring's frames in order, no isochronous packet may wrap or leave a gap
+ * (Windows sends a transfer as one URB), and everything allocated must be freed.
  *
  * Copyright (C) 2024 Marcel Bierling <marcel@hackerman.art>
  */
@@ -157,7 +157,7 @@ static void isoc(void)
 	struct fake_xfer x;
 	struct ozzy_engine *e;
 	uint64_t frame = 0;
-	unsigned int i, k, outside = 0, wrapped = 0, wrong = 0;
+	unsigned int i, k, outside = 0, wrapped = 0, wrong = 0, gaps = 0;
 
 	memset(&shm, 0, sizeof(shm));
 	for (i = 0; i < sizeof(ring); i++)
@@ -176,6 +176,9 @@ static void isoc(void)
 
 	for (i = 0; i < 400 && fake_bus_pop(&fb, &x); i++) {
 		outside += !in_platform_memory(&pm, x.buf, x.size);
+		/* One Windows URB per transfer: packets back to back from the first one's offset */
+		for (k = 1; x.isoc && k < x.count; k++)
+			gaps += x.packets[k].offset != x.packets[k - 1].offset + x.packets[k - 1].length;
 		if (x.isoc && x.pipe == 0x02) {
 			for (k = 0; k < x.count; k++) {
 				uint32_t j;
@@ -191,6 +194,7 @@ static void isoc(void)
 	}
 	CHECK(!outside, "isoc: %u transfers outside the platform's memory", outside);
 	CHECK(!wrapped, "isoc: %u packets wrap their transfer buffer", wrapped);
+	CHECK(!gaps, "isoc: %u packets not right after the one before", gaps);
 	CHECK(frame > 10000 && !wrong, "isoc: %llu frames on the wire, %u wrong", (unsigned long long)frame, wrong);
 	CHECK(all_zero(shm.audio.output_buffer, sizeof(shm.audio.output_buffer)), "isoc: the HAL ring was touched");
 	CHECK(e->mem.isoc_out_size == 32 * 1024, "isoc: OUT transfer buffers of %u bytes", e->mem.isoc_out_size);

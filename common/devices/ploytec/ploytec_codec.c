@@ -657,3 +657,272 @@ ploytec_frame_fn ploytec_frame_decoder(unsigned int channels)
 	default: return 0;
 	}
 }
+
+#ifdef PLOYTEC_CODEC_F32
+/*
+ * Plain frames, one sample per line: unrolled by hand like the frame codecs, so they don't
+ * loop at any optimization level.
+ */
+void ploytec_f32_to_s24_16ch(uint8_t *dest, const float *src)
+{
+	ploytec_f32_to_s24(dest + 0x00, src[0]);
+	ploytec_f32_to_s24(dest + 0x03, src[1]);
+	ploytec_f32_to_s24(dest + 0x06, src[2]);
+	ploytec_f32_to_s24(dest + 0x09, src[3]);
+	ploytec_f32_to_s24(dest + 0x0C, src[4]);
+	ploytec_f32_to_s24(dest + 0x0F, src[5]);
+	ploytec_f32_to_s24(dest + 0x12, src[6]);
+	ploytec_f32_to_s24(dest + 0x15, src[7]);
+	ploytec_f32_to_s24(dest + 0x18, src[8]);
+	ploytec_f32_to_s24(dest + 0x1B, src[9]);
+	ploytec_f32_to_s24(dest + 0x1E, src[10]);
+	ploytec_f32_to_s24(dest + 0x21, src[11]);
+	ploytec_f32_to_s24(dest + 0x24, src[12]);
+	ploytec_f32_to_s24(dest + 0x27, src[13]);
+	ploytec_f32_to_s24(dest + 0x2A, src[14]);
+	ploytec_f32_to_s24(dest + 0x2D, src[15]);
+}
+
+void ploytec_f32_to_s24_10ch(uint8_t *dest, const float *src)
+{
+	ploytec_f32_to_s24(dest + 0x00, src[0]);
+	ploytec_f32_to_s24(dest + 0x03, src[1]);
+	ploytec_f32_to_s24(dest + 0x06, src[2]);
+	ploytec_f32_to_s24(dest + 0x09, src[3]);
+	ploytec_f32_to_s24(dest + 0x0C, src[4]);
+	ploytec_f32_to_s24(dest + 0x0F, src[5]);
+	ploytec_f32_to_s24(dest + 0x12, src[6]);
+	ploytec_f32_to_s24(dest + 0x15, src[7]);
+	ploytec_f32_to_s24(dest + 0x18, src[8]);
+	ploytec_f32_to_s24(dest + 0x1B, src[9]);
+}
+
+void ploytec_f32_to_s24_8ch(uint8_t *dest, const float *src)
+{
+	ploytec_f32_to_s24(dest + 0x00, src[0]);
+	ploytec_f32_to_s24(dest + 0x03, src[1]);
+	ploytec_f32_to_s24(dest + 0x06, src[2]);
+	ploytec_f32_to_s24(dest + 0x09, src[3]);
+	ploytec_f32_to_s24(dest + 0x0C, src[4]);
+	ploytec_f32_to_s24(dest + 0x0F, src[5]);
+	ploytec_f32_to_s24(dest + 0x12, src[6]);
+	ploytec_f32_to_s24(dest + 0x15, src[7]);
+}
+
+void ploytec_f32_to_s24_6ch(uint8_t *dest, const float *src)
+{
+	ploytec_f32_to_s24(dest + 0x00, src[0]);
+	ploytec_f32_to_s24(dest + 0x03, src[1]);
+	ploytec_f32_to_s24(dest + 0x06, src[2]);
+	ploytec_f32_to_s24(dest + 0x09, src[3]);
+	ploytec_f32_to_s24(dest + 0x0C, src[4]);
+	ploytec_f32_to_s24(dest + 0x0F, src[5]);
+}
+
+void ploytec_f32_to_s24_4ch(uint8_t *dest, const float *src)
+{
+	ploytec_f32_to_s24(dest + 0x00, src[0]);
+	ploytec_f32_to_s24(dest + 0x03, src[1]);
+	ploytec_f32_to_s24(dest + 0x06, src[2]);
+	ploytec_f32_to_s24(dest + 0x09, src[3]);
+}
+
+void ploytec_f32_to_s24_2ch(uint8_t *dest, const float *src)
+{
+	ploytec_f32_to_s24(dest + 0x00, src[0]);
+	ploytec_f32_to_s24(dest + 0x03, src[1]);
+}
+
+void ploytec_s24_to_f32_2ch(float *dest, const uint8_t *src)
+{
+	dest[0] = ploytec_s24_to_f32(src + 0x00);
+	dest[1] = ploytec_s24_to_f32(src + 0x03);
+}
+
+void ploytec_s24_to_f32_4ch(float *dest, const uint8_t *src)
+{
+	dest[0] = ploytec_s24_to_f32(src + 0x00);
+	dest[1] = ploytec_s24_to_f32(src + 0x03);
+	dest[2] = ploytec_s24_to_f32(src + 0x06);
+	dest[3] = ploytec_s24_to_f32(src + 0x09);
+}
+
+void ploytec_s24_to_f32_6ch(float *dest, const uint8_t *src)
+{
+	dest[0] = ploytec_s24_to_f32(src + 0x00);
+	dest[1] = ploytec_s24_to_f32(src + 0x03);
+	dest[2] = ploytec_s24_to_f32(src + 0x06);
+	dest[3] = ploytec_s24_to_f32(src + 0x09);
+	dest[4] = ploytec_s24_to_f32(src + 0x0C);
+	dest[5] = ploytec_s24_to_f32(src + 0x0F);
+}
+
+void ploytec_s24_to_f32_8ch(float *dest, const uint8_t *src)
+{
+	dest[0] = ploytec_s24_to_f32(src + 0x00);
+	dest[1] = ploytec_s24_to_f32(src + 0x03);
+	dest[2] = ploytec_s24_to_f32(src + 0x06);
+	dest[3] = ploytec_s24_to_f32(src + 0x09);
+	dest[4] = ploytec_s24_to_f32(src + 0x0C);
+	dest[5] = ploytec_s24_to_f32(src + 0x0F);
+	dest[6] = ploytec_s24_to_f32(src + 0x12);
+	dest[7] = ploytec_s24_to_f32(src + 0x15);
+}
+
+void ploytec_s24_to_f32_10ch(float *dest, const uint8_t *src)
+{
+	dest[0] = ploytec_s24_to_f32(src + 0x00);
+	dest[1] = ploytec_s24_to_f32(src + 0x03);
+	dest[2] = ploytec_s24_to_f32(src + 0x06);
+	dest[3] = ploytec_s24_to_f32(src + 0x09);
+	dest[4] = ploytec_s24_to_f32(src + 0x0C);
+	dest[5] = ploytec_s24_to_f32(src + 0x0F);
+	dest[6] = ploytec_s24_to_f32(src + 0x12);
+	dest[7] = ploytec_s24_to_f32(src + 0x15);
+	dest[8] = ploytec_s24_to_f32(src + 0x18);
+	dest[9] = ploytec_s24_to_f32(src + 0x1B);
+}
+
+void ploytec_s24_to_f32_16ch(float *dest, const uint8_t *src)
+{
+	dest[0] = ploytec_s24_to_f32(src + 0x00);
+	dest[1] = ploytec_s24_to_f32(src + 0x03);
+	dest[2] = ploytec_s24_to_f32(src + 0x06);
+	dest[3] = ploytec_s24_to_f32(src + 0x09);
+	dest[4] = ploytec_s24_to_f32(src + 0x0C);
+	dest[5] = ploytec_s24_to_f32(src + 0x0F);
+	dest[6] = ploytec_s24_to_f32(src + 0x12);
+	dest[7] = ploytec_s24_to_f32(src + 0x15);
+	dest[8] = ploytec_s24_to_f32(src + 0x18);
+	dest[9] = ploytec_s24_to_f32(src + 0x1B);
+	dest[10] = ploytec_s24_to_f32(src + 0x1E);
+	dest[11] = ploytec_s24_to_f32(src + 0x21);
+	dest[12] = ploytec_s24_to_f32(src + 0x24);
+	dest[13] = ploytec_s24_to_f32(src + 0x27);
+	dest[14] = ploytec_s24_to_f32(src + 0x2A);
+	dest[15] = ploytec_s24_to_f32(src + 0x2D);
+}
+
+/* Float frame codecs: a plain frame on the stack, then the frame codec above */
+void ploytec_encode_frame_16ch_f32(uint8_t *dest, const float *src)
+{
+	uint8_t s24[16 * 3];
+
+	ploytec_f32_to_s24_16ch(s24, src);
+	ploytec_encode_frame_16ch(dest, s24);
+}
+
+void ploytec_encode_frame_10ch_f32(uint8_t *dest, const float *src)
+{
+	uint8_t s24[10 * 3];
+
+	ploytec_f32_to_s24_10ch(s24, src);
+	ploytec_encode_frame_10ch(dest, s24);
+}
+
+void ploytec_encode_frame_8ch_f32(uint8_t *dest, const float *src)
+{
+	uint8_t s24[8 * 3];
+
+	ploytec_f32_to_s24_8ch(s24, src);
+	ploytec_encode_frame_8ch(dest, s24);
+}
+
+void ploytec_encode_frame_6ch_f32(uint8_t *dest, const float *src)
+{
+	uint8_t s24[6 * 3];
+
+	ploytec_f32_to_s24_6ch(s24, src);
+	ploytec_encode_frame_6ch(dest, s24);
+}
+
+void ploytec_encode_frame_4ch_f32(uint8_t *dest, const float *src)
+{
+	uint8_t s24[4 * 3];
+
+	ploytec_f32_to_s24_4ch(s24, src);
+	ploytec_encode_frame_4ch(dest, s24);
+}
+
+void ploytec_encode_frame_2ch_f32(uint8_t *dest, const float *src)
+{
+	uint8_t s24[2 * 3];
+
+	ploytec_f32_to_s24_2ch(s24, src);
+	ploytec_encode_frame_2ch(dest, s24);
+}
+
+void ploytec_decode_frame_2ch_f32(float *dest, const uint8_t *src)
+{
+	uint8_t s24[2 * 3];
+
+	ploytec_decode_frame_2ch(s24, src);
+	ploytec_s24_to_f32_2ch(dest, s24);
+}
+
+void ploytec_decode_frame_4ch_f32(float *dest, const uint8_t *src)
+{
+	uint8_t s24[4 * 3];
+
+	ploytec_decode_frame_4ch(s24, src);
+	ploytec_s24_to_f32_4ch(dest, s24);
+}
+
+void ploytec_decode_frame_6ch_f32(float *dest, const uint8_t *src)
+{
+	uint8_t s24[6 * 3];
+
+	ploytec_decode_frame_6ch(s24, src);
+	ploytec_s24_to_f32_6ch(dest, s24);
+}
+
+void ploytec_decode_frame_8ch_f32(float *dest, const uint8_t *src)
+{
+	uint8_t s24[8 * 3];
+
+	ploytec_decode_frame_8ch(s24, src);
+	ploytec_s24_to_f32_8ch(dest, s24);
+}
+
+void ploytec_decode_frame_10ch_f32(float *dest, const uint8_t *src)
+{
+	uint8_t s24[10 * 3];
+
+	ploytec_decode_frame_10ch(s24, src);
+	ploytec_s24_to_f32_10ch(dest, s24);
+}
+
+void ploytec_decode_frame_16ch_f32(float *dest, const uint8_t *src)
+{
+	uint8_t s24[16 * 3];
+
+	ploytec_decode_frame_16ch(s24, src);
+	ploytec_s24_to_f32_16ch(dest, s24);
+}
+
+ploytec_frame_f32_enc_fn ploytec_frame_encoder_f32(unsigned int channels)
+{
+	switch (channels) {
+	case 16: return ploytec_encode_frame_16ch_f32;
+	case 10: return ploytec_encode_frame_10ch_f32;
+	case 8: return ploytec_encode_frame_8ch_f32;
+	case 6: return ploytec_encode_frame_6ch_f32;
+	case 4: return ploytec_encode_frame_4ch_f32;
+	case 2: return ploytec_encode_frame_2ch_f32;
+	default: return 0;
+	}
+}
+
+ploytec_frame_f32_dec_fn ploytec_frame_decoder_f32(unsigned int channels)
+{
+	switch (channels) {
+	case 2: return ploytec_decode_frame_2ch_f32;
+	case 4: return ploytec_decode_frame_4ch_f32;
+	case 6: return ploytec_decode_frame_6ch_f32;
+	case 8: return ploytec_decode_frame_8ch_f32;
+	case 10: return ploytec_decode_frame_10ch_f32;
+	case 16: return ploytec_decode_frame_16ch_f32;
+	default: return 0;
+	}
+}
+#endif

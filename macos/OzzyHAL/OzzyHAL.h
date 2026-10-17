@@ -10,11 +10,7 @@
 #include <cstdint>
 #include <pthread.h>
 #include "../../engine/shared/OzzySharedData.h"
-
-// Codec function pointer types for device-agnostic encoding/decoding
-typedef void (*WriteOutputFunc)(uint8_t* ringBuffer, const float* srcFrames, uint64_t sampleTime, uint32_t frameCount, uint32_t ringSize, uint32_t bytesPerFrame);
-typedef void (*ReadInputFunc)(float* dstFrames, const uint8_t* ringBuffer, uint64_t sampleTime, uint32_t frameCount, uint32_t ringSize, uint32_t bytesPerFrame);
-typedef void (*ClearOutputFunc)(uint8_t* outputBuffer, uint32_t bufferSize);
+#include "PloytecCodec.h"   // the codec function pointer types
 
 // One audio device per OzzyKext instance with audio. Device slot i owns four object IDs:
 // the device (kOzzyObjectIDBase + 4i), its input stream (+1), its output stream (+2) and its
@@ -104,8 +100,6 @@ private:
     uint32_t mFramesPerPacket = 80;
     uint32_t mRingSize = 10240; // kOzzyNumPackets * mFramesPerPacket
     uint32_t mSafetyOffset = 160; // frames the engine reads output ahead of the clock
-    uint32_t mOutputBytesPerFrame = 48;
-    uint32_t mInputBytesPerFrame = 64;
     uint32_t mInputChannels = 8;    // published by the kext per model (16 for the WZ4)
     uint32_t mOutputChannels = 8;   // (2 for the WZ4)
 

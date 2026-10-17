@@ -422,7 +422,7 @@ macOS (the same shape as Linux):
   - MIDI ring helpers (`OzzyMidiRingPush/Pop`) used by all three engines.
 - **Shared memory v4:**
   - `kOzzyDeviceFlagPlainOutput`: outputBuffer is a ring of `kOzzyNumPackets × 80` plain S24
-    frames. The HAL writes it with `macos/OzzyHAL/OzzyPlainCodec.h`.
+    frames. The HAL writes it with `ploytec_f32_to_s24_Nch` (`common/devices/ploytec/ploytec_codec.c`, via `PloytecPlainOutputWriter`).
   - `safetyOffsetFrames`: 3 × 4 ms read ahead.
   - `isocInUSBBuffer`: the feedback transfers.
 - **`PloytecIsocEngine`:** only the EIE-specific parts.

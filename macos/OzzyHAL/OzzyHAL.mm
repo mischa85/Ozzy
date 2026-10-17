@@ -1,6 +1,4 @@
 #include "OzzyHAL.h"
-#include "PloytecCodec.h"
-#include "OzzyPlainCodec.h"
 #include "../../engine/devices/ploytec/PloytecProtocol.h"
 #include "../../engine/shared/OzzyLog.h"
 #include "../Shared/OzzyKextClient.h"
@@ -200,8 +198,6 @@ void OzzyHALDevice::ApplyDeviceConfig() {
     mRingSize = kOzzyNumPackets * mFramesPerPacket;
     // The engine reads output this far ahead; default: the 2 Ploytec packets in flight
     mSafetyOffset = shm->audio.safetyOffsetFrames ? shm->audio.safetyOffsetFrames : 2 * mFramesPerPacket;
-    mOutputBytesPerFrame = shm->audio.outputBytesPerFrame;
-    mInputBytesPerFrame = shm->audio.inputBytesPerFrame;
 
     // Channel counts per direction, as published by the engine for this model
     mInputChannels = shm->audio.inputChannels;
@@ -215,16 +211,16 @@ void OzzyHALDevice::ApplyDeviceConfig() {
     bool plain = flags & kOzzyDeviceFlagPlainOutput;
     bool mirror = flags & kOzzyDeviceFlagSpdifMirror;
     mSpdifMirror = mirror && isBulk && !plain && mOutputChannels == 8;
-    mWriteOutput = plain ? PlainOutputWriter(mOutputChannels) : PloytecOutputWriter(isBulk, mOutputChannels, mirror);
+    mWriteOutput = plain ? PloytecPlainOutputWriter(mOutputChannels) : PloytecOutputWriter(isBulk, mOutputChannels, mirror);
     mReadInput = PloytecInputReader(mInputChannels);
     if (!mWriteOutput || !mReadInput) {
         LogOzzyHALError("no codec for %{public}u in / %{public}u out, falling back to 8 / 8",
                         mInputChannels, mOutputChannels);
         mInputChannels = mOutputChannels = 8;
-        mWriteOutput = plain ? PlainOutputWriter(8) : PloytecOutputWriter(isBulk, 8);
+        mWriteOutput = plain ? PloytecPlainOutputWriter(8) : PloytecOutputWriter(isBulk, 8);
         mReadInput = PloytecInputReader(8);
     }
-    mClearOutput = plain ? PlainClearOutput : isBulk ? PloytecClearOutputBulk : PloytecClearOutputInterrupt;
+    mClearOutput = plain ? PloytecClearOutputPlain : isBulk ? PloytecClearOutputBulk : PloytecClearOutputInterrupt;
     RebuildStreamConfigs();
     LogOzzyHAL("device %{public}u: Ploytec codec (%{public}s output, %{public}u in / %{public}u out) for VID:0x%{public}04X",
                mSlot, plain ? "plain" : isBulk ? "bulk" : "interrupt", mInputChannels, mOutputChannels, shm->vendorID);
@@ -558,14 +554,14 @@ OSStatus OzzyHALDevice::ioOperation(UInt32 inOperationID, UInt32 inIOBufferFrame
             uint64_t sampleTime = (uint64_t)inIOCycleInfo->mOutputTime.mSampleTime;
             // Output routing in place: the mix buffer isn't used after this (in-place IO)
             ozzy_route_frames((uint8_t*)ioMainBuffer, inIOBufferFrameSize, &mOutRoute, 2 * sizeof(float));
-            mWriteOutput(shm->audio.outputBuffer, (const float*)ioMainBuffer, sampleTime, inIOBufferFrameSize, mRingSize, mOutputBytesPerFrame);
+            mWriteOutput(shm->audio.outputBuffer, (const float*)ioMainBuffer, sampleTime, inIOBufferFrameSize, mRingSize);
             shm->audio.halWritePosition.store(sampleTime + inIOBufferFrameSize, std::memory_order_release);
         }
     }
     else if (inOperationID == kAudioServerPlugInIOOperationReadInput) {
         if (mReadInput) {
             uint64_t sampleTime = (uint64_t)inIOCycleInfo->mInputTime.mSampleTime;
-            mReadInput((float*)ioMainBuffer, shm->audio.inputBuffer, sampleTime, inIOBufferFrameSize, mRingSize, mInputBytesPerFrame);
+            mReadInput((float*)ioMainBuffer, shm->audio.inputBuffer, sampleTime, inIOBufferFrameSize, mRingSize);
             ozzy_route_frames((uint8_t*)ioMainBuffer, inIOBufferFrameSize, &mInRoute, 2 * sizeof(float));
         }
     }

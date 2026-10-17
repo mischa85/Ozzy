@@ -1,13 +1,13 @@
 # ozzy-harness: an Ozzy engine over WinUSB (dev tool, not shipped). From a VS developer prompt:
 #   cmake -S . -B build && cmake --build build --config Release
 cmake_minimum_required(VERSION 3.20)
-project(ozzy_harness C CXX)
+project(ozzy_harness C)
 
 set(OZZY ${CMAKE_CURRENT_SOURCE_DIR}/../..)
 
 add_executable(ozzy-harness
-    main.cpp
-    WinUsbBus.cpp
+    main.c
+    winusb_bus.c
     ${OZZY}/engine/core/ozzy_engine.c
     ${OZZY}/engine/core/ozzy_isoc_output.c
     ${OZZY}/engine/devices/ploytec/ploytec_engine.c
@@ -19,9 +19,9 @@ add_executable(ozzy-harness
     ${OZZY}/common/usb_midi.c
 )
 
-# The engine side of the shared memory, in user mode (engine/shared/OzzyPlatform.h)
+# The engine side of the shared memory, in user mode (engine/shared/ozzy_platform.h)
 target_compile_definitions(ozzy-harness PRIVATE OZZY_USER_ENGINE UNICODE _UNICODE _CRT_SECURE_NO_WARNINGS)
-set_target_properties(ozzy-harness PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON C_STANDARD 11)
+set_target_properties(ozzy-harness PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED ON)
 
 # Commit we build from, logged at startup (common/ozzy_version.h)
 find_package(Git QUIET)

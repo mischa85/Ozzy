@@ -1,8 +1,8 @@
 /* SPDX-License-Identifier: MIT */
 /*
  * What an engine needs from the platform's USB stack: transfers on the shared memory, control
- * requests, a timer and a clock. The macOS kext (KextBus), the Windows driver (KmdfBus) and
- * the WinUSB harness (WinUsbBus) each fill in a struct ozzy_bus_ops. Completions come back
+ * requests, a timer and a clock. The macOS kext (KextBus), the Windows driver (kmdf_bus.c)
+ * and the WinUSB harness (winusb_bus.c) each fill in a struct ozzy_bus_ops. Completions come back
  * through ozzy_engine_complete() and ozzy_engine_isoc_complete().
  *
  * Copyright (C) 2024 Marcel Bierling <marcel@hackerman.art>

@@ -41,9 +41,16 @@
 // returns; the result is in audio.settings and audio.sampleRate. The HAL calls it from
 // PerformDeviceConfigurationChange, with IO stopped.
 #define kOzzyMethodApplySetting     1
-// OzzyHAL device property for any setting (common/ozzy_settings.h), for an app or a script:
-// qualifier UInt32 setting id, data UInt32 value. The device has it if it has any setting;
-// an id it doesn't have is an illegal operation.
+// OzzyHAL device property for the settings (common/ozzy_settings.h), for ozzyctl or an app. A
+// custom property (declared in kAudioObjectPropertyCustomPropertyInfoList), so its data is a
+// CFPropertyList, no qualifier:
+//   get: CFDictionary, setting name (ozzy_setting_descs[].name) -> CFNumber value, for every
+//        setting the device has, plus "Clock Locked" (CFBoolean) and "Lock Rate" (CFNumber, Hz)
+//        with the clock source; the caller releases it
+//   set: CFDictionary of setting name -> CFNumber value, one or more. Routes apply at once; a
+//        device setting goes through a configuration change, so it reads back changed once
+//        CoreAudio has performed it
+// The device has it if it has any setting.
 #define kOzzyPropertySetting        'ozst'
 #define kOzzyAudioPropertyKey       "OzzyAudio" // true if the device has audio channels
 

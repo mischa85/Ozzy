@@ -320,6 +320,47 @@ void OzzyHALDevice::RestoreSettings(AudioServerPlugInHostRef host) {
     else UpdateRoutes();
 }
 
+/* kOzzyPropertySetting: every setting the device has by name, and the clock status */
+CFDictionaryRef OzzyHALDevice::CopySettingsDictionary() const {
+    CFMutableDictionaryRef dict = CFDictionaryCreateMutable(NULL, 0, &kCFTypeDictionaryKeyCallBacks,
+                                                            &kCFTypeDictionaryValueCallBacks);
+    if (!dict) return nullptr;
+    for (unsigned int id = 0; id < OZZY_NUM_SETTINGS; id++) {
+        if (!HasSetting(id)) continue;
+        CFStringRef key = CFStringCreateWithCString(NULL, ozzy_setting_descs[id].name, kCFStringEncodingUTF8);
+        SInt32 v = mSettings.value[id];
+        CFNumberRef number = CFNumberCreate(NULL, kCFNumberSInt32Type, &v);
+        if (key && number) CFDictionarySetValue(dict, key, number);
+        if (key) CFRelease(key);
+        if (number) CFRelease(number);
+    }
+    if (HasSetting(OZZY_SETTING_CLOCK_SOURCE)) {
+        SInt32 rate = (SInt32)mLockRate;
+        CFNumberRef number = CFNumberCreate(NULL, kCFNumberSInt32Type, &rate);
+        CFDictionarySetValue(dict, CFSTR("Clock Locked"), mClockLocked ? kCFBooleanTrue : kCFBooleanFalse);
+        if (number) { CFDictionarySetValue(dict, CFSTR("Lock Rate"), number); CFRelease(number); }
+    }
+    return dict;
+}
+
+/* kOzzyPropertySetting set: each name -> value in @dict. Returns the first error, after trying all. */
+OSStatus OzzyHALDevice::SetSettingsDictionary(AudioServerPlugInHostRef host, CFDictionaryRef dict) {
+    if (!dict || CFGetTypeID(dict) != CFDictionaryGetTypeID()) return kAudioHardwareIllegalOperationError;
+    OSStatus result = kAudioHardwareNoError;
+    for (unsigned int id = 0; id < OZZY_NUM_SETTINGS; id++) {
+        CFStringRef key = CFStringCreateWithCString(NULL, ozzy_setting_descs[id].name, kCFStringEncodingUTF8);
+        CFTypeRef value = key ? CFDictionaryGetValue(dict, key) : nullptr;
+        if (key) CFRelease(key);
+        if (!value) continue;
+        SInt32 v = -1;
+        OSStatus st = (CFGetTypeID(value) == CFNumberGetTypeID() && CFNumberGetValue((CFNumberRef)value, kCFNumberSInt32Type, &v) &&
+                       v >= 0 && HasSetting(id))
+                    ? SetSetting(host, id, (UInt32)v) : kAudioHardwareIllegalOperationError;
+        if (result == kAudioHardwareNoError) result = st;
+    }
+    return result;
+}
+
 /* The name of a clock source item; the selected Automatic item says which clock the device
  * runs on. Returns a new string. */
 CFStringRef OzzyHALDevice::CopyClockSourceName(UInt32 item) const {
@@ -776,7 +817,7 @@ extern "C" Boolean OzzyHasProperty(AudioServerPlugInDriverRef, AudioObjectID inO
             case kAudioDevicePropertyStreamConfiguration: case kAudioDevicePropertyLatency:
             case kAudioDevicePropertySafetyOffset: case kAudioDevicePropertyPreferredChannelLayout:
             case kAudioDevicePropertyZeroTimeStampPeriod: case kAudioDevicePropertyClockDomain: return true;
-            case kOzzyPropertySetting: return dev->HasSettings();
+            case kOzzyPropertySetting: case kAudioObjectPropertyCustomPropertyInfoList: return dev->HasSettings();
         }
         return false;
     }
@@ -858,7 +899,10 @@ extern "C" HRESULT OzzyGetPropertyDataSize(AudioServerPlugInDriverRef, AudioObje
             case kAudioDevicePropertyPreferredChannelLayout: *outDataSize = dev->GetPreferredChannelLayoutSize(inAddress->mScope); return kAudioHardwareNoError;
             case kOzzyPropertySetting:
                 if (!dev->HasSettings()) return kAudioHardwareUnknownPropertyError;
-                *outDataSize = sizeof(UInt32); return kAudioHardwareNoError;
+                *outDataSize = sizeof(CFPropertyListRef); return kAudioHardwareNoError;
+            case kAudioObjectPropertyCustomPropertyInfoList:
+                *outDataSize = dev->HasSettings() ? sizeof(AudioServerPlugInCustomPropertyInfo) : 0;
+                return kAudioHardwareNoError;
             default: return kAudioHardwareUnknownPropertyError;
         }
     }
@@ -976,10 +1020,23 @@ extern "C" HRESULT OzzyGetPropertyData(AudioServerPlugInDriverRef, AudioObjectID
             }
             case kOzzyPropertySetting: {
                 if (!dev->HasSettings()) return kAudioHardwareUnknownPropertyError;
-                if (inQualifierDataSize < sizeof(UInt32) || !inQualifierData) return kAudioHardwareBadPropertySizeError;
-                UInt32 id = *(const UInt32*)inQualifierData;
-                if (!dev->HasSetting(id)) return kAudioHardwareIllegalOperationError;
-                return WriteUInt32(inMax, outSize, outData, dev->GetSetting(id));
+                if (outData && inMax < sizeof(CFPropertyListRef)) return kAudioHardwareBadPropertySizeError;
+                if (outData) *(CFPropertyListRef*)outData = dev->CopySettingsDictionary();   // the caller releases it
+                if (outSize) *outSize = sizeof(CFPropertyListRef);
+                return kAudioHardwareNoError;
+            }
+            case kAudioObjectPropertyCustomPropertyInfoList: {
+                // kOzzyPropertySetting: property list data, no qualifier
+                UInt32 size = dev->HasSettings() ? sizeof(AudioServerPlugInCustomPropertyInfo) : 0;
+                if (outData && inMax < size) return kAudioHardwareBadPropertySizeError;
+                if (outData && size) {
+                    AudioServerPlugInCustomPropertyInfo* info = (AudioServerPlugInCustomPropertyInfo*)outData;
+                    info->mSelector = kOzzyPropertySetting;
+                    info->mPropertyDataType = kAudioServerPlugInCustomPropertyDataTypeCFPropertyList;
+                    info->mQualifierDataType = kAudioServerPlugInCustomPropertyDataTypeNone;
+                }
+                if (outSize) *outSize = size;
+                return kAudioHardwareNoError;
             }
             default: return kAudioHardwareUnknownPropertyError;
         }
@@ -1006,7 +1063,7 @@ extern "C" HRESULT OzzyGetPropertyData(AudioServerPlugInDriverRef, AudioObjectID
     }
 }
 
-extern "C" HRESULT OzzySetPropertyData(AudioServerPlugInDriverRef, AudioObjectID inObjectID, pid_t, const AudioObjectPropertyAddress* inAddress, UInt32 inQualifierDataSize, const void* inQualifierData, UInt32 inDataSize, const void* inData) {
+extern "C" HRESULT OzzySetPropertyData(AudioServerPlugInDriverRef, AudioObjectID inObjectID, pid_t, const AudioObjectPropertyAddress* inAddress, UInt32, const void*, UInt32 inDataSize, const void* inData) {
     OzzyHALDevice* dev = OzzyHAL::Get().DeviceForObject(inObjectID);
     if (!dev) return kAudioHardwareBadObjectError;
     if (ObjectKind(inObjectID) == kOzzyObjectClockControl && dev->HasSetting(OZZY_SETTING_CLOCK_SOURCE) &&
@@ -1016,11 +1073,8 @@ extern "C" HRESULT OzzySetPropertyData(AudioServerPlugInDriverRef, AudioObjectID
     }
     if (ObjectKind(inObjectID) == kOzzyObjectDevice && inAddress->mSelector == kOzzyPropertySetting &&
         dev->HasSettings()) {
-        if (inQualifierDataSize < sizeof(UInt32) || !inQualifierData || inDataSize < sizeof(UInt32) || !inData)
-            return kAudioHardwareBadPropertySizeError;
-        UInt32 id = *(const UInt32*)inQualifierData;
-        if (!dev->HasSetting(id)) return kAudioHardwareIllegalOperationError;
-        return dev->SetSetting(OzzyHAL::Get().GetHost(), id, *(const UInt32*)inData);
+        if (inDataSize < sizeof(CFPropertyListRef) || !inData) return kAudioHardwareBadPropertySizeError;
+        return dev->SetSettingsDictionary(OzzyHAL::Get().GetHost(), *(const CFDictionaryRef*)inData);
     }
     return kAudioHardwareUnsupportedOperationError;
 }

@@ -79,6 +79,9 @@ public:
     // A client set a setting (kOzzyPropertySetting, or the clock source control): a route
     // applies at once, a device setting asks CoreAudio to stop IO and call PerformSettingChange
     OSStatus SetSetting(AudioServerPlugInHostRef host, unsigned int id, UInt32 value);
+    // kOzzyPropertySetting's data: a new dictionary, and setting from one
+    CFDictionaryRef CopySettingsDictionary() const;
+    OSStatus SetSettingsDictionary(AudioServerPlugInHostRef host, CFDictionaryRef dict);
     // CoreAudio stopped IO for the change: send it to the kext, re-read the format, keep it
     OSStatus PerformSettingChange(AudioServerPlugInHostRef host, UInt64 action);
 

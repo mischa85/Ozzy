@@ -6,7 +6,8 @@
  * per platform finds the devices and reads and writes their settings:
  *   - macOS: backend_macos.c, OzzyHAL's OZZY_PROPERTY_SETTING through CoreAudio
  *   - Linux: backend_linux.c, the driver's ALSA controls through alsa-lib
- *   - Windows: later
+ *   - Windows: backend_windows.c, the ACX driver's property set (windows/ozzy_ksproperty.h)
+ *     through IOCTL_KS_PROPERTY
  *
  * Copyright (C) 2024 Marcel Bierling <marcel@hackerman.art>
  */
@@ -23,7 +24,8 @@
 /*
  * struct ozzyctl_device - One device as the backend found it.
  * @name:          product name
- * @id:            the backend's stable id (macOS: the CoreAudio device UID, Linux: the card id)
+ * @id:            the backend's stable id (macOS: the CoreAudio device UID, Linux: the card id,
+ *                 Windows: the device instance ID)
  * @sample_rate:   the rate it runs at (Hz), 0 if unknown (Linux: while no stream is open)
  * @in_channels, @out_channels: channel counts (route settings depend on them)
  * @available:     bit (1 << enum ozzy_setting) per setting the device has

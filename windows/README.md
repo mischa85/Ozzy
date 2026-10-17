@@ -19,6 +19,7 @@ USB completion path:
 | `device.c` | device add (model from the hardware ID), engine, bus and shared memory, D0 entry/exit |
 | `circuit.c` | render and capture circuits: host and bridge pins, the one S24_3LE format |
 | `stream.c` | RT stream: WaveRT packets as one ring, positions, packet completion |
+| `settings.c` | the device settings for `ozzyctl`: a KS property set on each circuit (`ozzy_ksproperty.h`), kept in the device's registry key |
 | `kmdf_bus.c` | the engine's bus (`ozzy_bus`) on KMDF USB: requests into the shared memory, control requests |
 | `ozzy.inf.in` | INF template: endpoints, service; the build fills in the devices |
 | `GenInf.c` | writes `ozzy.inf`: one line per supported device in `common/ozzy_devices.def` (compiled and run by `ozzy.vcxproj` before the build, like `GenPersonalities.c` for the kext) |
@@ -26,12 +27,17 @@ USB completion path:
 Supported so far: the Ploytec bulk/interrupt family (the Xones and their relatives). Not yet:
 - the Ploytec isochronous family (Akai EIE Pro, M-Track Quad): needs isochronous URBs
 - USB MIDI and MIDI in/out: needs a MIDI circuit
-- device settings and ozzyctl
 
 Sample rates: each endpoint offers a format per rate the device lists (the highest first). A
 stream at another rate restarts the engine at it (`ozzy_engine_change_rate`), unless the other
 direction has a stream open at the current rate, or the device is locked to S/PDIF at another
 rate; then the stream is refused.
+
+Device settings (clock source, S/PDIF out mode, routing, for the devices that have them): Windows
+has no place for them in its own sound settings, so they are `ozzyctl`'s
+(`ozzyctl/CMakeLists.txt`): `ozzyctl show`, `ozzyctl set clock-source internal`. A device
+setting restarts the engine (an open stream glitches); every change is kept in the device's
+registry key and applied when the device comes up.
 
 ## Build
 

@@ -66,6 +66,7 @@
     <ClCompile Include="circuit.c" />
     <ClCompile Include="stream.c" />
     <ClCompile Include="kmdf_bus.c" />
+    <ClCompile Include="settings.c" />
     <ClCompile Include="..\engine\core\ozzy_engine.c" />
     <ClCompile Include="..\engine\core\ozzy_isoc_output.c" />
     <ClCompile Include="..\engine\devices\ploytec\ploytec_engine.c" />

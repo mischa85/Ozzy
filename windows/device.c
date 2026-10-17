@@ -49,7 +49,7 @@ NTSTATUS wdev_evt_add(WDFDRIVER driver, PWDFDEVICE_INIT init) {
 
     struct wdev* ctx = wdev_get(device);
     ctx->model = model;
-    status = WdfWaitLockCreate(WDF_NO_OBJECT_ATTRIBUTES, &ctx->rate_lock);
+    status = WdfWaitLockCreate(WDF_NO_OBJECT_ATTRIBUTES, &ctx->lock);
     if (!NT_SUCCESS(status)) return status;
 
     ACX_DEVICE_CONFIG device_config;
@@ -103,6 +103,7 @@ static NTSTATUS wdev_evt_prepare_hardware(WDFDEVICE device, WDFCMRESLIST resourc
         if (NT_SUCCESS(status)) status = kbus_configure(&ctx->bus, ctx->shm, sizeof(*ctx->shm));
         if (!NT_SUCCESS(status)) return status;
         ozzy_engine_attach(ctx->engine, &ctx->bus.bus, ctx->shm);
+        wsettings_restore(ctx, device);
         ctx->configured = true;
     }
 
@@ -147,13 +148,15 @@ static NTSTATUS wdev_evt_d0_entry(WDFDEVICE device, WDF_POWER_DEVICE_STATE previ
     PAGED_CODE();
     struct wdev* ctx = wdev_get(device);
 
+    WdfWaitLockAcquire(ctx->lock, NULL);
     kbus_start_io(&ctx->bus);
-    if (!ozzy_engine_start(ctx->engine)) {
+    ctx->started = ozzy_engine_start(ctx->engine);
+    if (!ctx->started) {
         ozzy_engine_stop(ctx->engine);
         kbus_stop_io(&ctx->bus);
-        return STATUS_DEVICE_NOT_READY;
     }
-    return STATUS_SUCCESS;
+    WdfWaitLockRelease(ctx->lock);
+    return ctx->started ? STATUS_SUCCESS : STATUS_DEVICE_NOT_READY;
 }
 
 static NTSTATUS wdev_evt_d0_exit(WDFDEVICE device, WDF_POWER_DEVICE_STATE target) {
@@ -161,9 +164,12 @@ static NTSTATUS wdev_evt_d0_exit(WDFDEVICE device, WDF_POWER_DEVICE_STATE target
     PAGED_CODE();
     struct wdev* ctx = wdev_get(device);
 
-    /* No more resubmits, then cancel what is in flight */
+    /* No more resubmits, cancel what is in flight, and refuse new requests until D0 */
+    WdfWaitLockAcquire(ctx->lock, NULL);
+    ctx->started = false;
     ozzy_engine_stop(ctx->engine);
     kbus_stop_io(&ctx->bus);
+    WdfWaitLockRelease(ctx->lock);
     return STATUS_SUCCESS;
 }
 
@@ -171,7 +177,7 @@ NTSTATUS wdev_stream_rate(struct wdev* dev, bool render, uint32_t rate) {
     PAGED_CODE();
     NTSTATUS status = STATUS_SUCCESS;
 
-    WdfWaitLockAcquire(dev->rate_lock, NULL);
+    WdfWaitLockAcquire(dev->lock, NULL);
     if (!dev->engine || !dev->shm) {
         status = STATUS_DEVICE_NOT_READY;
     } else if (dev->shm->audio.sample_rate != rate && dev->streams[render ? OZZY_PCM_IN : OZZY_PCM_OUT]) {
@@ -179,8 +185,9 @@ NTSTATUS wdev_stream_rate(struct wdev* dev, bool render, uint32_t rate) {
     } else {
         enum ozzy_setting_change change = ozzy_engine_change_rate(dev->engine, rate);
         if (change == OZZY_SETTING_INVALID) status = STATUS_NOT_SUPPORTED;
-        else if (change == OZZY_SETTING_RESTART && !ozzy_engine_restart(dev->engine)) status = STATUS_DEVICE_NOT_READY;
+        else if (change == OZZY_SETTING_RESTART && dev->started && !(dev->started = ozzy_engine_restart(dev->engine)))
+            status = STATUS_DEVICE_NOT_READY;
     }
-    WdfWaitLockRelease(dev->rate_lock);
+    WdfWaitLockRelease(dev->lock);
     return status;
 }

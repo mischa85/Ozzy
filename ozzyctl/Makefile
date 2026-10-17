@@ -11,7 +11,7 @@ else ifeq ($(UNAME),Linux)
 BACKEND := backend_linux.c
 LDLIBS  += -lasound    # alsa-lib (Debian/Ubuntu: libasound2-dev, Fedora: alsa-lib-devel, Arch: alsa-lib)
 else
-$(error ozzyctl has no backend for $(UNAME) yet)
+$(error ozzyctl has no backend for $(UNAME); on Windows build it with CMakeLists.txt)
 endif
 
 ozzyctl: ozzyctl.c $(BACKEND) ozzyctl.h ../common/ozzy_settings.h ../common/ozzy_route.h ../common/ozzy_quirks.h ../common/ozzy_devices.h ../common/ozzy_devices.def

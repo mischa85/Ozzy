@@ -42,6 +42,7 @@ NTSTATUS wcircuit_create(WDFDEVICE device, bool render, ACXCIRCUIT* out) {
     (VOID)AcxCircuitInitAssignName(init, &name);
     AcxCircuitInitSetCircuitType(init, render ? AcxCircuitTypeRender : AcxCircuitTypeCapture);
     NTSTATUS status = AcxCircuitInitAssignAcxCreateStreamCallback(init, wstream_evt_create);
+    if (NT_SUCCESS(status)) status = wsettings_assign(init);
     if (!NT_SUCCESS(status)) {
         AcxCircuitInitFree(init);
         return status;

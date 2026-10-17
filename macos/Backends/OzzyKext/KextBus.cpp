@@ -1,5 +1,5 @@
 #include "KextBus.h"
-#include "../../../engine/shared/OzzyLog.h"
+#include "../../../engine/shared/ozzy_log.h"
 #include <stdarg.h>
 
 // --- Context Wrapper (Keeps the SLICE alive) ---
@@ -14,7 +14,7 @@ struct TransferContext {
 void KextBus_GlobalCompletion(void* owner, void* parameter, IOReturn status, uint32_t bytesTransferred) {
     TransferContext* ctx = (TransferContext*)parameter;
     if (!ctx) {
-        LogOzzyKext("callback: NULL context");
+        ozzy_log("callback: NULL context");
         return;
     }
 
@@ -27,13 +27,13 @@ void KextBus_GlobalCompletion(void* owner, void* parameter, IOReturn status, uin
 
     // Log the first 50 callbacks of ANY kind immediately
     if (sTotalCallbacks < 50) {
-        LogOzzyKext("Callback #%d | Pipe: 0x%02X | Status: 0x%x | Bytes: %u", 
+        ozzy_log("Callback #%d | Pipe: 0x%02X | Status: 0x%x | Bytes: %u", 
               sTotalCallbacks, ctx->pipeID, status, bytesTransferred);
     }
     */
     // Log errors immediately
     if (status != kIOReturnSuccess && status != kIOReturnAborted) {
-        LogOzzyKext("pipe 0x%02x error: 0x%x", ctx->pipeID, status);
+        ozzy_log("pipe 0x%02x error: 0x%x", ctx->pipeID, status);
     }
     // ---------------------------
 
@@ -53,7 +53,7 @@ void KextBus_GlobalCompletion(void* owner, void* parameter, IOReturn status, uin
     // 3. Keep the Heartbeat for long-term monitoring
     if (status == kIOReturnSuccess && pipeID == 0x05) {
         if ((sTotalCallbacks % 4000) == 0) { 
-            LogOzzyKext("Stream Running (Count: %d)", sTotalCallbacks);
+            ozzy_log("Stream Running (Count: %d)", sTotalCallbacks);
         }
     }
     */
@@ -85,7 +85,7 @@ static void KextBus_IsocCompletion(void* owner, void* parameter, IOReturn status
     if (!ctx) return;
 
     if (status != kIOReturnSuccess && status != kIOReturnAborted)
-        LogOzzyKext("isoc pipe 0x%02x error: 0x%x", ctx->pipeID, status);
+        ozzy_log("isoc pipe 0x%02x error: 0x%x", ctx->pipeID, status);
 
     for (uint32_t i = 0; i < ctx->count; i++) {
         ctx->packets[i].actual = ctx->transactions[i].completeCount;
@@ -268,7 +268,7 @@ bool KextBus::SubmitIsoc(uint8_t pipeID, void* buffer, uint32_t bufferSize,
 
     IOReturn err = pipe->io(slice, ctx->transactions, count, 0, kIsochronousTransferOptionsNone, &completion);
     if (err != kIOReturnSuccess) {
-        LogOzzyKext("isoc pipe 0x%02x submit failed: 0x%x", pipeID, err);
+        ozzy_log("isoc pipe 0x%02x submit failed: 0x%x", pipeID, err);
         slice->complete(dir);
         slice->release();
         delete ctx;

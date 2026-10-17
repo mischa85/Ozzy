@@ -6,7 +6,7 @@ OzzyStream::~OzzyStream() {
 
 uint32_t OzzyStream::InFlightFrames() const {
     // PloytecEngine keeps two PCM out packets in flight ahead of the one it encodes
-    return mRender && mDev->shm ? 2 * mDev->shm->audio.framesPerPacket : 0;
+    return mRender && mDev->shm ? 2 * mDev->shm->audio.frames_per_packet : 0;
 }
 
 /* The ring the engine uses is the packets' data, so it has to be contiguous. Packet sizes from

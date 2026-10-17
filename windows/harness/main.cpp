@@ -12,7 +12,7 @@
 #include "WinUsbBus.h"
 #include "../../engine/devices/ploytec/PloytecEngine.h"
 #include "../../engine/devices/usbmidi/UsbMidiEngine.h"
-#include "../../engine/shared/OzzySharedData.h"
+#include "../../engine/shared/ozzy_shared_data.h"
 #include "../../common/devices/ploytec/ploytec_codec.h"
 #include "../../common/ozzy_version.h"
 #include <setupapi.h>
@@ -130,35 +130,35 @@ struct Wav {
     }
 };
 
-static const uint32_t kRingFrames = kOzzyNumPackets * PLOYTEC_FRAMES_PER_PKT;
+static const uint32_t kRingFrames = OZZY_NUM_PACKETS * PLOYTEC_FRAMES_PER_PKT;
 
 /* A -18 dBFS sine on outputs 1 and 2 with a whole number of cycles in the output ring, so the
  * engine can loop the ring forever without a position from us. Written with the float frame
  * codec into the frames of each logical packet; the MIDI and sync bytes stay as Start() set them. */
-static double FillTone(OzzySharedMemory* shm, uint32_t channels, uint32_t rate) {
+static double FillTone(ozzy_shared_memory* shm, uint32_t channels, uint32_t rate) {
     ploytec_frame_f32_enc_fn encode = ploytec_frame_encoder_f32(channels);
     if (!encode) return 0;
-    enum ploytec_out_layout layout = (shm->audio.deviceFlags & kOzzyDeviceFlagPloytecBulk) ? PLOYTEC_OUT_LAYOUT_BULK
+    enum ploytec_out_layout layout = (shm->audio.device_flags & OZZY_DEVICE_FLAG_PLOYTEC_BULK) ? PLOYTEC_OUT_LAYOUT_BULK
                                                                                             : PLOYTEC_OUT_LAYOUT_INT;
     const uint32_t cycles = 48;
     float frame[16] = {};
     for (uint32_t f = 0; f < kRingFrames; f++) {
         float v = 0.125f * (float)sin(2.0 * 3.14159265358979 * cycles * f / kRingFrames);
         frame[0] = frame[1] = v;
-        encode(shm->audio.outputBuffer + (f / PLOYTEC_FRAMES_PER_PKT) * kOzzyMaxPacketSize +
+        encode(shm->audio.output_buffer + (f / PLOYTEC_FRAMES_PER_PKT) * OZZY_MAX_PACKET_SIZE +
                ploytec_out_frame_offset(layout, f % PLOYTEC_FRAMES_PER_PKT), frame);
     }
     return (double)cycles * rate / kRingFrames;
 }
 
 /* The latest timestamp anchor (seqlock, writer: PloytecEngine::UpdateTimestamp) */
-static bool ReadAnchor(OzzySharedMemory* shm, uint64_t* sampleTime, uint64_t* hostTime) {
+static bool ReadAnchor(ozzy_shared_memory* shm, uint64_t* sampleTime, uint64_t* hostTime) {
     auto* ts = &shm->audio.timestamp;
-    uint32_t seq = OzzyLoadAcquire(&ts->sequence);
+    uint32_t seq = ozzy_load_acquire_u32(&ts->sequence);
     if (seq & 1) return false;
-    *sampleTime = ts->sampleTime;
-    *hostTime = ts->hostTime;
-    return OzzyLoadAcquire(&ts->sequence) == seq;
+    *sampleTime = ts->sample_time;
+    *hostTime = ts->host_time;
+    return ozzy_load_acquire_u32(&ts->sequence) == seq;
 }
 
 int main(int argc, char** argv) {
@@ -204,18 +204,18 @@ int main(int argc, char** argv) {
     if (!bus.Open(found.path.c_str())) return 1;
 
     // The shared memory the kext would map for the HAL; here both sides are in this process
-    auto* shm = (OzzySharedMemory*)VirtualAlloc(nullptr, sizeof(OzzySharedMemory), MEM_COMMIT | MEM_RESERVE,
+    auto* shm = (ozzy_shared_memory*)VirtualAlloc(nullptr, sizeof(ozzy_shared_memory), MEM_COMMIT | MEM_RESERVE,
                                                 PAGE_READWRITE);
     if (!shm) return 1;
-    shm->magic = kOzzyMagic;
-    shm->version = kOzzySharedVersion;
-    shm->vendorID = bus.DeviceDescriptor().idVendor;
-    shm->productID = bus.DeviceDescriptor().idProduct;
-    bus.GetString(bus.DeviceDescriptor().iManufacturer, shm->manufacturerName, sizeof(shm->manufacturerName));
-    bus.GetString(bus.DeviceDescriptor().iProduct, shm->productName, sizeof(shm->productName));
-    bus.GetString(bus.DeviceDescriptor().iSerialNumber, shm->serialNumber, sizeof(shm->serialNumber));
-    fprintf(stderr, "device: %s %s (%s), %04x:%04x\n", shm->manufacturerName, shm->productName, model->name,
-            shm->vendorID, shm->productID);
+    shm->magic = OZZY_MAGIC;
+    shm->version = OZZY_SHARED_VERSION;
+    shm->vendor_id = bus.DeviceDescriptor().idVendor;
+    shm->product_id = bus.DeviceDescriptor().idProduct;
+    bus.GetString(bus.DeviceDescriptor().iManufacturer, shm->manufacturer_name, sizeof(shm->manufacturer_name));
+    bus.GetString(bus.DeviceDescriptor().iProduct, shm->product_name, sizeof(shm->product_name));
+    bus.GetString(bus.DeviceDescriptor().iSerialNumber, shm->serial_number, sizeof(shm->serial_number));
+    fprintf(stderr, "device: %s %s (%s), %04x:%04x\n", shm->manufacturer_name, shm->product_name, model->name,
+            shm->vendor_id, shm->product_id);
 
     OzzyEngine* engine = model->family == OZZY_FAMILY_USB_MIDI ? (OzzyEngine*)new UsbMidiEngine()
                                                                : (OzzyEngine*)new PloytecEngine(model);
@@ -229,7 +229,7 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    uint32_t rate = shm->audio.sampleRate, in = shm->audio.inputChannels, out = shm->audio.outputChannels;
+    uint32_t rate = shm->audio.sample_rate, in = shm->audio.input_channels, out = shm->audio.output_channels;
     fprintf(stderr, "running at %u Hz, %u in / %u out\n", rate, in, out);
     if (out && !quiet) fprintf(stderr, "tone: %.2f Hz on outputs 1/2\n", FillTone(shm, out, rate));
 
@@ -249,7 +249,7 @@ int main(int argc, char** argv) {
 
         // MIDI in
         uint8_t midi[256];
-        uint32_t n = OzzyMidiRingPop(&shm->midiIn, midi, sizeof(midi));
+        uint32_t n = ozzy_midi_ring_pop(&shm->midi_in, midi, sizeof(midi));
         if (n) {
             fprintf(stderr, "midi in:");
             for (uint32_t i = 0; i < n; i++) fprintf(stderr, " %02x", midi[i]);
@@ -274,7 +274,7 @@ int main(int argc, char** argv) {
             uint8_t s24[16 * 3];
             for (; nextFrame < end; nextFrame++) {
                 uint32_t f = (uint32_t)(nextFrame % kRingFrames);
-                decode(s24, shm->audio.inputBuffer + (f / PLOYTEC_FRAMES_PER_PKT) * kOzzyMaxPacketSize +
+                decode(s24, shm->audio.input_buffer + (f / PLOYTEC_FRAMES_PER_PKT) * OZZY_MAX_PACKET_SIZE +
                                 (f % PLOYTEC_FRAMES_PER_PKT) * PLOYTEC_IN_FRAME_SIZE);
                 wav.Write(s24, 1);
             }

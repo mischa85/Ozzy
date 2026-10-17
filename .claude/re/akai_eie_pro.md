@@ -419,9 +419,9 @@ macOS (the same shape as Linux):
   - Pipes found by type: `StandardUSB::getNextEndpointDescriptor` + `ozzy_ep_matches`, with every
     endpoint logged.
   - A bus timer (`thread_call`, re-armed on an absolute deadline) → `OzzyEngine::OnTimer`.
-  - MIDI ring helpers (`OzzyMidiRingPush/Pop`) used by all three engines.
+  - MIDI ring helpers (`ozzy_midi_ring_push/Pop`) used by all three engines.
 - **Shared memory v4:**
-  - `kOzzyDeviceFlagPlainOutput`: outputBuffer is a ring of `kOzzyNumPackets × 80` plain S24
+  - `OZZY_DEVICE_FLAG_PLAIN_OUTPUT`: outputBuffer is a ring of `OZZY_NUM_PACKETS × 80` plain S24
     frames. The HAL writes it with `ploytec_f32_to_s24_Nch` (`common/devices/ploytec/ploytec_codec.c`, via `PloytecPlainOutputWriter`).
   - `safetyOffsetFrames`: 3 × 4 ms read ahead.
   - `isocInUSBBuffer`: the feedback transfers.

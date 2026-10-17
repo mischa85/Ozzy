@@ -2,7 +2,7 @@
 #define PloytecEngine_h
 
 #include "../../core/OzzyEngine.h"
-#include "../../shared/OzzySharedData.h"
+#include "../../shared/ozzy_shared_data.h"
 #include "PloytecProtocol.h"
 #include "../../../common/ozzy_devices.h"
 #include "../../../common/devices/ploytec/ploytec_midi.h"
@@ -33,7 +33,7 @@ class PloytecEngine : public OzzyEngine {
     OzzyDeviceProfile mProfile;
     
     // Helper to cast the generic pointer
-    volatile OzzySharedMemory* GetSHM() { return (volatile OzzySharedMemory*)mSharedMemory; }
+    volatile ozzy_shared_memory* GetSHM() { return (volatile ozzy_shared_memory*)mSharedMemory; }
 
 public:
     explicit PloytecEngine(const struct ozzy_device* device);

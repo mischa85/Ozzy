@@ -2,7 +2,7 @@
 #include "PloytecEngine.h"
 #include "PloytecIO.h"
 #include "../../../common/devices/ploytec/ploytec_handshake.h"
-#include "../../shared/OzzyLog.h"
+#include "../../shared/ozzy_log.h"
 #include <string.h>
 
 // Feedback format (ploytec_defs.h)
@@ -43,20 +43,20 @@ bool PloytecIsocEngine::Start() {
     auto* shm = GetSHM();
     if (!shm) return false;
     if (!mOutAddr || !mInAddr) {
-        LogPloytec("isoc: PCM %s endpoint not found", mOutAddr ? "in" : "out");
+        ploytec_log("isoc: PCM %s endpoint not found", mOutAddr ? "in" : "out");
         return false;
     }
 
     // 1. What the HAL needs: a plain frame ring for output, Ploytec packets for input
     uint32_t frameBytes = mModel->out_channels * 3;
-    shm->audio.deviceFlags = kOzzyDeviceFlagPlainOutput;
-    shm->audio.framesPerPacket = PLOYTEC_FRAMES_PER_PKT;
-    shm->audio.samplesPerPacket = PLOYTEC_FRAMES_PER_OUT_SUBPKT;
-    shm->audio.outputBytesPerFrame = frameBytes;
-    shm->audio.inputBytesPerFrame = PLOYTEC_IN_FRAME_SIZE;
-    shm->audio.inputChannels = mModel->in_channels;
-    shm->audio.outputChannels = mModel->out_channels;
-    LogPloytec("model: %s, %u in / %u out", mModel->name, mModel->in_channels, mModel->out_channels);
+    shm->audio.device_flags = OZZY_DEVICE_FLAG_PLAIN_OUTPUT;
+    shm->audio.frames_per_packet = PLOYTEC_FRAMES_PER_PKT;
+    shm->audio.samples_per_packet = PLOYTEC_FRAMES_PER_OUT_SUBPKT;
+    shm->audio.output_bytes_per_frame = frameBytes;
+    shm->audio.input_bytes_per_frame = PLOYTEC_IN_FRAME_SIZE;
+    shm->audio.input_channels = mModel->in_channels;
+    shm->audio.output_channels = mModel->out_channels;
+    ploytec_log("model: %s, %u in / %u out", mModel->name, mModel->in_channels, mModel->out_channels);
 
     // 2. Handshake with the settings, with the rate requests on the PCM endpoints found;
     // locked to S/PDIF it sets the lock rate
@@ -67,31 +67,31 @@ bool PloytecIsocEngine::Start() {
         return false;
     if (!ozzy_device_has_rate(mModel, hs.rate)) {
         // Locked to an S/PDIF rate the device doesn't list (Linux: ploytec_adopt_rate)
-        LogPloytec("device runs at %u Hz, which it doesn't list", hs.rate);
+        ploytec_log("device runs at %u Hz, which it doesn't list", hs.rate);
         return false;
     }
     mSampleRate = hs.rate;
-    shm->audio.sampleRate = mSampleRate;
-    shm->audio.safetyOffsetFrames = OzzyIsocOutput::SafetyOffsetFrames(mSampleRate);
+    shm->audio.sample_rate = mSampleRate;
+    shm->audio.safety_offset_frames = OzzyIsocOutput::SafetyOffsetFrames(mSampleRate);
     PublishSettings(hs.clock);
     // MIDI framing on its own endpoints, as the device's kInACR picks it (ploytec_midi.h)
     ploytec_midi_init_xfer(&mMidi, mSampleRate, (mModel->quirks & OZZY_QUIRK_MIDI_NS7) ?
                            PLOYTEC_MIDI_XFER_NS7 : PLOYTEC_MIDI_XFER_M4_C1);
 
-    OzzyStoreRelease(&shm->audio.hardwarePresent, true);
-    shm->audio.timestamp.sampleTime = 0;
-    OzzyStoreRelease<bool>(&mMidiOutBusy, false);
+    ozzy_store_release_bool(&shm->audio.hardware_present, true);
+    shm->audio.timestamp.sample_time = 0;
+    ozzy_store_release_bool(&mMidiOutBusy, false);
     mRunning = true;
 
     // 3. Transfers: PCM in, PCM out with feedback, MIDI in; MIDI out from the timer
     for (uint32_t i = 0; i < kInTransfers; i++)
-        if (!PloytecSubmitPCMIn(mBus, shm, mInAddr, i)) LogPloytec("isoc: input submission failed (idx: %u)", i);
+        if (!PloytecSubmitPCMIn(mBus, shm, mInAddr, i)) ploytec_log("isoc: input submission failed (idx: %u)", i);
 
     OzzyIsocOutput::Config out = {};
     out.rate = mSampleRate;
     out.frameBytes = frameBytes;
-    out.ringFrames = kOzzyNumPackets * PLOYTEC_FRAMES_PER_PKT;   // the HAL's ring size
-    out.anchorFrames = (uint64_t)kOzzyTimestampPackets * PLOYTEC_FRAMES_PER_PKT;
+    out.ringFrames = OZZY_NUM_PACKETS * PLOYTEC_FRAMES_PER_PKT;   // the HAL's ring size
+    out.anchorFrames = (uint64_t)OZZY_TIMESTAMP_PACKETS * PLOYTEC_FRAMES_PER_PKT;
     out.outAddr = mOutAddr;
     out.outMaxPacket = mOutMaxPacket;
     out.outInterval = mOutInterval;
@@ -104,7 +104,7 @@ bool PloytecIsocEngine::Start() {
     for (uint32_t i = 0; mMidiInAddr && i < 2; i++) SubmitMIDIIn(i);
     if (mMidiOutAddr) mBus->StartTimer(PLOYTEC_MIDI_XFER_INTERVAL_US);
 
-    OzzyStoreRelease(&shm->audio.driverReady, true);
+    ozzy_store_release_bool(&shm->audio.driver_ready, true);
     return true;
 }
 
@@ -112,7 +112,7 @@ void PloytecIsocEngine::Suspend() {
     mRunning = false;
     mOutput.Stop();
     if (mBus) mBus->StopTimer();
-    LogPloytec("isoc engine suspended");
+    ploytec_log("isoc engine suspended");
 }
 
 void PloytecIsocEngine::Stop() {
@@ -121,9 +121,9 @@ void PloytecIsocEngine::Stop() {
     if (mBus) mBus->StopTimer();
     auto* shm = GetSHM();
     if (!shm) return;
-    shm->audio.driverReady = false;
-    shm->audio.hardwarePresent = false;
-    LogPloytec("isoc engine stopped");
+    shm->audio.driver_ready = false;
+    shm->audio.hardware_present = false;
+    ploytec_log("isoc engine stopped");
 }
 
 void PloytecIsocEngine::OnIsocComplete(uint8_t pipeID, void* ctx, int status, OzzyIsocPacket* packets, uint32_t count) {
@@ -137,23 +137,23 @@ void PloytecIsocEngine::OnPacketComplete(uint8_t pipeID, void* ctx, int status, 
 
     if (pipeID == mInAddr) {
         if (!PloytecSubmitPCMIn(mBus, shm, mInAddr, idx + kInTransfers))
-            LogPloytec("isoc: input submission failed (idx: %u)", idx + kInTransfers);
+            ploytec_log("isoc: input submission failed (idx: %u)", idx + kInTransfers);
     } else if (pipeID == mMidiInAddr) {
-        const uint8_t* buf = (const uint8_t*)shm->midiInUSBBuffer + idx * kMidiInSlot;
+        const uint8_t* buf = (const uint8_t*)shm->midi_in_usb_buffer + idx * kMidiInSlot;
         if (status == 0) PloytecMidiIn(&mMidi, shm, buf, bytes < kMidiInSlot ? bytes : kMidiInSlot);
         SubmitMIDIIn(idx);
     } else if (pipeID == mMidiOutAddr) {
-        if (status != 0) LogPloytec("isoc: MIDI output error 0x%x", status);
-        OzzyStoreRelease<bool>(&mMidiOutBusy, false);
+        if (status != 0) ploytec_log("isoc: MIDI output error 0x%x", status);
+        ozzy_store_release_bool(&mMidiOutBusy, false);
     }
 }
 
 /* MIDI IN reads of the framing's transfer size (AJ::configurationDone), one slot each */
 void PloytecIsocEngine::SubmitMIDIIn(uint32_t slot) {
     auto* shm = GetSHM();
-    void* buf = (void*)(shm->midiInUSBBuffer + slot * kMidiInSlot);
+    void* buf = (void*)(shm->midi_in_usb_buffer + slot * kMidiInSlot);
     if (!mBus->SubmitUSBPacket(mMidiInAddr, buf, mMidi.xfer_size, (void*)(uintptr_t)slot))
-        LogPloytec("isoc: MIDI input submission failed (slot %u)", slot);
+        ploytec_log("isoc: MIDI input submission failed (slot %u)", slot);
 }
 
 /* Every millisecond (bus timer): the next MIDI OUT transfer if the previous one is done.
@@ -166,14 +166,14 @@ void PloytecIsocEngine::OnTimer() {
 void PloytecIsocEngine::SendMidiOut() {
     auto* shm = GetSHM();
     if (!shm || !mMidiOutAddr) return;
-    if (OzzyExchangeAcquire(&mMidiOutBusy, true)) return;
+    if (ozzy_xchg_acquire_bool(&mMidiOutBusy, true)) return;
 
-    uint8_t* buf = (uint8_t*)shm->midiOutUSBBuffer;
+    uint8_t* buf = (uint8_t*)shm->midi_out_usb_buffer;
     uint32_t n = ploytec_midi_xfer_begin(&mMidi, buf);
-    OzzyMidiRingPop(&shm->midiOut, buf, n);
+    ozzy_midi_ring_pop(&shm->midi_out, buf, n);
 
     if (!mBus->SubmitUSBPacket(mMidiOutAddr, buf, mMidi.xfer_size, nullptr)) {
-        LogPloytec("isoc: MIDI output submission failed");
-        OzzyStoreRelease<bool>(&mMidiOutBusy, false);
+        ploytec_log("isoc: MIDI output submission failed");
+        ozzy_store_release_bool(&mMidiOutBusy, false);
     }
 }

@@ -2,7 +2,7 @@
 #define UsbMidiEngine_h
 
 #include "../../core/OzzyEngine.h"
-#include "../../shared/OzzySharedData.h"
+#include "../../shared/ozzy_shared_data.h"
 #include "../../../common/usb_midi.h"
 
 /*
@@ -21,7 +21,7 @@ class UsbMidiEngine : public OzzyEngine {
     bool mOutBusy = false;
     uint32_t mReadErrors[kNumReads] = {};
 
-    volatile OzzySharedMemory* GetSHM() { return (volatile OzzySharedMemory*)mSharedMemory; }
+    volatile ozzy_shared_memory* GetSHM() { return (volatile ozzy_shared_memory*)mSharedMemory; }
 
 public:
     UsbMidiEngine();

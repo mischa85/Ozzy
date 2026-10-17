@@ -9,7 +9,7 @@
 #include <atomic>
 #include <cstdint>
 #include <pthread.h>
-#include "../../engine/shared/OzzySharedData.h"
+#include "../../engine/shared/ozzy_shared_data.h"
 #include "PloytecCodec.h"   // the codec function pointer types
 
 // One audio device per OzzyKext instance with audio. Device slot i owns four object IDs:
@@ -61,7 +61,7 @@ public:
 
     UInt32 GetLatency() const { return 0; }
     UInt32 GetSafetyOffset() const { return mSafetyOffset; }  // frames the engine reads ahead (ApplyDeviceConfig)
-    UInt32 GetZeroTimestampPeriod() const { return kOzzyTimestampPackets * mFramesPerPacket; }  // spacing of the kext's timestamp anchors
+    UInt32 GetZeroTimestampPeriod() const { return OZZY_TIMESTAMP_PACKETS * mFramesPerPacket; }  // spacing of the kext's timestamp anchors
 
     // Device settings (common/ozzy_settings.h). The clock source is a clock source selector
     // control (kAudioClockSourceControlClassID), from which CoreAudio derives the device's
@@ -72,10 +72,10 @@ public:
     unsigned int SettingCount(unsigned int id) const;
     UInt32 GetSetting(unsigned int id) const { return mSettings.value[id]; }
     CFStringRef CopyClockSourceName(UInt32 item) const;
-    // A client set a setting (kOzzyPropertySetting, or the clock source control): a route
+    // A client set a setting (OZZY_PROPERTY_SETTING, or the clock source control): a route
     // applies at once, a device setting asks CoreAudio to stop IO and call PerformSettingChange
     OSStatus SetSetting(AudioServerPlugInHostRef host, unsigned int id, UInt32 value);
-    // kOzzyPropertySetting's data: a new dictionary, and setting from one
+    // OZZY_PROPERTY_SETTING's data: a new dictionary, and setting from one
     CFDictionaryRef CopySettingsDictionary() const;
     OSStatus SetSettingsDictionary(AudioServerPlugInHostRef host, CFDictionaryRef dict);
     // CoreAudio stopped IO for the change: send it to the kext, re-read the format, keep it
@@ -86,7 +86,7 @@ public:
 
     // The UID for a device (also used to find its old slot): its serial number, or for
     // devices without one (all Ploytec devices so far) its model and USB port
-    static void MakeDeviceUID(const OzzySharedMemory* shm, uint32_t locationID, char* buf, size_t size);
+    static void MakeDeviceUID(const ozzy_shared_memory* shm, uint32_t locationID, char* buf, size_t size);
     bool HasDeviceUID(const char* uid) const;
 
 private:
@@ -98,7 +98,7 @@ private:
 
     // Cached frame format for real-time I/O (updated on connect)
     uint32_t mFramesPerPacket = 80;
-    uint32_t mRingSize = 10240; // kOzzyNumPackets * mFramesPerPacket
+    uint32_t mRingSize = 10240; // OZZY_NUM_PACKETS * mFramesPerPacket
     uint32_t mSafetyOffset = 160; // frames the engine reads output ahead of the clock
     uint32_t mInputChannels = 8;    // published by the kext per model (16 for the WZ4)
     uint32_t mOutputChannels = 8;   // (2 for the WZ4)
@@ -128,7 +128,7 @@ private:
 
     // Kext connection. The monitor thread maps and unmaps; CoreAudio's threads use the
     // mapping between AcquireSHM and ReleaseSHM, and Unmap waits for them to finish.
-    std::atomic<OzzySharedMemory*> mSHM { nullptr };
+    std::atomic<ozzy_shared_memory*> mSHM { nullptr };
     std::atomic<uint32_t> mSHMUsers { 0 };
     io_connect_t mKextConnect = IO_OBJECT_NULL;
     mach_vm_address_t mKextMapAddress = 0;
@@ -139,7 +139,7 @@ private:
 
     alignas(16) uint8_t mChannelLayoutBuffer[0x50C];
 
-    OzzySharedMemory* AcquireSHM();
+    ozzy_shared_memory* AcquireSHM();
     void ReleaseSHM();
     void ApplyDeviceConfig();
     kern_return_t CallApplySetting(unsigned int id, uint32_t value);

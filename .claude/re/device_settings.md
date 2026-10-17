@@ -31,9 +31,9 @@ the OS can't show. Order: external clock first (it's what users need, and it bui
 | Follow the locked rate | limit hw_params to the lock rate | offer only the lock rate (the official driver did this) | driver |
 | Lock status | read-only bool kcontrol | no standard UI: app (or clock source item name) | app |
 | S/PDIF mode consumer/pro (done) | enum kcontrol "IEC958 Playback Mode" | no natural fit: kext path ready, needs the app | app |
-| Output routing (US-144MKII, US-600, US-200) (done) | enum per output pair "Output 1-2 Source" | `kOzzyPropertySetting` (app) | app |
-| Input routing (US-144MKII, US-600) (done) | enum per capture pair "Capture 1-2 Source" | `kOzzyPropertySetting` (app) | app |
-| ESU1808 S/PDIF mirror pair (done) | enum "IEC958 Playback Source" | `kOzzyPropertySetting` (app) | app |
+| Output routing (US-144MKII, US-600, US-200) (done) | enum per output pair "Output 1-2 Source" | `OZZY_PROPERTY_SETTING` (app) | app |
+| Input routing (US-144MKII, US-600) (done) | enum per capture pair "Capture 1-2 Source" | `OZZY_PROPERTY_SETTING` (app) | app |
+| ESU1808 S/PDIF mirror pair (done) | enum "IEC958 Playback Source" | `OZZY_PROPERTY_SETTING` (app) | app |
 | US-16xx/US-2000 digital out channels | open (see below: no effect found in the kext) | | |
 | US-3xx mixer modes | PipeWire profiles | app | app |
 | Reverb / level processors | volume / enum kcontrols | app | app |
@@ -75,7 +75,7 @@ the OS can't show. Order: external clock first (it's what users need, and it bui
   `kAudioClockSourceControlClassID`; CoreAudio derives `kAudioDevicePropertyClockSource` from it,
   per AudioHardware.h). Setting it → `RequestDeviceConfigurationChange` (action = id << 32 | value)
   → CoreAudio stops IO → `PerformDeviceConfigurationChange` → user client selector 1
-  (`kOzzyMethodApplySetting`, in: id, value) → kext:
+  (`OZZY_METHOD_APPLY_SETTING`, in: id, value) → kext:
   `engine->Suspend()` (no resubmits), synchronous abort of every pipe, `engine->Start()` again with
   the setting; `hardwarePresent`/`driverReady` stay set so the HAL keeps the device. A lock rate
   the device doesn't list fails the start on both platforms (`ozzy_device_has_rate`). The engine
@@ -98,7 +98,7 @@ the OS can't show. Order: external clock first (it's what users need, and it bui
 - The official `setDigitalOutMode` suspends streaming, writes the registers, resumes. Ozzy uses
   the same path as the clock source: Linux resets the device (heavier than the official, which
   only rewrites the registers, but one path), macOS restarts the engine via
-  `kOzzyMethodApplySetting`. Mode follows rate changes because the handshake writes it after SET_CUR.
+  `OZZY_METHOD_APPLY_SETTING`. Mode follows rate changes because the handshake writes it after SET_CUR.
 - Linux: "IEC958 Playback Mode" enum (ALSA's name for S/PDIF is IEC958). macOS: CoreAudio has no
   property for it, so no UI yet; the HAL restores a stored value, and the app can set it through
   the user client.
@@ -168,7 +168,7 @@ keeps `pcmTo24LSB`: no effect found. Needs a capture of the official driver or a
 no digital lock (`chooseInputPostprocessor`, AjExtData+0x28 = 0), so with an S/PDIF lock inputs
 3/4 probably carry the digital input. Ozzy offers 2 inputs; not changed (untested).
 
-**App interface on macOS**: `kOzzyPropertySetting` ('ozst') on the device object, declared in
+**App interface on macOS**: `OZZY_PROPERTY_SETTING` ('ozst') on the device object, declared in
 `kAudioObjectPropertyCustomPropertyInfoList` as property-list data without qualifier (a plug-in's
 custom properties only cross from coreaudiod to a client with a CFString or CFPropertyList type;
 the first version, raw UInt32s, couldn't have worked). Get: dictionary setting name -> number for
@@ -178,7 +178,7 @@ the HAL at once.
 
 **ozzyctl** (`ozzyctl/`): console tool, platform-neutral core (`ozzyctl.c`: list / show / set, names
 as slugs of `ozzy_setting_descs`) plus a backend per platform (`ozzyctl.h`); macOS backend through
-`kOzzyPropertySetting`, installed by `install.command`; Linux backend (`backend_linux.c`) through
+`OZZY_PROPERTY_SETTING`, installed by `install.command`; Linux backend (`backend_linux.c`) through
 alsa-lib: snd-usb-ozzy cards (card driver name), the settings' mixer controls by name, the lock
 from "S/PDIF Clock Validity", the channels from the device table via the card's USB IDs in sysfs,
 the rate from /proc/asound while a stream is open. Tested against user-defined controls on another

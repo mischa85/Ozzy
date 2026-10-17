@@ -1,5 +1,5 @@
 #include "UsbMidiEngine.h"
-#include "../../shared/OzzyLog.h"
+#include "../../shared/ozzy_log.h"
 #include <string.h>
 
 // Xone:1D (lsusb in #27): interface 1 is MIDIStreaming with one embedded jack per direction
@@ -30,24 +30,24 @@ bool UsbMidiEngine::Start() {
     if (!shm) return false;
 
     // The device calls itself "Xone MIDI Device"; use the name on the front panel
-    OzzyStrlcpy((char*)shm->productName, "Xone:1D", sizeof(shm->productName));
+    ozzy_strlcpy((char*)shm->product_name, "Xone:1D", sizeof(shm->product_name));
 
     // No audio: the HAL skips devices without channels
-    shm->audio.inputChannels = 0;
-    shm->audio.outputChannels = 0;
+    shm->audio.input_channels = 0;
+    shm->audio.output_channels = 0;
 
     memset(&mEncoder, 0, sizeof(mEncoder));
-    OzzyStoreRelease<bool>(&mOutBusy, false);
+    ozzy_store_release_bool(&mOutBusy, false);
     mRunning = true;
-    OzzyStoreRelease(&shm->audio.hardwarePresent, true);
+    ozzy_store_release_bool(&shm->audio.hardware_present, true);
 
     for (uint32_t slot = 0; slot < kNumReads; slot++) {
         mReadErrors[slot] = 0;
         SubmitRead(slot);
     }
 
-    OzzyStoreRelease(&shm->audio.driverReady, true);
-    LogUsbMidi("Xone:1D ready");
+    ozzy_store_release_bool(&shm->audio.driver_ready, true);
+    usb_midi_log("Xone:1D ready");
     return true;
 }
 
@@ -55,28 +55,28 @@ void UsbMidiEngine::Stop() {
     mRunning = false;
     auto* shm = GetSHM();
     if (!shm) return;
-    shm->audio.driverReady = false;
-    shm->audio.hardwarePresent = false;
-    LogUsbMidi("engine stopped");
+    shm->audio.driver_ready = false;
+    shm->audio.hardware_present = false;
+    usb_midi_log("engine stopped");
 }
 
 void UsbMidiEngine::SubmitRead(uint32_t slot) {
     auto* shm = GetSHM();
-    void* buf = (void*)(shm->midiInUSBBuffer + slot * kReadSize);
+    void* buf = (void*)(shm->midi_in_usb_buffer + slot * kReadSize);
     if (!mBus->SubmitUSBPacket(kEpMidiIn, buf, kReadSize, (void*)(uintptr_t)slot)) {
-        LogUsbMidi("MIDI input submission failed (slot %u)", slot);
+        usb_midi_log("MIDI input submission failed (slot %u)", slot);
     }
 }
 
 /* Unpack the event packets into the midiIn ring that OzzyMIDI reads */
 void UsbMidiEngine::ProcessRead(uint32_t slot, uint32_t bytes) {
     auto* shm = GetSHM();
-    const uint8_t* packets = (const uint8_t*)(shm->midiInUSBBuffer + slot * kReadSize);
+    const uint8_t* packets = (const uint8_t*)(shm->midi_in_usb_buffer + slot * kReadSize);
 
     for (uint32_t offset = 0; offset + USB_MIDI_PACKET_SIZE <= bytes; offset += USB_MIDI_PACKET_SIZE) {
         uint8_t midi[3];
         unsigned int len = usb_midi_decode_packet(packets + offset, midi);
-        if (OzzyMidiRingPush(&shm->midiIn, midi, len) < len) return;  // ring full: drop the rest
+        if (ozzy_midi_ring_push(&shm->midi_in, midi, len) < len) return;  // ring full: drop the rest
     }
 }
 
@@ -87,7 +87,7 @@ void UsbMidiEngine::OnPacketComplete(uint8_t pipeID, void* ctx, int status, uint
         uint32_t slot = (uint32_t)(uintptr_t)ctx;
         if (status != 0) {
             if (++mReadErrors[slot] >= kMaxReadErrors) {
-                LogUsbMidi("MIDI input slot %u stopped after %u errors (last 0x%x)", slot, mReadErrors[slot], status);
+                usb_midi_log("MIDI input slot %u stopped after %u errors (last 0x%x)", slot, mReadErrors[slot], status);
                 return;
             }
         } else {
@@ -96,8 +96,8 @@ void UsbMidiEngine::OnPacketComplete(uint8_t pipeID, void* ctx, int status, uint
         }
         SubmitRead(slot);
     } else if (pipeID == kEpMidiOut) {
-        if (status != 0) LogUsbMidi("MIDI output error 0x%x", status);
-        OzzyStoreRelease<bool>(&mOutBusy, false);
+        if (status != 0) usb_midi_log("MIDI output error 0x%x", status);
+        ozzy_store_release_bool(&mOutBusy, false);
         PumpMidiOut();
     }
 }
@@ -113,26 +113,26 @@ void UsbMidiEngine::PumpMidiOut() {
     if (!shm) return;
 
     for (;;) {
-        if (OzzyExchangeAcquire(&mOutBusy, true)) return;
+        if (ozzy_xchg_acquire_bool(&mOutBusy, true)) return;
 
-        uint32_t r = shm->midiOut.readIndex;
-        uint32_t w = OzzyLoadAcquire(&shm->midiOut.writeIndex);
-        uint8_t* packet = (uint8_t*)shm->midiOutUSBBuffer;
+        uint32_t r = shm->midi_out.read_index;
+        uint32_t w = ozzy_load_acquire_u32(&shm->midi_out.write_index);
+        uint8_t* packet = (uint8_t*)shm->midi_out_usb_buffer;
 
         while (r != w) {
-            uint8_t byte = shm->midiOut.buffer[r];
-            r = (r + 1) & kOzzyMidiRingMask;
+            uint8_t byte = shm->midi_out.buffer[r];
+            r = (r + 1) & OZZY_MIDI_RING_MASK;
             if (usb_midi_encode_byte(&mEncoder, kCable, byte, packet)) {
-                OzzyStoreRelease(&shm->midiOut.readIndex, r);
+                ozzy_store_release_u32(&shm->midi_out.read_index, r);
                 if (mBus->SubmitUSBPacket(kEpMidiOut, packet, USB_MIDI_PACKET_SIZE, nullptr)) return;
-                LogUsbMidi("MIDI output submission failed");
+                usb_midi_log("MIDI output submission failed");
                 break;
             }
         }
-        OzzyStoreRelease(&shm->midiOut.readIndex, r);
-        OzzyStoreRelease<bool>(&mOutBusy, false);
+        ozzy_store_release_u32(&shm->midi_out.read_index, r);
+        ozzy_store_release_bool(&mOutBusy, false);
 
         // A kick that came in while we held mOutBusy returned early; pick up its bytes
-        if (OzzyLoadAcquire(&shm->midiOut.writeIndex) == r) return;
+        if (ozzy_load_acquire_u32(&shm->midi_out.write_index) == r) return;
     }
 }

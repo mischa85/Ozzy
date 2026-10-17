@@ -1,6 +1,6 @@
 #include "OzzyMIDI.h"
-#include "../../engine/shared/OzzySharedData.h"
-#include "../../engine/shared/OzzyLog.h"
+#include "../../engine/shared/ozzy_shared_data.h"
+#include "../Shared/OzzyLog.h"
 #include "../Shared/OzzyKextClient.h"
 #include <CoreFoundation/CoreFoundation.h>
 #include <CoreMIDI/CoreMIDI.h>
@@ -37,7 +37,7 @@ struct OzzyMidiPort {
 	io_connect_t connect;
 	mach_vm_address_t mapAddress;
 	mach_vm_size_t mapSize;
-	OzzySharedMemory* shm;
+	ozzy_shared_memory* shm;
 	uint32_t sessionID;
 
 	// CoreMIDI objects, kept across reconnects
@@ -74,9 +74,9 @@ static std::atomic<bool> gThreadShouldRun{false};
 static pthread_t gPollThread = nullptr;
 static CFRunLoopTimerRef gScanTimer = nullptr;
 
-static void SetPortDevice(OzzyMidiPort* port, const OzzySharedMemory* shm) {
-	const char* name = shm->productName[0] ? shm->productName : "Ozzy MIDI";
-	const char* mfg = shm->manufacturerName[0] ? shm->manufacturerName : "Ozzy";
+static void SetPortDevice(OzzyMidiPort* port, const ozzy_shared_memory* shm) {
+	const char* name = shm->product_name[0] ? shm->product_name : "Ozzy MIDI";
+	const char* mfg = shm->manufacturer_name[0] ? shm->manufacturer_name : "Ozzy";
 	CFStringRef deviceName = CFStringCreateWithCString(NULL, name, kCFStringEncodingUTF8);
 	CFStringRef vendorName = CFStringCreateWithCString(NULL, mfg, kCFStringEncodingUTF8);
 
@@ -157,15 +157,15 @@ static void ConnectService(io_service_t service, uint64_t registryID) {
 		return;
 	}
 
-	OzzySharedMemory* shm = (OzzySharedMemory*)address;
+	ozzy_shared_memory* shm = (ozzy_shared_memory*)address;
 	OzzyMidiPort* port = nullptr;
-	if (shm->magic != kOzzyMagic || shm->version != kOzzySharedVersion) {
+	if (shm->magic != OZZY_MAGIC || shm->version != OZZY_SHARED_VERSION) {
 		LogOzzyMIDIError("SHM magic/version mismatch (version %{public}u, expected %{public}u): reinstall Ozzy",
-		                 shm->version, kOzzySharedVersion);
-	} else if (!shm->audio.hardwarePresent.load()) {
+		                 shm->version, OZZY_SHARED_VERSION);
+	} else if (!shm->audio.hardware_present.load()) {
 		// Not started yet; try again on the next scan
 	} else {
-		port = PortForDevice(shm->productName[0] ? shm->productName : "Ozzy MIDI", OzzyUSBLocationID(service));
+		port = PortForDevice(shm->product_name[0] ? shm->product_name : "Ozzy MIDI", OzzyUSBLocationID(service));
 		if (!port) LogOzzyMIDIError("too many devices");
 	}
 	if (!port) {
@@ -182,7 +182,7 @@ static void ConnectService(io_service_t service, uint64_t registryID) {
 	port->connect = connect;
 	port->mapAddress = address;
 	port->mapSize = size;
-	port->sessionID = shm->sessionID;
+	port->sessionID = shm->session_id;
 	port->generation++;
 	port->shm = shm;
 	os_unfair_lock_unlock(&gPortLock);
@@ -194,8 +194,8 @@ static void ScanDevices() {
 	for (int i = 0; i < kMaxPorts; i++) {
 		OzzyMidiPort* port = &gPorts[i];
 		if (!port->shm) continue;
-		if (port->shm->magic != kOzzyMagic || port->shm->sessionID != port->sessionID ||
-		    !port->shm->audio.hardwarePresent.load(std::memory_order_relaxed)) {
+		if (port->shm->magic != OZZY_MAGIC || port->shm->session_id != port->sessionID ||
+		    !port->shm->audio.hardware_present.load(std::memory_order_relaxed)) {
 			DisconnectPort(port);
 		}
 	}
@@ -234,22 +234,22 @@ static void SendToSource(MIDIEndpointRef source, const Byte* data, int length) {
 
 /* Drain the port's midiIn ring into CoreMIDI. Returns true if there was data. */
 static bool DrainInput(OzzyMidiPort* port, OzzyMidiParser* parser) {
-	Byte bytes[kOzzyMidiRingSize];
+	Byte bytes[OZZY_MIDI_RING_SIZE];
 	uint32_t count = 0;
 
 	// Copy the ring out under the lock, so the main thread can't unmap it meanwhile
 	os_unfair_lock_lock(&gPortLock);
-	OzzySharedMemory* shm = port->shm;
+	ozzy_shared_memory* shm = port->shm;
 	MIDIEndpointRef source = port->source;
 	uint32_t generation = port->generation;
 	if (shm) {
-		uint32_t r = std::atomic_load_explicit(&shm->midiIn.readIndex, std::memory_order_relaxed);
-		uint32_t w = std::atomic_load_explicit(&shm->midiIn.writeIndex, std::memory_order_acquire);
+		uint32_t r = std::atomic_load_explicit(&shm->midi_in.read_index, std::memory_order_relaxed);
+		uint32_t w = std::atomic_load_explicit(&shm->midi_in.write_index, std::memory_order_acquire);
 		while (r != w) {
-			bytes[count++] = shm->midiIn.buffer[r];
-			r = (r + 1) & kOzzyMidiRingMask;
+			bytes[count++] = shm->midi_in.buffer[r];
+			r = (r + 1) & OZZY_MIDI_RING_MASK;
 		}
-		std::atomic_store_explicit(&shm->midiIn.readIndex, r, std::memory_order_release);
+		std::atomic_store_explicit(&shm->midi_in.read_index, r, std::memory_order_release);
 	}
 	os_unfair_lock_unlock(&gPortLock);
 
@@ -296,25 +296,25 @@ static bool DrainInput(OzzyMidiPort* port, OzzyMidiParser* parser) {
  * Returns true if anything reached the ring.
  */
 static bool QueueMidiOut(OzzyMidiPort* port, const Byte* data, uint32_t length) {
-	OzzySharedMemory* shm = port->shm;
-	uint32_t w = std::atomic_load_explicit(&shm->midiOut.writeIndex, std::memory_order_relaxed);
-	uint32_t r = std::atomic_load_explicit(&shm->midiOut.readIndex, std::memory_order_acquire);
-	uint32_t space = (r - w - 1) & kOzzyMidiRingMask;
+	ozzy_shared_memory* shm = port->shm;
+	uint32_t w = std::atomic_load_explicit(&shm->midi_out.write_index, std::memory_order_relaxed);
+	uint32_t r = std::atomic_load_explicit(&shm->midi_out.read_index, std::memory_order_acquire);
+	uint32_t space = (r - w - 1) & OZZY_MIDI_RING_MASK;
 	uint32_t moved = 0, i = 0;
 
 	while (space && port->pendingHead != port->pendingTail) {
-		shm->midiOut.buffer[w] = port->pending[port->pendingHead];
+		shm->midi_out.buffer[w] = port->pending[port->pendingHead];
 		port->pendingHead = (port->pendingHead + 1) & kPendingMask;
-		w = (w + 1) & kOzzyMidiRingMask;
+		w = (w + 1) & OZZY_MIDI_RING_MASK;
 		space--; moved++;
 	}
 	if (port->pendingHead == port->pendingTail) {
 		for (; space && i < length; i++, space--, moved++) {
-			shm->midiOut.buffer[w] = data[i];
-			w = (w + 1) & kOzzyMidiRingMask;
+			shm->midi_out.buffer[w] = data[i];
+			w = (w + 1) & OZZY_MIDI_RING_MASK;
 		}
 	}
-	std::atomic_store_explicit(&shm->midiOut.writeIndex, w, std::memory_order_release);
+	std::atomic_store_explicit(&shm->midi_out.write_index, w, std::memory_order_release);
 
 	for (; i < length; i++) {
 		uint32_t next = (port->pendingTail + 1) & kPendingMask;
@@ -334,7 +334,7 @@ static bool FlushMidiOut(OzzyMidiPort* port) {
 
 	os_unfair_lock_lock(&gPortLock);
 	bool moved = port->shm && port->pendingHead != port->pendingTail && QueueMidiOut(port, nullptr, 0);
-	if (moved) IOConnectCallScalarMethod(port->connect, kOzzyMethodMidiOutPending, NULL, 0, NULL, NULL);
+	if (moved) IOConnectCallScalarMethod(port->connect, OZZY_METHOD_MIDI_OUT_PENDING, NULL, 0, NULL, NULL);
 	if (port->pendingHead == port->pendingTail) {
 		dropped = port->dropped;
 		port->dropped = 0;
@@ -428,7 +428,7 @@ static OSStatus Send(MIDIDriverRef self, const MIDIPacketList *pktlist, void *de
 		QueueMidiOut(port, packet->data, packet->length);
 		packet = MIDIPacketNext(packet);
 	}
-	IOConnectCallScalarMethod(port->connect, kOzzyMethodMidiOutPending, NULL, 0, NULL, NULL);
+	IOConnectCallScalarMethod(port->connect, OZZY_METHOD_MIDI_OUT_PENDING, NULL, 0, NULL, NULL);
 	bool startedDropping = droppedBefore == 0 && port->dropped != 0;
 	os_unfair_lock_unlock(&gPortLock);
 

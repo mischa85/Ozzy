@@ -3,7 +3,7 @@
 
 #include "../../core/OzzyEngine.h"
 #include "../../core/OzzyIsocOutput.h"
-#include "../../shared/OzzySharedData.h"
+#include "../../shared/ozzy_shared_data.h"
 #include "PloytecProtocol.h"
 #include "../../../common/ozzy_devices.h"
 #include "../../../common/devices/ploytec/ploytec_midi.h"
@@ -34,7 +34,7 @@ class PloytecIsocEngine : public OzzyEngine {
     OzzyIsocOutput mOutput;
     bool mMidiOutBusy = false;       // one MIDI OUT transfer in flight
 
-    volatile OzzySharedMemory* GetSHM() { return (volatile OzzySharedMemory*)mSharedMemory; }
+    volatile ozzy_shared_memory* GetSHM() { return (volatile ozzy_shared_memory*)mSharedMemory; }
 
 public:
     explicit PloytecIsocEngine(const struct ozzy_device* device);

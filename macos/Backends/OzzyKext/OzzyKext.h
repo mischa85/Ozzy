@@ -11,7 +11,7 @@
 
 class KextBus;
 class OzzyEngine;
-struct OzzySharedMemory;
+struct ozzy_shared_memory;
 
 #define kMaxInterfaces 4
 #define kMaxPipes      16
@@ -29,7 +29,7 @@ public:
     IOMemoryDescriptor* GetMemory() { return mShmDescriptor; }
     void MidiOutPending();
     IOReturn ApplySetting(uint32_t id, uint32_t value);
-    OzzySharedMemory* GetSHM() { return mSHM; }
+    ozzy_shared_memory* GetSHM() { return mSHM; }
 
 private:
     bool MapSharedMemory();
@@ -48,7 +48,7 @@ private:
     // MASTER MEMORY OBJECTS
     IOBufferMemoryDescriptor* mShmDescriptor = nullptr; // The Owner
     IOMemoryMap* mShmMap = nullptr;                     // The Mapping
-    OzzySharedMemory* mSHM = nullptr;                   // The Pointer
+    ozzy_shared_memory* mSHM = nullptr;                   // The Pointer
 
     IOUSBHostInterface* mInterfaces[kMaxInterfaces] = { nullptr };
     IOUSBHostPipe* mPipes[kMaxPipes]           = { nullptr };

@@ -107,13 +107,13 @@ static NTSTATUS OzzyEvtPrepareHardware(WDFDEVICE device, WDFCMRESLIST resources,
     OzzyDeviceContext* ctx = GetOzzyDevice(device);
 
     if (!ctx->shm) {
-        ctx->shm = (OzzySharedMemory*)ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(OzzySharedMemory), OZZY_POOL_TAG);
+        ctx->shm = (ozzy_shared_memory*)ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(ozzy_shared_memory), OZZY_POOL_TAG);
         if (!ctx->shm) return STATUS_INSUFFICIENT_RESOURCES;
-        ctx->shm->magic = kOzzyMagic;
-        ctx->shm->version = kOzzySharedVersion;
-        ctx->shm->vendorID = ctx->model->vid;
-        ctx->shm->productID = ctx->model->pid;
-        OzzyStrlcpy(ctx->shm->productName, ctx->model->name, sizeof(ctx->shm->productName));
+        ctx->shm->magic = OZZY_MAGIC;
+        ctx->shm->version = OZZY_SHARED_VERSION;
+        ctx->shm->vendor_id = ctx->model->vid;
+        ctx->shm->product_id = ctx->model->pid;
+        ozzy_strlcpy(ctx->shm->product_name, ctx->model->name, sizeof(ctx->shm->product_name));
     }
     if (!ctx->bus) {
         ctx->bus = new KmdfBus();
@@ -123,7 +123,7 @@ static NTSTATUS OzzyEvtPrepareHardware(WDFDEVICE device, WDFCMRESLIST resources,
     }
     if (!ctx->configured) {
         NTSTATUS status = ctx->bus->Create(device);
-        if (NT_SUCCESS(status)) status = ctx->bus->Configure(ctx->engine, ctx->shm, sizeof(OzzySharedMemory));
+        if (NT_SUCCESS(status)) status = ctx->bus->Configure(ctx->engine, ctx->shm, sizeof(ozzy_shared_memory));
         if (!NT_SUCCESS(status)) return status;
         ctx->engine->Init(ctx->bus, ctx->shm);
         ctx->configured = true;
@@ -177,9 +177,9 @@ static NTSTATUS OzzyEvtD0Entry(WDFDEVICE device, WDF_POWER_DEVICE_STATE previous
         ctx->bus->StopIo();
         return STATUS_DEVICE_NOT_READY;
     }
-    if (ctx->shm->audio.sampleRate != ctx->rate)
+    if (ctx->shm->audio.sample_rate != ctx->rate)
         DbgPrintEx(DPFLTR_IHVAUDIO_ID, DPFLTR_ERROR_LEVEL, "[Ozzy] device runs at %u Hz, the format says %u Hz\n",
-                   (uint32_t)ctx->shm->audio.sampleRate, ctx->rate);
+                   (uint32_t)ctx->shm->audio.sample_rate, ctx->rate);
     return STATUS_SUCCESS;
 }
 

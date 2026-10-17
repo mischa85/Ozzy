@@ -2,7 +2,7 @@
 #define OzzyIsocOutput_h
 
 #include "IOzzyBus.h"
-#include "../shared/OzzySharedData.h"
+#include "../shared/ozzy_shared_data.h"
 #include "../../common/isoc_feedback.h"
 
 /*
@@ -11,7 +11,7 @@
  * macOS counterpart of the Linux core's isochronous output: an engine owns one of these
  * and forwards its isochronous completions.
  *
- * The HAL writes frames into a ring in shared memory (kOzzyDeviceFlagPlainOutput), and each
+ * The HAL writes frames into a ring in shared memory (OZZY_DEVICE_FLAG_PLAIN_OUTPUT), and each
  * microframe's transaction points straight into it (zero copy; a packet that runs past the
  * end wraps). The output clock is the device's: the frames of completed transfers advance
  * the sample time, and the timestamp anchors use the completion time of the microframe that
@@ -39,7 +39,7 @@ public:
     }
 
     // Clear the ring, reset the clock, submit the feedback and OUT transfers
-    bool Start(IOzzyBus* bus, volatile OzzySharedMemory* shm, const Config& config);
+    bool Start(IOzzyBus* bus, volatile ozzy_shared_memory* shm, const Config& config);
     void Stop() { mRunning = false; }
 
     // An isochronous completion; false if it isn't one of this output's pipes
@@ -61,7 +61,7 @@ private:
     void PublishTimestamps(const OutTransfer& t);
 
     IOzzyBus* mBus = nullptr;
-    volatile OzzySharedMemory* mSHM = nullptr;
+    volatile ozzy_shared_memory* mSHM = nullptr;
     Config mConfig = {};
     volatile bool mRunning = false;
 

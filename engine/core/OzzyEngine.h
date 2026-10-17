@@ -5,7 +5,7 @@
 #include "../../common/ozzy_ep.h"
 #include "../../common/ozzy_settings.h"
 #include "../../common/ozzy_devices.h"
-#include "../shared/OzzyPlatform.h"
+#include "../shared/ozzy_platform.h"
 
 // --- Hardware Description ---
 
@@ -56,7 +56,7 @@ struct OzzyPcmRing {
 class OzzyEngine {
 protected:
     IOzzyBus* mBus = nullptr;
-    void* mSharedMemory = nullptr; // Opaque pointer to OzzySharedMemory
+    void* mSharedMemory = nullptr; // Opaque pointer to ozzy_shared_memory
     struct ozzy_settings mSettings = {};  // what Start() sends (Init: the defaults)
     const OzzyPcmRing* volatile mPcmRingSet[kOzzyPcmDirs] = {};   // SetPcmRing
 
@@ -107,7 +107,9 @@ public:
     // Attach @ring for @dir (nullptr detaches). The completion path picks it up with the next
     // packet. The ring must stay valid until the caller has waited out the completions in
     // progress after detaching.
-    void SetPcmRing(OzzyPcmDir dir, const OzzyPcmRing* ring) { OzzyStoreRelease(&mPcmRingSet[dir], ring); }
+    void SetPcmRing(OzzyPcmDir dir, const OzzyPcmRing* ring) {
+        ozzy_store_release_ptr((const void* volatile*)&mPcmRingSet[dir], ring);
+    }
 
     // Restart for changed settings: Suspend() stops resubmitting transfers and the timer, the
     // kext aborts every pipe, then calls Start() again. Unlike Stop() it keeps hardwarePresent

@@ -9,7 +9,7 @@
 #include <mmsystem.h>
 #include <ksmedia.h>
 #include "KmdfBus.h"
-#include "../../engine/shared/OzzySharedData.h"
+#include "../../engine/shared/ozzy_shared_data.h"
 
 #define OZZY_POOL_TAG 'yzzO'
 
@@ -20,7 +20,7 @@ struct OzzyDeviceContext {
     uint32_t rate;                     // the stream format's rate: the engine's default rate
     KmdfBus* bus;
     OzzyEngine* engine;
-    OzzySharedMemory* shm;
+    ozzy_shared_memory* shm;
     ACXCIRCUIT render;                 // nullptr if the model has no channels that way
     ACXCIRCUIT capture;
     bool circuitsAdded;

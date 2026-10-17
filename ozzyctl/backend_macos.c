@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 /*
  * ozzyctl backend for macOS: OzzyHAL's devices through CoreAudio. Their UIDs start with
- * "OzzyHAL."; the settings are the custom property kOzzyPropertySetting, a dictionary of
- * setting name -> value (engine/shared/OzzySharedData.h).
+ * "OzzyHAL."; the settings are the custom property OZZY_PROPERTY_SETTING, a dictionary of
+ * setting name -> value (engine/shared/ozzy_shared_data.h).
  *
  * Copyright (C) 2024 Marcel Bierling <marcel@hackerman.art>
  */
@@ -15,8 +15,8 @@
 
 #include "ozzyctl.h"
 
-/* Same value as engine/shared/OzzySharedData.h (that header is C++ for the HAL and kext) */
-#define kOzzyPropertySetting 'ozst'
+/* Same value as engine/shared/ozzy_shared_data.h (its client side is C++, for the HAL) */
+#define OZZY_PROPERTY_SETTING 'ozst'
 
 static AudioObjectPropertyAddress addr(AudioObjectPropertySelector sel, AudioObjectPropertyScope scope)
 {
@@ -70,10 +70,10 @@ static bool dict_int(CFDictionaryRef d, CFStringRef key, SInt32 *out)
 	return false;
 }
 
-/* The device's settings from kOzzyPropertySetting */
+/* The device's settings from OZZY_PROPERTY_SETTING */
 static void read_settings(AudioObjectID dev, struct ozzyctl_device *out)
 {
-	AudioObjectPropertyAddress a = addr(kOzzyPropertySetting, kAudioObjectPropertyScopeGlobal);
+	AudioObjectPropertyAddress a = addr(OZZY_PROPERTY_SETTING, kAudioObjectPropertyScopeGlobal);
 	CFDictionaryRef dict = NULL;
 	UInt32 sz = sizeof(dict);
 	unsigned int id;
@@ -149,7 +149,7 @@ int ozzyctl_backend_list(struct ozzyctl_device *devs, int max)
 
 int ozzyctl_backend_set(const struct ozzyctl_device *dev, unsigned int id, unsigned int value)
 {
-	AudioObjectPropertyAddress a = addr(kOzzyPropertySetting, kAudioObjectPropertyScopeGlobal);
+	AudioObjectPropertyAddress a = addr(OZZY_PROPERTY_SETTING, kAudioObjectPropertyScopeGlobal);
 	CFStringRef key = CFStringCreateWithCString(NULL, ozzy_setting_descs[id].name, kCFStringEncodingUTF8);
 	SInt32 v = (SInt32)value;
 	CFNumberRef num = CFNumberCreate(NULL, kCFNumberSInt32Type, &v);

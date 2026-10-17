@@ -3,8 +3,8 @@
 #include "../../../engine/devices/ploytec/PloytecEngine.h"
 #include "../../../engine/devices/ploytec/PloytecIsocEngine.h"
 #include "../../../engine/devices/usbmidi/UsbMidiEngine.h"
-#include "../../../engine/shared/OzzySharedData.h"
-#include "../../../engine/shared/OzzyLog.h"
+#include "../../../engine/shared/ozzy_shared_data.h"
+#include "../../../engine/shared/ozzy_log.h"
 #include "../../../common/ozzy_version.h"
 #include <IOKit/IOLib.h>
 #include <IOKit/IOWorkLoop.h>
@@ -50,11 +50,11 @@ public:
     virtual IOReturn externalMethod(uint32_t selector, IOExternalMethodArguments* args,
                                     IOExternalMethodDispatch* dispatch, OSObject* target,
                                     void* reference) override {
-        if (selector == kOzzyMethodMidiOutPending) {
+        if (selector == OZZY_METHOD_MIDI_OUT_PENDING) {
             if (mOwner) mOwner->MidiOutPending();
             return kIOReturnSuccess;
         }
-        if (selector == kOzzyMethodApplySetting) {
+        if (selector == OZZY_METHOD_APPLY_SETTING) {
             if (!mOwner || args->scalarInputCount != 2) return kIOReturnBadArgument;
             if (args->scalarInput[0] > 0xFFFF || args->scalarInput[1] > 0xFF) return kIOReturnBadArgument;
             return mOwner->ApplySetting((uint32_t)args->scalarInput[0], (uint32_t)args->scalarInput[1]);
@@ -101,10 +101,10 @@ IOReturn OzzyKext::newUserClient(task_t owningTask, void* securityID,
 OzzyEngine* CreateEngine(uint16_t vid, uint16_t pid, size_t* size) {
     const struct ozzy_device* device = ozzy_device_lookup(vid, pid);
     if (!device) {
-        LogOzzyKext("%04x:%04x is not in the device list", vid, pid);
+        ozzy_log("%04x:%04x is not in the device list", vid, pid);
         return nullptr;
     }
-    LogOzzyKext("  device: %s%s", device->name, device->status == OZZY_STATUS_EXPERIMENTAL ? " (experimental)" : "");
+    ozzy_log("  device: %s%s", device->name, device->status == OZZY_STATUS_EXPERIMENTAL ? " (experimental)" : "");
 
     switch (device->family) {
     case OZZY_FAMILY_USB_MIDI:     *size = sizeof(UsbMidiEngine); break;
@@ -161,11 +161,11 @@ OSDefineMetaClassAndStructors(OzzyKext, IOService)
 
 bool OzzyKext::start(IOService* provider) {
     if (!IOService::start(provider)) return false;
-    LogOzzyKext("start (build %s)", OZZY_GIT_VERSION);
+    ozzy_log("start (build %s)", OZZY_GIT_VERSION);
 
     mHostDevice = OSDynamicCast(IOUSBHostDevice, provider);
     if (!mHostDevice || !mHostDevice->open(this)) {
-        LogOzzyKext("open failed");
+        ozzy_log("open failed");
         return false;
     }
 
@@ -180,18 +180,18 @@ bool OzzyKext::start(IOService* provider) {
     // Extract device metadata early so HAL can see it immediately
     const StandardUSB::DeviceDescriptor* desc = mHostDevice->getDeviceDescriptor();
     if (desc) {
-        mSHM->vendorID = desc->idVendor;
-        mSHM->productID = desc->idProduct;
+        mSHM->vendor_id = desc->idVendor;
+        mSHM->product_id = desc->idProduct;
         
         // Get device strings from IORegistry
-        GetRegistryString(mHostDevice, "USB Vendor Name", mSHM->manufacturerName, 64);
-        GetRegistryString(mHostDevice, "USB Product Name", mSHM->productName, 64);
-        GetRegistryString(mHostDevice, "USB Serial Number", mSHM->serialNumber, 64);
+        GetRegistryString(mHostDevice, "USB Vendor Name", mSHM->manufacturer_name, 64);
+        GetRegistryString(mHostDevice, "USB Product Name", mSHM->product_name, 64);
+        GetRegistryString(mHostDevice, "USB Serial Number", mSHM->serial_number, 64);
         
-        LogOzzyKext("found device: %s %s (S/N: %s)", mSHM->manufacturerName, mSHM->productName,
-            mSHM->serialNumber[0] ? mSHM->serialNumber : "none");
-        LogOzzyKext("  USB ID: %04x:%04x", desc->idVendor, desc->idProduct);
-        LogOzzyKext("  speed: %s",
+        ozzy_log("found device: %s %s (S/N: %s)", mSHM->manufacturer_name, mSHM->product_name,
+            mSHM->serial_number[0] ? mSHM->serial_number : "none");
+        ozzy_log("  USB ID: %04x:%04x", desc->idVendor, desc->idProduct);
+        ozzy_log("  speed: %s",
             mHostDevice->getSpeed() == kUSBHostConnectionSpeedHigh ? "high" :
             mHostDevice->getSpeed() == kUSBHostConnectionSpeedFull ? "full" : "unknown");
     }
@@ -209,26 +209,26 @@ bool OzzyKext::start(IOService* provider) {
     // NEW: Hand the Master Descriptor to the Bus
     mBus->SetSharedMemory(mShmDescriptor, mSHM);
 
-    LogOzzyKext("configuring hardware...");
+    ozzy_log("configuring hardware...");
     if (!ConfigureHardware()) {
-        LogOzzyKext("configuration failed");
+        ozzy_log("configuration failed");
         return false;
     }
 
     mBus->SetPipePool(mPipes, kMaxPipes);
 
-    LogOzzyKext("initializing engine...");
+    ozzy_log("initializing engine...");
     mEngine->Init(mBus, mSHM);
     
     if (!mEngine->Start()) {
-        LogOzzyKext("engine start failed");
+        ozzy_log("engine start failed");
         return false;
     }
 
-    LogOzzyKext("driver ready");
+    ozzy_log("driver ready");
 
     // OzzyHAL only attaches to devices with audio (the Xone:1D is MIDI only)
-    setProperty(kOzzyAudioPropertyKey, mSHM->audio.inputChannels + mSHM->audio.outputChannels > 0);
+    setProperty(OZZY_AUDIO_PROPERTY_KEY, mSHM->audio.input_channels + mSHM->audio.output_channels > 0);
     mRunning = true;
 
     registerService();
@@ -240,7 +240,7 @@ void OzzyKext::MidiOutPending() {
     if (mRunning && mEngine) mEngine->OnMidiOutPending();
 }
 
-/* kOzzyMethodApplySetting: restart the engine with setting @id = @value, the way the official
+/* OZZY_METHOD_APPLY_SETTING: restart the engine with setting @id = @value, the way the official
  * driver suspends streaming, sends the setting and resumes. The engine stops resubmitting, every
  * pipe is aborted, and Start() runs the handshake again with the setting (it also re-reads the
  * digital lock, so the same value again re-checks it). hardwarePresent and driverReady stay set,
@@ -260,7 +260,7 @@ IOReturn OzzyKext::ApplySettingLocked(uint32_t id, uint32_t value) {
         value >= ozzy_setting_descs[id].num_values)
         return kIOReturnBadArgument;
 
-    LogOzzyKext("%s: %s", ozzy_setting_descs[id].name, ozzy_setting_descs[id].value_names[value]);
+    ozzy_log("%s: %s", ozzy_setting_descs[id].name, ozzy_setting_descs[id].value_names[value]);
     mEngine->Suspend();
     for (int i = 0; i < kMaxPipes; i++) {
         if (mPipes[i]) mPipes[i]->abort(IOUSBHostIOSource::kAbortSynchronous);
@@ -268,7 +268,7 @@ IOReturn OzzyKext::ApplySettingLocked(uint32_t id, uint32_t value) {
     mEngine->SetSetting(id, (uint8_t)value);
     if (!mEngine->Start()) {
         // The device didn't take it: let the HAL drop it, as on a failed start
-        LogOzzyKext("engine restart failed");
+        ozzy_log("engine restart failed");
         mRunning = false;
         mEngine->Stop();
         return kIOReturnIOError;
@@ -278,7 +278,7 @@ IOReturn OzzyKext::ApplySettingLocked(uint32_t id, uint32_t value) {
 
 IOReturn OzzyKext::message(UInt32 type, IOService* provider, void* argument) {
     if (type == kIOMessageServiceIsTerminated) {
-        LogOzzyKext("device disconnected");
+        ozzy_log("device disconnected");
         // Wait for a settings restart in progress (its requests fail fast once the device is gone)
         if (mSettingsLock) IOLockLock(mSettingsLock);
         mRunning = false;
@@ -286,8 +286,8 @@ IOReturn OzzyKext::message(UInt32 type, IOService* provider, void* argument) {
         
         // Immediately signal HAL that hardware is gone
         if (mSHM) {
-            mSHM->audio.hardwarePresent = false;
-            mSHM->audio.driverReady = false;
+            mSHM->audio.hardware_present = false;
+            mSHM->audio.driver_ready = false;
         }
         
         // CRITICAL: Stop engine and abort transfers NOW to prevent callback deadlocks
@@ -323,7 +323,7 @@ void OzzyKext::CloseProviders() {
 }
 
 void OzzyKext::stop(IOService* provider) {
-    LogOzzyKext("stop");
+    ozzy_log("stop");
     
     // 0. Invalidate shared memory magic to signal HAL immediately
     if (mSHM) {
@@ -378,7 +378,7 @@ void OzzyKext::stop(IOService* provider) {
 }
 
 void OzzyKext::free() {
-    LogOzzyKext("free");
+    ozzy_log("free");
     if (mSettingsLock) {
         IOLockFree(mSettingsLock);
         mSettingsLock = nullptr;
@@ -389,20 +389,20 @@ void OzzyKext::free() {
 bool OzzyKext::MapSharedMemory() {
     // FIX: Store the descriptor in member variable, don't leak it!
     mShmDescriptor = IOBufferMemoryDescriptor::inTaskWithPhysicalMask(
-        kernel_task, kIOMemoryPhysicallyContiguous, sizeof(OzzySharedMemory), 0);
+        kernel_task, kIOMemoryPhysicallyContiguous, sizeof(ozzy_shared_memory), 0);
     
     if (!mShmDescriptor) return false;
     
     mShmDescriptor->prepare();
     mShmMap = mShmDescriptor->map();
-    mSHM = (OzzySharedMemory*)mShmMap->getVirtualAddress();
-    memset(mSHM, 0, sizeof(OzzySharedMemory));
-    mSHM->magic = kOzzyMagic;
-    mSHM->version = kOzzySharedVersion;
+    mSHM = (ozzy_shared_memory*)mShmMap->getVirtualAddress();
+    memset(mSHM, 0, sizeof(ozzy_shared_memory));
+    mSHM->magic = OZZY_MAGIC;
+    mSHM->version = OZZY_SHARED_VERSION;
     
     // Generate random session ID using current time and address
     uint32_t random = (uint32_t)((uintptr_t)mSHM ^ mach_absolute_time());
-    mSHM->sessionID = random;
+    mSHM->session_id = random;
     
     return true;
 }
@@ -420,12 +420,12 @@ static void LogEndpoints(IOUSBHostInterface* iface) {
     const StandardUSB::InterfaceDescriptor* intf = iface->getInterfaceDescriptor();
     static const char* const types[] = { "control", "isoc", "bulk", "interrupt" };
     if (!cfg || !intf) return;
-    LogOzzyKext("  interface %u alt %u: class 0x%02x, %u endpoints", intf->bInterfaceNumber,
+    ozzy_log("  interface %u alt %u: class 0x%02x, %u endpoints", intf->bInterfaceNumber,
                 intf->bAlternateSetting, intf->bInterfaceClass, intf->bNumEndpoints);
     const StandardUSB::EndpointDescriptor* ep = nullptr;
     while ((ep = StandardUSB::getNextEndpointDescriptor(cfg, intf, ep))) {
         uint16_t w = USBToHost16(ep->wMaxPacketSize);
-        LogOzzyKext("    EP 0x%02x %s %s wMaxPacketSize %u x%u bInterval %u", ep->bEndpointAddress,
+        ozzy_log("    EP 0x%02x %s %s wMaxPacketSize %u x%u bInterval %u", ep->bEndpointAddress,
                     (ep->bEndpointAddress & 0x80) ? "IN" : "OUT", types[ep->bmAttributes & 3],
                     w & 0x7FF, ((w >> 11) & 3) + 1, ep->bInterval);
     }
@@ -448,7 +448,7 @@ static uint8_t FindEndpoint(IOUSBHostInterface* iface, const struct ozzy_ep* spe
 bool OzzyKext::ConfigureHardware() {
     // 1. Get WorkLoop
     IOWorkLoop* wl = getWorkLoop();
-    if (!wl) { LogOzzyKext("no workloop"); return false; }
+    if (!wl) { ozzy_log("no workloop"); return false; }
 
     const OzzyDeviceProfile& profile = mEngine->GetProfile();
 
@@ -508,7 +508,7 @@ bool OzzyKext::ConfigureHardware() {
         if (targetIntf && !address) {
             address = FindEndpoint(targetIntf, cfg);
             if (!address) {
-                LogOzzyKext("  no endpoint of the wanted type on interface %u (pipe role %d)", cfg->intf, k);
+                ozzy_log("  no endpoint of the wanted type on interface %u (pipe role %d)", cfg->intf, k);
                 continue;
             }
         }
@@ -522,15 +522,15 @@ bool OzzyKext::ConfigureHardware() {
                     // Bytes per service interval: wMaxPacketSize times the High Speed high-bandwidth multiplier
                     uint16_t w = d ? USBToHost16(d->wMaxPacketSize) : 0;
                     uint16_t maxPacketSize = (w & 0x07FF) * (((w >> 11) & 3) + 1);
-                    LogOzzyKext("  pipe 0x%02x opened (wMaxPacketSize %u)", address, maxPacketSize);
+                    ozzy_log("  pipe 0x%02x opened (wMaxPacketSize %u)", address, maxPacketSize);
                     if (d) mEngine->SetEndpoint((OzzyPipeRole)k, address, d->bmAttributes & 0x03,
                                                 maxPacketSize, d->bInterval);
                 } else p->release();
             } else {
-                LogOzzyKext("  failed to open pipe 0x%02x", address);
+                ozzy_log("  failed to open pipe 0x%02x", address);
             }
         } else {
-            LogOzzyKext("  no interface found for pipe 0x%02x", address);
+            ozzy_log("  no interface found for pipe 0x%02x", address);
         }
     }
     return true;

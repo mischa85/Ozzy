@@ -4,7 +4,7 @@
  *
  * The core (ozzyctl.c: commands, names, output) is the same on every platform; a backend
  * per platform finds the devices and reads and writes their settings:
- *   - macOS: backend_macos.c, OzzyHAL's kOzzyPropertySetting through CoreAudio
+ *   - macOS: backend_macos.c, OzzyHAL's OZZY_PROPERTY_SETTING through CoreAudio
  *   - Linux: backend_linux.c, the driver's ALSA controls through alsa-lib
  *   - Windows: later
  *

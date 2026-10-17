@@ -56,7 +56,7 @@ public:
 
 private:
     static constexpr int kMaxPipes = 8;
-    static constexpr int kRequestsPerPipe = 4;   // the engines keep at most 2 per pipe in flight
+    static constexpr int kRequestsPerPipe = 8;   // the engines keep at most 4 per pipe in flight
 
     struct Slot {                 // one request's completion context
         KmdfBus* bus;

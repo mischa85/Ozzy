@@ -11,6 +11,9 @@
 #include "../../shared/ozzy_log.h"
 #include <string.h>
 
+/* PCM transfers in flight per pipe, as Linux runs them (OZZY_PCM_N_URBS): margin under load */
+#define PCM_XFERS    4
+
 /* Endpoints (direction bit OR'd with the base address from ploytec_defs.h) */
 #define EP_PCM_OUT   PLOYTEC_EP_PCM_OUT
 #define EP_PCM_IN    (PLOYTEC_EP_PCM_IN | 0x80)
@@ -121,6 +124,9 @@ static bool ploytec_start(struct ozzy_engine *e)
 	shm->audio.input_bytes_per_frame = PLOYTEC_IN_FRAME_SIZE;
 	shm->audio.input_channels = model->in_channels;
 	shm->audio.output_channels = model->out_channels;
+	/* Output is encoded when the transfer PCM_XFERS before it completes, so the HAL writes
+	 * that far ahead of the clock */
+	shm->audio.safety_offset_frames = PCM_XFERS * PLOYTEC_FRAMES_PER_PKT;
 	ploytec_log("model: %s, %u in / %u out", model->name, model->in_channels, model->out_channels);
 
 	/* 2. The handshake, with the settings; locked to S/PDIF it sets the lock rate */
@@ -152,9 +158,9 @@ static bool ploytec_start(struct ozzy_engine *e)
 	for (i = 0; i < OZZY_NUM_PACKETS; i++)
 		ploytec_out_init_packet(pe->out_layout, (uint8_t *)shm->audio.output_buffer + i * OZZY_MAX_PACKET_SIZE);
 
-	/* 5. Two PCM transfers in flight per pipe, PLOYTEC_MIDI_IN_XFERS MIDI IN reads */
+	/* 5. PCM_XFERS transfers in flight per PCM pipe, PLOYTEC_MIDI_IN_XFERS MIDI IN reads */
 	pe->running = true;
-	for (i = 0; i < 2; i++) {
+	for (i = 0; i < PCM_XFERS; i++) {
 		if (!ploytec_submit_pcm_in(e->bus, shm, EP_PCM_IN, i))
 			ploytec_log("input submission failed (idx: %u)", i);
 		submit_pcm_out(pe, i);
@@ -321,7 +327,7 @@ static void ploytec_complete(struct ozzy_engine *e, uint8_t pipe, void *xfer, in
 	struct ploytec_engine *pe = to_ploytec(e);
 	volatile struct ozzy_shared_memory *shm = e->shm;
 	uint32_t finished = (uint32_t)(uintptr_t)xfer;
-	uint32_t next = finished + 2;
+	uint32_t next = finished + PCM_XFERS;
 
 	/* Aborted (suspend/stop): no resubmit, a synchronous abort would accept it */
 	if (!e->bus || !pe->running || status == OZZY_STATUS_ABORTED)

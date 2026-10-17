@@ -135,10 +135,10 @@ static inline uint32_t isoc_fb_packets(uint32_t uframes)
 static inline uint32_t isoc_fb_max_frames(uint32_t rate, uint32_t uframes)
 {
 	/*
-	 * The feedback's tolerance (isoc_fb_init) is +1 for a short interval and
-	 * +2 only spread over a multi-microframe one, so a single microframe never
-	 * carries more than +1 over the nominal -- using +2 here over-estimated the
-	 * demand and reported "wMaxPacketSize is too small" for rates that fit.
+	 * ISOC_FB_COUNT accepts nominal +1 per microframe, or +2 spread over a
+	 * millisecond, so no microframe gets more than nominal +1. ISOC_FB_Q16_16
+	 * can reach +2 in one microframe (the fraction carried in q_acc);
+	 * isoc_fb_layout() caps that at what fits the packet.
 	 */
 	return uframes * ((rate + ISOC_FB_UFRAMES_PER_SEC - 1) / ISOC_FB_UFRAMES_PER_SEC + 1);
 }

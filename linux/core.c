@@ -137,12 +137,30 @@ static int ozzy_chip_pipes(struct ozzy_chip *chip)
 	return 0;
 }
 
+/* The engine's transfer memory: DMA-capable kmalloc, each buffer cache-line aligned */
+static void *ozzy_kmalloc_alloc(void *ctx, size_t size)
+{
+	return kmalloc(size, GFP_KERNEL);
+}
+
+static void ozzy_kmalloc_free(void *ctx, void *p)
+{
+	kfree(p);
+}
+
+static const struct ozzy_allocator ozzy_kmalloc = {
+	.alloc = ozzy_kmalloc_alloc,
+	.free  = ozzy_kmalloc_free,
+};
+
 /* The card's last reference is gone: free what the engine and the bus had */
 static void ozzy_chip_card_free(struct snd_card *card)
 {
 	struct ozzy_chip *chip = card->private_data;
 
 	ozzy_urb_free(&chip->bus);
+	if (chip->engine)
+		ozzy_engine_free_memory(chip->engine);
 	kfree(chip->engine);
 	vfree(chip->shm);
 }
@@ -209,10 +227,10 @@ static int ozzy_chip_probe(struct usb_interface *intf, const struct usb_device_i
 		goto err_intf;
 
 	ozzy_engine_attach(chip->engine, &chip->bus.bus, chip->shm);
-	ret = ozzy_urb_alloc_memory(&chip->bus, chip->engine);
-	if (ret < 0)
+	if (!ozzy_engine_alloc_memory(chip->engine, &ozzy_kmalloc)) {
+		ret = -ENOMEM;
 		goto err_intf;
-	ozzy_engine_set_memory(chip->engine, &chip->bus.mem);
+	}
 
 	mutex_lock(&chip->lock);
 	chip->running = ozzy_engine_start(chip->engine);

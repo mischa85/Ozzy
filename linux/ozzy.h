@@ -27,7 +27,6 @@
 #define OZZY_MAX_INTERFACES  4
 #define OZZY_MAX_PIPES        OZZY_PIPE_ROLES
 #define OZZY_URBS_PER_PIPE             8     /* per pipe: more than any engine keeps in flight (4) */
-#define OZZY_PCM_SLOTS        4     /* PCM transfer buffers per direction: the transfers in flight */
 
 #define chip_log(chip, fmt, ...)  dev_info(&(chip)->dev->dev, "[ozzy] " fmt "\n", ##__VA_ARGS__)
 #define chip_err(chip, fmt, ...)  dev_err(&(chip)->dev->dev, "[ozzy] " fmt "\n", ##__VA_ARGS__)
@@ -70,7 +69,6 @@ struct ozzy_urb_bus {
 	ktime_t timer_interval;
 	bool timer_on;
 	u8 *ctrl_buf;                      /* control requests: the engine passes stack buffers */
-	struct ozzy_engine_memory mem;     /* the transfer buffers, each its own kmalloc */
 };
 
 /* One PCM direction: ALSA's buffer as the engine's ring */
@@ -104,7 +102,7 @@ struct ozzy_chip {
 	unsigned int num_intf;
 	const struct ozzy_device *model;
 	struct ozzy_engine *engine;
-	struct ozzy_shared_memory *shm;    /* CPU only (vzalloc): the transfers use ozzy_urb_bus.mem */
+	struct ozzy_shared_memory *shm;    /* CPU only (vzalloc): the transfers have their own memory */
 	struct ozzy_urb_bus bus;
 	struct mutex lock;
 	bool running;                      /* engine started, device present */
@@ -118,7 +116,6 @@ struct ozzy_chip {
 /* bus.c */
 int ozzy_urb_init(struct ozzy_urb_bus *bus, struct ozzy_chip *chip);
 int ozzy_urb_add_pipe(struct ozzy_urb_bus *bus, const struct usb_endpoint_descriptor *epd);
-int ozzy_urb_alloc_memory(struct ozzy_urb_bus *bus, const struct ozzy_engine *engine);
 void ozzy_urb_kill(struct ozzy_urb_bus *bus);
 void ozzy_urb_wait_completions(struct ozzy_urb_bus *bus);
 void ozzy_urb_free(struct ozzy_urb_bus *bus);

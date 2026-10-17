@@ -1,9 +1,10 @@
 /* SPDX-License-Identifier: MIT */
 /*
- * The engine on the platform's own transfer memory (ozzy_engine_set_memory), as Linux gives
+ * The engine on transfer memory of the platform's own (ozzy_engine_alloc_memory), as Linux has
  * it: separate buffers, 4 PCM slots per direction, a buffer per isochronous OUT transfer.
  * Every transfer must use that memory (never the shared memory's HAL rings), the frames on
- * the wire must be the ring's frames in order, and no isochronous packet may wrap.
+ * the wire must be the ring's frames in order, no isochronous packet may wrap, and everything
+ * allocated must be freed.
  *
  * Copyright (C) 2024 Marcel Bierling <marcel@hackerman.art>
  */
@@ -15,42 +16,35 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define SLOT_SIZE   OZZY_PCM_SLOT_MIN
-#define XFER_SIZE   8192
-
 struct platform_memory {
-	struct ozzy_engine_memory mem;
 	uint8_t *blocks[32];
 	size_t sizes[32];
 	unsigned int count;
+	unsigned int freed;
 };
 
-static uint8_t *alloc_block(struct platform_memory *pm, size_t size)
+static void *pm_alloc(void *ctx, size_t size)
 {
-	uint8_t *b = calloc(1, size);
+	struct platform_memory *pm = ctx;
+	uint8_t *b = malloc(size);
 
+	memset(b, 0xA5, size);   /* the engine zeroes it */
 	pm->blocks[pm->count] = b;
 	pm->sizes[pm->count++] = size;
 	return b;
 }
 
-static void platform_memory_init(struct platform_memory *pm)
+static void pm_free(void *ctx, void *p)
 {
+	struct platform_memory *pm = ctx;
 	unsigned int i;
 
-	memset(pm, 0, sizeof(*pm));
-	for (i = 0; i < 4; i++) {
-		pm->mem.pcm_out[i] = alloc_block(pm, SLOT_SIZE);
-		pm->mem.pcm_in[i] = alloc_block(pm, SLOT_SIZE);
-	}
-	pm->mem.pcm_out_slots = pm->mem.pcm_in_slots = 4;
-	for (i = 0; i < ISOC_OUT_TRANSFERS; i++)
-		pm->mem.isoc_out[i] = alloc_block(pm, XFER_SIZE);
-	pm->mem.isoc_out_size = XFER_SIZE;
-	pm->mem.isoc_in_size = ISOC_FB_TRANSFERS * ISOC_TRANSFER_UFRAMES * 64;
-	pm->mem.isoc_in = alloc_block(pm, pm->mem.isoc_in_size);
-	pm->mem.midi_in = alloc_block(pm, OZZY_MIDI_IN_SIZE);
-	pm->mem.midi_out = alloc_block(pm, OZZY_MIDI_OUT_SIZE);
+	for (i = 0; i < pm->count; i++)
+		if (pm->blocks[i] == p) {
+			free(p);
+			pm->blocks[i] = NULL;
+			pm->freed++;
+		}
 }
 
 /* Whether [p, p + size) lies inside one of the platform's blocks */
@@ -64,12 +58,11 @@ static bool in_platform_memory(const struct platform_memory *pm, const uint8_t *
 	return false;
 }
 
-static void platform_memory_free(struct platform_memory *pm)
+/* Free the engine's memory: every block must come back */
+static void platform_memory_done(struct platform_memory *pm, struct ozzy_engine *e, const char *name)
 {
-	unsigned int i;
-
-	for (i = 0; i < pm->count; i++)
-		free(pm->blocks[i]);
+	ozzy_engine_free_memory(e);
+	CHECK(pm->count > 0 && pm->freed == pm->count, "%s: %u of %u blocks freed", name, pm->freed, pm->count);
 }
 
 static bool all_zero(const volatile uint8_t *p, size_t n)
@@ -107,7 +100,8 @@ static void xone(void)
 	static struct ozzy_shared_memory shm;
 	static uint8_t ring[800 * 24];
 	struct ozzy_pcm_ring ro = { ring, 800, 8, 0 };
-	struct platform_memory pm;
+	struct platform_memory pm = { { 0 } };
+	struct ozzy_allocator a = { pm_alloc, pm_free, &pm };
 	struct fake_bus fb;
 	struct fake_xfer x;
 	struct ozzy_engine *e;
@@ -116,14 +110,13 @@ static void xone(void)
 	memset(&shm, 0, sizeof(shm));
 	for (i = 0; i < sizeof(ring); i++)
 		ring[i] = (uint8_t)(i * 11 + 1);
-	platform_memory_init(&pm);
 	fake_bus_init(&fb, &shm, true, NULL);
 	e = ozzy_engine_init(malloc(ozzy_engine_size(model)), model);
 	ozzy_engine_set_endpoint(e, OZZY_PIPE_PCM_OUT, 0x05, 3, 964, 1);
 	ozzy_engine_set_endpoint(e, OZZY_PIPE_PCM_IN, 0x86, 3, 1024, 1);
 	ozzy_engine_set_endpoint(e, OZZY_PIPE_MIDI_IN, 0x83, 3, 64, 1);
 	ozzy_engine_attach(e, &fb.bus, &shm);
-	ozzy_engine_set_memory(e, &pm.mem);
+	CHECK(ozzy_engine_alloc_memory(e, &a), "alloc");
 	ozzy_engine_set_pcm_ring(e, OZZY_PCM_OUT, &ro);
 	CHECK(ozzy_engine_start(e), "Xone start");
 
@@ -147,8 +140,8 @@ static void xone(void)
 	CHECK(all_zero(shm.audio.output_buffer, sizeof(shm.audio.output_buffer)) &&
 	      all_zero(shm.audio.input_buffer, sizeof(shm.audio.input_buffer)), "Xone: the HAL rings were touched");
 	ozzy_engine_stop(e);
+	platform_memory_done(&pm, e, "Xone");
 	free(e);
-	platform_memory_free(&pm);
 }
 
 /* Akai EIE Pro with a buffer per OUT transfer: the frames on the wire are the ring's, in order */
@@ -158,7 +151,8 @@ static void isoc(void)
 	static struct ozzy_shared_memory shm;
 	static uint8_t ring[1000 * 12];
 	struct ozzy_pcm_ring ro = { ring, 1000, 4, 0 };
-	struct platform_memory pm;
+	struct platform_memory pm = { { 0 } };
+	struct ozzy_allocator a = { pm_alloc, pm_free, &pm };
 	struct fake_bus fb;
 	struct fake_xfer x;
 	struct ozzy_engine *e;
@@ -168,7 +162,6 @@ static void isoc(void)
 	memset(&shm, 0, sizeof(shm));
 	for (i = 0; i < sizeof(ring); i++)
 		ring[i] = (uint8_t)(i * 5 + 9);
-	platform_memory_init(&pm);
 	fake_bus_init(&fb, &shm, true, NULL);
 	e = ozzy_engine_init(malloc(ozzy_engine_size(model)), model);
 	ozzy_engine_set_endpoint(e, OZZY_PIPE_PCM_OUT, 0x02, 1, 1024, 1);
@@ -177,7 +170,7 @@ static void isoc(void)
 	ozzy_engine_set_endpoint(e, OZZY_PIPE_MIDI_OUT, 0x03, 2, 64, 1);
 	ozzy_engine_set_endpoint(e, OZZY_PIPE_FEEDBACK, 0x81, 1, 3, 4);
 	ozzy_engine_attach(e, &fb.bus, &shm);
-	ozzy_engine_set_memory(e, &pm.mem);
+	CHECK(ozzy_engine_alloc_memory(e, &a), "alloc");
 	ozzy_engine_set_pcm_ring(e, OZZY_PCM_OUT, &ro);
 	CHECK(ozzy_engine_start(e), "isoc start");
 
@@ -200,9 +193,10 @@ static void isoc(void)
 	CHECK(!wrapped, "isoc: %u packets wrap their transfer buffer", wrapped);
 	CHECK(frame > 10000 && !wrong, "isoc: %llu frames on the wire, %u wrong", (unsigned long long)frame, wrong);
 	CHECK(all_zero(shm.audio.output_buffer, sizeof(shm.audio.output_buffer)), "isoc: the HAL ring was touched");
+	CHECK(e->mem.isoc_out_size == 32 * 1024, "isoc: OUT transfer buffers of %u bytes", e->mem.isoc_out_size);
 	ozzy_engine_stop(e);
+	platform_memory_done(&pm, e, "isoc");
 	free(e);
-	platform_memory_free(&pm);
 }
 
 int main(void)

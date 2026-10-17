@@ -2,8 +2,8 @@
 /*
  * Ozzy USB Audio Driver - the engine's bus on URBs
  *
- * Every transfer buffer is its own kmalloc (DMA-capable, OZZY_DMA_ALIGN apart), handed to the
- * engine as its transfer memory; the shared memory stays CPU only. URBs are allocated once per
+ * The engine's transfer buffers are each their own kmalloc (ozzy_engine_alloc_memory: DMA-capable,
+ * OZZY_DMA_ALIGN apart); the shared memory stays CPU only. URBs are allocated once per
  * pipe and reused; completions hand the result to the engine, which resubmits and moves PCM
  * and MIDI right there, then the PCM and MIDI sides catch up (ozzy_pcm_progress, ozzy_midi_service).
  *
@@ -314,55 +314,6 @@ int ozzy_urb_add_pipe(struct ozzy_urb_bus *bus, const struct usb_endpoint_descri
 	return 0;
 }
 
-/*
- * ozzy_urb_alloc_memory - The engine's transfer memory: every buffer its own kmalloc (DMA-capable,
- * cache-line aligned), sized for the transfers in flight, not for the HAL's rings.
- */
-int ozzy_urb_alloc_memory(struct ozzy_urb_bus *bus, const struct ozzy_engine *engine)
-{
-	struct ozzy_engine_memory *m = &bus->mem;
-	unsigned int i, out_maxp = 0, fb_maxp = 0;
-
-	for (i = 0; i < bus->num_pipes; i++) {
-		const struct ozzy_urb_pipe *p = &bus->pipes[i];
-		const struct usb_host_endpoint *ep = (p->address & USB_DIR_IN) ? bus->dev->ep_in[p->address & 0x0F] :
-										 bus->dev->ep_out[p->address & 0x0F];
-		unsigned int maxp = ep ? usb_endpoint_maxp(&ep->desc) * usb_endpoint_maxp_mult(&ep->desc) : 0;
-
-		if (p->type != USB_ENDPOINT_XFER_ISOC)
-			continue;
-		if (p->address & USB_DIR_IN)
-			fb_maxp = max(fb_maxp, maxp);
-		else
-			out_maxp = max(out_maxp, maxp);
-	}
-
-	memset(m, 0, sizeof(*m));
-	for (i = 0; i < OZZY_PCM_SLOTS; i++) {
-		m->pcm_out[i] = kzalloc(OZZY_PCM_SLOT_MIN, GFP_KERNEL);
-		m->pcm_in[i] = kzalloc(OZZY_PCM_SLOT_MIN, GFP_KERNEL);
-		if (!m->pcm_out[i] || !m->pcm_in[i])
-			return -ENOMEM;
-	}
-	m->pcm_out_slots = m->pcm_in_slots = OZZY_PCM_SLOTS;
-	if (out_maxp) {
-		/* One OUT transfer: at most a packet per microframe, each at most wMaxPacketSize */
-		m->isoc_out_size = OZZY_DMA_ROUND(OZZY_MAX_ISOC_PACKETS * out_maxp);
-		for (i = 0; i < ISOC_OUT_TRANSFERS; i++) {
-			m->isoc_out[i] = kzalloc(m->isoc_out_size, GFP_KERNEL);
-			if (!m->isoc_out[i])
-				return -ENOMEM;
-		}
-	}
-	m->isoc_in_size = ISOC_FB_TRANSFERS * OZZY_DMA_ROUND(OZZY_MAX_ISOC_PACKETS * max(fb_maxp, 4u));
-	m->isoc_in = kzalloc(m->isoc_in_size, GFP_KERNEL);
-	m->midi_in = kzalloc(OZZY_MIDI_IN_SIZE, GFP_KERNEL);
-	m->midi_out = kzalloc(OZZY_DMA_ROUND(OZZY_MIDI_OUT_SIZE), GFP_KERNEL);
-	if (!m->isoc_in || !m->midi_in || !m->midi_out)
-		return -ENOMEM;
-	return 0;
-}
-
 /* Process context: kill everything in flight (the engine has stopped resubmitting) */
 void ozzy_urb_kill(struct ozzy_urb_bus *bus)
 {
@@ -384,23 +335,12 @@ void ozzy_urb_wait_completions(struct ozzy_urb_bus *bus)
 
 void ozzy_urb_free(struct ozzy_urb_bus *bus)
 {
-	struct ozzy_engine_memory *m = &bus->mem;
 	unsigned int i, k;
 
 	for (i = 0; i < bus->num_pipes; i++)
 		for (k = 0; k < OZZY_URBS_PER_PIPE; k++)
 			usb_free_urb(bus->pipes[i].urbs[k].urb);
 	bus->num_pipes = 0;
-	for (i = 0; i < OZZY_NUM_PACKETS; i++) {
-		kfree(m->pcm_out[i]);
-		kfree(m->pcm_in[i]);
-	}
-	for (i = 0; i < ISOC_OUT_TRANSFERS; i++)
-		kfree(m->isoc_out[i]);
-	kfree(m->isoc_in);
-	kfree(m->midi_in);
-	kfree(m->midi_out);
-	memset(m, 0, sizeof(*m));
 	kfree(bus->ctrl_buf);
 	bus->ctrl_buf = NULL;
 }

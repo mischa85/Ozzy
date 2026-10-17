@@ -74,7 +74,7 @@ struct ozzy_pcm_ring {
  * ozzy_bus_ops.submit / submit_isoc is in here. ozzy_engine_attach() points it into the
  * shared memory (macOS: the HAL reads and writes the PCM slots there; Windows, the harness and
  * the tests use it as it is). A platform whose transfers need memory of their own (Linux:
- * DMA-capable, a cache line per buffer) gives its own with ozzy_engine_set_memory().
+ * DMA-capable, a cache line per buffer) has the engine allocate it (ozzy_engine_alloc_memory).
  * @pcm_out/@pcm_in:  slots of at least OZZY_PCM_SLOT_MIN bytes; transfer idx uses slot
  *                    idx % slots (at least the transfers in flight, 4)
  * @isoc_out:         NULL: isochronous OUT packets point into the shared memory's frame ring,
@@ -87,6 +87,7 @@ struct ozzy_pcm_ring {
 #define OZZY_PCM_SLOT_MIN   5120   /* the largest PCM transfer (Ploytec PCM in) */
 #define OZZY_MIDI_IN_SIZE   512    /* 4 transfers in flight, OZZY_DMA_ALIGN apart */
 #define OZZY_MIDI_OUT_SIZE  64
+#define OZZY_PCM_OWN_SLOTS  4      /* ozzy_engine_alloc_memory: PCM buffers per direction */
 
 struct ozzy_engine_memory {
 	uint8_t *pcm_out[OZZY_NUM_PACKETS];
@@ -132,6 +133,17 @@ struct ozzy_engine_pipe {
 	uint16_t max_packet_size;
 };
 
+/*
+ * struct ozzy_allocator - The platform's allocator for ozzy_engine_alloc_memory: @alloc
+ * returns @size bytes its transfers can use (DMA-capable; buffers never share an
+ * OZZY_DMA_ALIGN block), or NULL. It must outlive the memory.
+ */
+struct ozzy_allocator {
+	void *(*alloc)(void *ctx, size_t size);
+	void (*free)(void *ctx, void *p);
+	void *ctx;
+};
+
 struct ozzy_engine;
 
 /*
@@ -165,6 +177,7 @@ struct ozzy_engine_ops {
  *                each one's next frame (ozzy_engine_take_pcm_ring; completion path only)
  * @mem:          where the transfers go (struct ozzy_engine_memory)
  * @pipe:         each role's endpoint as ozzy_engine_set_endpoint() gave it (address 0: none)
+ * @allocator:    what @mem came from (ozzy_engine_alloc_memory), NULL: the shared memory
  */
 struct ozzy_engine {
 	const struct ozzy_engine_ops *ops;
@@ -181,6 +194,7 @@ struct ozzy_engine {
 	uint64_t pcm_pos[OZZY_PCM_DIRS];
 	struct ozzy_engine_memory mem;
 	struct ozzy_engine_pipe pipe[OZZY_PIPE_ROLES];
+	const struct ozzy_allocator *allocator;
 };
 
 /* Bytes to allocate for @model's engine (0 if Ozzy has none for its family) */
@@ -189,17 +203,21 @@ size_t ozzy_engine_size(const struct ozzy_device *model);
 struct ozzy_engine *ozzy_engine_init(void *mem, const struct ozzy_device *model);
 /*
  * The bus and shared memory to run on. The settings go back to their defaults and the
- * transfers to the shared memory (ozzy_engine_set_memory to change that). The shared memory's
+ * transfers to the shared memory (freeing any ozzy_engine_alloc_memory gave). The shared memory's
  * header comes from the model: magic, version, USB IDs, and its name as the product name
  * unless the platform put the device's own string there first.
  */
 void ozzy_engine_attach(struct ozzy_engine *e, const struct ozzy_bus *bus, volatile struct ozzy_shared_memory *shm);
 
-/* The platform's own transfer memory (after ozzy_engine_attach, before ozzy_engine_start) */
-static inline void ozzy_engine_set_memory(struct ozzy_engine *e, const struct ozzy_engine_memory *mem)
-{
-	e->mem = *mem;
-}
+/*
+ * ozzy_engine_alloc_memory - Transfer memory of the platform's own (after ozzy_engine_attach
+ * and the endpoints, before ozzy_engine_start): every buffer a separate zeroed allocation from
+ * @a, sized for the transfers in flight and the endpoints the engine has, not for the HAL's
+ * rings. False if an allocation failed (nothing stays allocated).
+ */
+bool ozzy_engine_alloc_memory(struct ozzy_engine *e, const struct ozzy_allocator *a);
+/* Free what ozzy_engine_alloc_memory gave (the engine is stopped); before freeing the engine */
+void ozzy_engine_free_memory(struct ozzy_engine *e);
 
 /* The PCM slot of transfer @idx */
 static inline uint8_t *ozzy_engine_pcm_out_slot(const struct ozzy_engine *e, uint32_t idx)

@@ -60,6 +60,7 @@ void ozzy_engine_attach(struct ozzy_engine *e, const struct ozzy_bus *bus, volat
 	struct ozzy_engine_memory *m = &e->mem;
 	unsigned int i;
 
+	ozzy_engine_free_memory(e);
 	e->bus = bus;
 	e->shm = shm;
 	shm->magic = OZZY_MAGIC;
@@ -170,4 +171,74 @@ void ozzy_engine_bind_endpoints(struct ozzy_engine *e, const struct ozzy_usb_end
 		ozzy_engine_set_endpoint(e, (enum ozzy_pipe_role)role, ep->address, ep->attributes & 3,
 					 ozzy_usb_endpoint_bytes(ep), ep->interval);
 	}
+}
+
+static uint8_t *alloc_zeroed(const struct ozzy_allocator *a, size_t size, bool *ok)
+{
+	uint8_t *p = (uint8_t *)a->alloc(a->ctx, size);
+
+	if (p)
+		memset(p, 0, size);
+	else
+		*ok = false;
+	return p;
+}
+
+bool ozzy_engine_alloc_memory(struct ozzy_engine *e, const struct ozzy_allocator *a)
+{
+	const struct ozzy_engine_pipe *out = &e->pipe[OZZY_PIPE_PCM_OUT];
+	const struct ozzy_engine_pipe *fb = &e->pipe[OZZY_PIPE_FEEDBACK];
+	uint32_t fb_bytes = fb->transfer_type == 1 && fb->max_packet_size > 4 ? fb->max_packet_size : 4;
+	struct ozzy_engine_memory *m = &e->mem;
+	bool ok = true;
+	unsigned int i;
+
+	ozzy_engine_free_memory(e);
+	memset(m, 0, sizeof(*m));
+	e->allocator = a;
+	for (i = 0; i < OZZY_PCM_OWN_SLOTS; i++) {
+		m->pcm_out[i] = alloc_zeroed(a, OZZY_PCM_SLOT_MIN, &ok);
+		m->pcm_in[i] = alloc_zeroed(a, OZZY_PCM_SLOT_MIN, &ok);
+	}
+	m->pcm_out_slots = m->pcm_in_slots = OZZY_PCM_OWN_SLOTS;
+	if (out->transfer_type == 1 && out->max_packet_size) {
+		/* One OUT transfer: at most a packet per microframe, each at most the bytes per interval */
+		m->isoc_out_size = OZZY_DMA_ROUND(OZZY_MAX_ISOC_PACKETS * out->max_packet_size);
+		for (i = 0; i < ISOC_OUT_TRANSFERS; i++)
+			m->isoc_out[i] = alloc_zeroed(a, m->isoc_out_size, &ok);
+	}
+	m->isoc_in_size = ISOC_FB_TRANSFERS * OZZY_DMA_ROUND(OZZY_MAX_ISOC_PACKETS * fb_bytes);
+	m->isoc_in = alloc_zeroed(a, m->isoc_in_size, &ok);
+	m->midi_in = alloc_zeroed(a, OZZY_MIDI_IN_SIZE, &ok);
+	m->midi_out = alloc_zeroed(a, OZZY_DMA_ROUND(OZZY_MIDI_OUT_SIZE), &ok);
+	if (!ok)
+		ozzy_engine_free_memory(e);
+	return ok;
+}
+
+void ozzy_engine_free_memory(struct ozzy_engine *e)
+{
+	const struct ozzy_allocator *a = e->allocator;
+	struct ozzy_engine_memory *m = &e->mem;
+	unsigned int i;
+
+	if (!a)
+		return;
+	for (i = 0; i < OZZY_NUM_PACKETS; i++) {
+		if (m->pcm_out[i])
+			a->free(a->ctx, m->pcm_out[i]);
+		if (m->pcm_in[i])
+			a->free(a->ctx, m->pcm_in[i]);
+	}
+	for (i = 0; i < ISOC_OUT_TRANSFERS; i++)
+		if (m->isoc_out[i])
+			a->free(a->ctx, m->isoc_out[i]);
+	if (m->isoc_in)
+		a->free(a->ctx, m->isoc_in);
+	if (m->midi_in)
+		a->free(a->ctx, m->midi_in);
+	if (m->midi_out)
+		a->free(a->ctx, m->midi_out);
+	memset(m, 0, sizeof(*m));
+	e->allocator = NULL;
 }

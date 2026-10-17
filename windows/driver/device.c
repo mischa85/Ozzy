@@ -6,34 +6,14 @@ static EVT_WDF_DEVICE_RELEASE_HARDWARE wdev_evt_release_hardware;
 static EVT_WDF_DEVICE_D0_ENTRY wdev_evt_d0_entry;
 static EVT_WDF_DEVICE_D0_EXIT wdev_evt_d0_exit;
 
-/* Four hex digits at @s, or -1 */
-static int hex4(const WCHAR* s) {
-    int v = 0;
-    for (int i = 0; i < 4; i++) {
-        WCHAR c = s[i];
-        int d = c >= L'0' && c <= L'9' ? c - L'0' : c >= L'A' && c <= L'F' ? c - L'A' + 10
-              : c >= L'a' && c <= L'f' ? c - L'a' + 10 : -1;
-        if (d < 0) return -1;
-        v = v * 16 + d;
-    }
-    return v;
-}
-
-/* The device list row for the first hardware ID, "USB\VID_xxxx&PID_yyyy..." */
+/* The device list row for the first hardware ID (ozzy_device_lookup_hwid) */
 static const struct ozzy_device* lookup_model(PWDFDEVICE_INIT init) {
     WCHAR ids[256] = { 0 };
     ULONG length = 0;
     if (!NT_SUCCESS(WdfFdoInitQueryProperty(init, DevicePropertyHardwareID, sizeof(ids) - 2 * sizeof(WCHAR), ids,
                                             &length)))
         return NULL;
-    static const WCHAR prefix[] = L"USB\\VID_";
-    for (int i = 0; prefix[i]; i++) {
-        if (RtlUpcaseUnicodeChar(ids[i]) != prefix[i]) return NULL;
-    }
-    /* USB\VID_ is 8 characters, then 4 digits, "&PID_" and 4 digits */
-    int vid = hex4(ids + 8), pid = hex4(ids + 17);
-    if (vid < 0 || pid < 0) return NULL;
-    return ozzy_device_lookup((uint16_t)vid, (uint16_t)pid);
+    return ozzy_device_lookup_hwid((const uint16_t*)ids);
 }
 
 NTSTATUS wdev_evt_add(WDFDRIVER driver, PWDFDEVICE_INIT init) {

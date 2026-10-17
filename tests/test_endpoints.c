@@ -3,7 +3,7 @@
  * ozzy_engine_bind_endpoints on the endpoint lists every platform hands it: a Xone (fixed
  * addresses, with endpoints it doesn't use around them) and the Akai EIE Pro (every pipe found
  * by type and direction, on two interfaces), plus a High Speed high-bandwidth wMaxPacketSize,
- * and the transfer sizes a platform sizes periods by.
+ * the transfer sizes a platform sizes periods by, and the Windows hardware ID lookup.
  *
  * Copyright (C) 2024 Marcel Bierling <marcel@hackerman.art>
  */
@@ -93,6 +93,16 @@ int main(void)
 		      ozzy_engine_transfer_frames(e, OZZY_PCM_IN));
 	}
 	free(e);
+
+	/* Windows hardware IDs (ozzy_device_lookup_hwid) */
+	CHECK(ozzy_device_lookup_hwid((const uint16_t *)u"USB\\VID_0A4A&PID_FFDB&REV_0100") ==
+	      ozzy_device_lookup(0x0A4A, 0xFFDB), "DB4 hardware ID");
+	CHECK(ozzy_device_lookup_hwid((const uint16_t *)u"usb\\vid_0a4a&pid_ffdb") == ozzy_device_lookup(0x0A4A, 0xFFDB),
+	      "lower case hardware ID");
+	CHECK(!ozzy_device_lookup_hwid((const uint16_t *)u"USB\\VID_0A4A&PID_FFDB&MI_00"), "an interface's ID matched");
+	CHECK(!ozzy_device_lookup_hwid((const uint16_t *)u"USB\\VID_0A4A&PID_FF"), "a short ID matched");
+	CHECK(!ozzy_device_lookup_hwid((const uint16_t *)u"HID\\VID_0A4A&PID_FFDB"), "not USB matched");
+	CHECK(!ozzy_device_lookup_hwid((const uint16_t *)u"USB\\VID_1234&PID_5678"), "an unknown device matched");
 
 	return CHECK_DONE("endpoints");
 }

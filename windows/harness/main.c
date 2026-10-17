@@ -85,9 +85,7 @@ static int find_devices(struct found_device* found, int max) {
         if (!SetupDiGetDeviceRegistryPropertyW(set, &dev, SPDRP_HARDWAREID, NULL, (BYTE*)ids,
                                                sizeof(ids) - 2 * sizeof(wchar_t), NULL))
             continue;
-        unsigned int vid, pid;
-        if (swscanf_s(ids, L"USB\\VID_%4x&PID_%4x", &vid, &pid) != 2 || wcsstr(ids, L"&MI_")) continue;
-        const struct ozzy_device* model = ozzy_device_lookup((uint16_t)vid, (uint16_t)pid);
+        const struct ozzy_device* model = ozzy_device_lookup_hwid((const uint16_t*)ids);
         if (!model) continue;
 
         struct found_device* f = &found[count++];

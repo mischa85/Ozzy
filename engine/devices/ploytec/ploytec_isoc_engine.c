@@ -270,6 +270,16 @@ static void isoc_timer(struct ozzy_engine *e)
 	}
 }
 
+/* Isochronous OUT moves a transfer's microframes of frames, the most at the highest rate */
+static uint32_t isoc_transfer_frames(const struct ozzy_engine *e, enum ozzy_pcm_dir dir)
+{
+	uint32_t rates[OZZY_MAX_RATES];
+
+	if (dir == OZZY_PCM_IN)
+		return PLOYTEC_FRAMES_PER_PKT;
+	return rates[ozzy_device_rates(e->model, rates) - 1] * ISOC_TRANSFER_UFRAMES / ISOC_FB_UFRAMES_PER_SEC;
+}
+
 static const struct ozzy_engine_ops ploytec_isoc_engine_ops = {
 	isoc_set_endpoint,
 	isoc_start,
@@ -280,6 +290,7 @@ static const struct ozzy_engine_ops ploytec_isoc_engine_ops = {
 	NULL,                   /* midi_out_pending: MIDI goes out on the timer */
 	isoc_timer,
 	NULL,                   /* setting_quirks: the model's */
+	isoc_transfer_frames,
 };
 
 /* Channels and rates per device (common/ozzy_devices.def); run at the highest rate. Endpoints

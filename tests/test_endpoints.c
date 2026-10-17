@@ -2,7 +2,8 @@
 /*
  * ozzy_engine_bind_endpoints on the endpoint lists every platform hands it: a Xone (fixed
  * addresses, with endpoints it doesn't use around them) and the Akai EIE Pro (every pipe found
- * by type and direction, on two interfaces), plus a High Speed high-bandwidth wMaxPacketSize.
+ * by type and direction, on two interfaces), plus a High Speed high-bandwidth wMaxPacketSize,
+ * and the transfer sizes a platform sizes periods by.
  *
  * Copyright (C) 2024 Marcel Bierling <marcel@hackerman.art>
  */
@@ -82,6 +83,15 @@ int main(void)
 	CHECK(e->pipe[OZZY_PIPE_PCM_OUT].max_packet_size == 624 && e->pipe[OZZY_PIPE_PCM_OUT].transfer_type == 1,
 	      "EIE PCM out %u bytes per interval, type %u", e->pipe[OZZY_PIPE_PCM_OUT].max_packet_size,
 	      e->pipe[OZZY_PIPE_PCM_OUT].transfer_type);
+	{
+		uint32_t rates[OZZY_MAX_RATES];
+		uint32_t top = rates[ozzy_device_rates(e->model, rates) - 1];
+
+		CHECK(ozzy_engine_transfer_frames(e, OZZY_PCM_OUT) == top * ISOC_TRANSFER_UFRAMES / ISOC_FB_UFRAMES_PER_SEC,
+		      "EIE OUT transfer frames %u at %u Hz", ozzy_engine_transfer_frames(e, OZZY_PCM_OUT), top);
+		CHECK(ozzy_engine_transfer_frames(e, OZZY_PCM_IN) == 80, "EIE IN transfer frames %u",
+		      ozzy_engine_transfer_frames(e, OZZY_PCM_IN));
+	}
 	free(e);
 
 	return CHECK_DONE("endpoints");

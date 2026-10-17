@@ -164,7 +164,7 @@ struct ozzy_engine;
 
 /*
  * struct ozzy_engine_ops - One per device family. Optional: @isoc_complete, @midi_out_pending,
- * @timer, @setting_quirks. @stop and @suspend end resubmitting (completions
+ * @timer, @setting_quirks, @transfer_frames (default: shm->audio.frames_per_packet). @stop and @suspend end resubmitting (completions
  * with OZZY_STATUS_ABORTED resubmit nothing); the wrappers then abort what is in flight.
  */
 struct ozzy_engine_ops {
@@ -179,6 +179,7 @@ struct ozzy_engine_ops {
 	void (*midi_out_pending)(struct ozzy_engine *e);
 	void (*timer)(struct ozzy_engine *e);
 	uint32_t (*setting_quirks)(const struct ozzy_engine *e);
+	uint32_t (*transfer_frames)(const struct ozzy_engine *e, enum ozzy_pcm_dir dir);
 };
 
 /*
@@ -363,6 +364,17 @@ static inline uint32_t ozzy_engine_start_rate(const struct ozzy_engine *e, uint3
  * starts at its own start position); NULL if none, or if its channels aren't the model's.
  */
 const struct ozzy_pcm_ring *ozzy_engine_take_pcm_ring(struct ozzy_engine *e, enum ozzy_pcm_dir dir);
+
+/*
+ * The most frames one PCM transfer of @dir moves, at any rate the device runs at: the
+ * smallest period or packet a platform can let its audio stack ask for (after start)
+ */
+static inline uint32_t ozzy_engine_transfer_frames(const struct ozzy_engine *e, enum ozzy_pcm_dir dir)
+{
+	if (e->ops->transfer_frames)
+		return e->ops->transfer_frames(e, dir);
+	return e->shm ? e->shm->audio.frames_per_packet : 0;
+}
 
 /* Whether the platform attaches PCM rings (without one attached, PCM out is silence) */
 static inline bool ozzy_engine_ring_platform(const struct ozzy_engine *e)

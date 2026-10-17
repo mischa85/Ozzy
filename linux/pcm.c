@@ -46,7 +46,7 @@ static int ozzy_pcm_open(struct snd_pcm_substream *substream)
 	enum ozzy_pcm_dir dir = substream_dir(substream);
 	unsigned int channels = dir == OZZY_PCM_OUT ? model->out_channels : model->in_channels;
 	uint32_t rates[OZZY_MAX_RATES];
-	unsigned int n = ozzy_device_rates(model, rates), i, frames, packet_bytes;
+	unsigned int n = ozzy_device_rates(model, rates), i, packet_bytes;
 
 	if (!chip->running)
 		return -ENODEV;
@@ -62,10 +62,8 @@ static int ozzy_pcm_open(struct snd_pcm_substream *substream)
 	runtime->hw.rate_max = rates[n - 1];
 	runtime->hw.channels_min = runtime->hw.channels_max = channels;
 
-	/* Periods of at least 2 transfers; isochronous out at the highest rate */
-	frames = model->family == OZZY_FAMILY_PLOYTEC_ISOC && dir == OZZY_PCM_OUT ?
-		 rates[n - 1] * ISOC_TRANSFER_UFRAMES / ISOC_FB_UFRAMES_PER_SEC : chip->shm->audio.frames_per_packet;
-	packet_bytes = frames * channels * 3;
+	/* Periods of at least 2 transfers */
+	packet_bytes = ozzy_engine_transfer_frames(chip->engine, dir) * channels * 3;
 	runtime->hw.buffer_bytes_max = 2000 * packet_bytes;
 	runtime->hw.period_bytes_min = 2 * packet_bytes;
 	runtime->hw.period_bytes_max = 2000 * packet_bytes;

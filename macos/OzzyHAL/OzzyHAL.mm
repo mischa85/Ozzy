@@ -196,8 +196,8 @@ void OzzyHALDevice::ApplyDeviceConfig() {
     mFramesPerPacket = shm->audio.frames_per_packet;  // e.g., 80 frames per logical packet
     // Ring buffer size in FRAMES: 128 logical packets * 80 frames = 10,240 frames
     mRingSize = OZZY_NUM_PACKETS * mFramesPerPacket;
-    // The engine reads output this far ahead; default: the 2 Ploytec packets in flight
-    mSafetyOffset = shm->audio.safety_offset_frames ? shm->audio.safety_offset_frames : 2 * mFramesPerPacket;
+    // The engine reads output this far ahead (its OUT transfers in flight)
+    mSafetyOffset = shm->audio.safety_offset_frames;
 
     // Channel counts per direction, as published by the engine for this model
     mInputChannels = shm->audio.input_channels;

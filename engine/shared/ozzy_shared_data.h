@@ -99,7 +99,7 @@ struct ozzy_audio_buffer {
 	uint32_t input_bytes_per_frame;        /* encoded bytes per input frame (e.g. 64) */
 	uint32_t input_channels;               /* channels the device sends (e.g. 8, or 16 for the WZ4) */
 	uint32_t output_channels;              /* channels the device receives (e.g. 8, or 2 for the WZ4) */
-	uint32_t safety_offset_frames;         /* how far ahead of the clock the engine reads output (0: 2 packets) */
+	uint32_t safety_offset_frames;         /* how far ahead of the clock the engine reads output */
 
 	/*
 	 * Device settings (common/ozzy_settings.h) as the engine applied them at its last

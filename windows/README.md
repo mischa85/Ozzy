@@ -30,8 +30,9 @@ isochronous transfer is one `URB_FUNCTION_ISOCH_TRANSFER` (started ASAP) over a 
 own, its packets back to back, so each OUT packet's length is the gap to the next. The URB
 reports no per-frame times; every packet gets the completion's time.
 
-Not yet: MIDI (the Xones' MIDI in/out, and the Xone:1D): ACX has no MIDI, so it needs a
-Windows MIDI port of its own.
+Not yet: MIDI (the Xones' MIDI in/out, and the Xone:1D). ACX's documentation covers only WaveRT
+audio, but Microsoft's own USB MIDI 2 driver is an ACX driver with a MIDI circuit that Windows
+MIDI Services picks up; how Ozzy exposes its MIDI is still to decide.
 
 Sample rates: each endpoint offers a format per rate the device lists (the highest first). A
 stream at another rate restarts the engine at it (`ozzy_engine_change_rate`), unless the other

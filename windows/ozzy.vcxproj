@@ -66,15 +66,15 @@
     <ClCompile Include="circuit.c" />
     <ClCompile Include="stream.c" />
     <ClCompile Include="kmdf_bus.c" />
-    <ClCompile Include="..\..\engine\core\ozzy_engine.c" />
-    <ClCompile Include="..\..\engine\core\ozzy_isoc_output.c" />
-    <ClCompile Include="..\..\engine\devices\ploytec\ploytec_engine.c" />
-    <ClCompile Include="..\..\engine\devices\ploytec\ploytec_io.c" />
-    <ClCompile Include="..\..\engine\devices\ploytec\ploytec_isoc_engine.c" />
-    <ClCompile Include="..\..\engine\devices\usbmidi\usb_midi_engine.c" />
-    <ClCompile Include="..\..\common\devices\ploytec\ploytec_handshake.c" />
-    <ClCompile Include="..\..\common\devices\ploytec\ploytec_codec.c" />
-    <ClCompile Include="..\..\common\usb_midi.c" />
+    <ClCompile Include="..\engine\core\ozzy_engine.c" />
+    <ClCompile Include="..\engine\core\ozzy_isoc_output.c" />
+    <ClCompile Include="..\engine\devices\ploytec\ploytec_engine.c" />
+    <ClCompile Include="..\engine\devices\ploytec\ploytec_io.c" />
+    <ClCompile Include="..\engine\devices\ploytec\ploytec_isoc_engine.c" />
+    <ClCompile Include="..\engine\devices\usbmidi\usb_midi_engine.c" />
+    <ClCompile Include="..\common\devices\ploytec\ploytec_handshake.c" />
+    <ClCompile Include="..\common\devices\ploytec\ploytec_codec.c" />
+    <ClCompile Include="..\common\usb_midi.c" />
   </ItemGroup>
   <ItemGroup>
     <!-- Generated before the build from ozzy.inf.in (OzzyGenerateInf) -->
@@ -85,7 +85,7 @@
        GenInf.c is compiled for the host with the Visual Studio install's own compiler (vcvarsall),
        so this works from the IDE as well as a developer prompt. -->
   <Target Name="OzzyGenerateInf" BeforeTargets="PrepareForBuild"
-          Inputs="ozzy.inf.in;GenInf.c;..\..\common\ozzy_devices.def;..\..\common\ozzy_devices.h" Outputs="$(IntDir)ozzy.inf">
+          Inputs="ozzy.inf.in;GenInf.c;..\common\ozzy_devices.def;..\common\ozzy_devices.h" Outputs="$(IntDir)ozzy.inf">
     <MakeDir Directories="$(IntDir)GenInf" />
     <Exec Command="call &quot;$(VSInstallDir)VC\Auxiliary\Build\vcvarsall.bat&quot; %PROCESSOR_ARCHITECTURE% &gt;nul &amp;&amp; cl /nologo /W3 /Fo&quot;$(IntDir)GenInf\\&quot; /Fe&quot;$(IntDir)GenInf\GenInf.exe&quot; &quot;$(MSBuildThisFileDirectory)GenInf.c&quot; &gt;nul &amp;&amp; &quot;$(IntDir)GenInf\GenInf.exe&quot; &quot;$(MSBuildThisFileDirectory)ozzy.inf.in&quot; &gt; &quot;$(IntDir)ozzy.inf&quot;" />
   </Target>

@@ -2,7 +2,7 @@
 
 A KMDF + ACX kernel driver (Windows 11). The device shows up as a normal audio device with one
 output and one input endpoint, so every app reaches it through WASAPI. It runs the same engine
-as the macOS kext (`engine/`) on a KMDF USB bus (`kmdf_bus.c`), and does the real-time work in the
+as the Linux module and the macOS kext (`engine/`) on a KMDF USB bus (`kmdf_bus.c`), and does the real-time work in the
 USB completion path:
 
 - **Playback:** when a PCM OUT transfer completes, the engine encodes the next packet's 80 frames

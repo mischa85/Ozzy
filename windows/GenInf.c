@@ -12,7 +12,7 @@
  */
 #include <stdio.h>
 #include <string.h>
-#include "../../common/ozzy_devices.h"
+#include "../common/ozzy_devices.h"
 
 #define MARKER "; OZZY_DEVICES"
 

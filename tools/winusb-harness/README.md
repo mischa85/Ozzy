@@ -2,7 +2,7 @@
 
 Runs Ozzy's engine (`engine/`) against a device bound to WinUSB, as a console program. It is a
 tool for protocol work on Windows without loading a kernel driver; the Windows driver itself is
-the ACX driver. It plays the CoreAudio HAL's part of the shared memory:
+the ACX driver in [`windows/`](../../windows/). It plays the CoreAudio HAL's part of the shared memory:
 
 - a test tone on outputs 1/2 (`-q` for silence)
 - the input to a 24-bit WAV file (`-r capture.wav`)

@@ -11,7 +11,7 @@
 #include <wdf.h>
 #include <usb.h>
 #include <wdfusb.h>
-#include "../../engine/core/ozzy_engine.h"
+#include "../engine/core/ozzy_engine.h"
 
 struct wstream;
 

@@ -9,7 +9,7 @@
 #include <mmsystem.h>
 #include <ksmedia.h>
 #include "kmdf_bus.h"
-#include "../../engine/shared/ozzy_shared_data.h"
+#include "../engine/shared/ozzy_shared_data.h"
 
 #define OZZY_POOL_TAG 'yzzO'
 

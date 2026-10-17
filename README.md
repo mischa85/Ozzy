@@ -387,6 +387,10 @@ Ozzy/
 ├── macos/          # macOS kext + HAL/MIDI drivers
 │   └── Backends/   # Platform backends (Kext, future Dext)
 ├── windows/        # Windows ACX (WASAPI) driver (WIP)
+├── ozzyctl/        # Device settings from the command line (macOS, Linux)
+├── tests/          # Host tests of the engine on a fake USB bus
+├── tools/
+│   └── winusb-harness/  # The engine over WinUSB in a console program (Windows dev tool)
 └── legacy/         # Archived experiments and old implementations
 ```
 

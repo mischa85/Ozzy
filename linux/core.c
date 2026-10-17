@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: MIT
 /*
- * Ozzy USB Audio Driver - probe and lifecycle on the shared engine (make OZZY_ENGINE=1)
+ * Ozzy USB Audio Driver - probe and lifecycle on the shared engine
  *
  * The device's family engine (engine/) says which interfaces and endpoints it needs; this
  * claims them, gives the engine its bus and memory, runs the handshake and puts ALSA PCM,
- * rawmidi and the settings controls on top. The device streams from probe to disconnect, as
- * with the Linux driver; a rate change or a device setting restarts the engine (suspend, kill
- * every URB, start: no USB reset).
+ * rawmidi and the settings controls on top. The device streams from probe to disconnect; a
+ * rate change or a device setting restarts the engine (suspend, kill every URB, start: no USB
+ * reset).
  *
  * Copyright (C) 2024 Marcel Bierling <marcel@hackerman.art>
  */
@@ -16,7 +16,7 @@
 #include <linux/slab.h>
 #include <linux/vmalloc.h>
 
-#include "engine_chip.h"
+#include "ozzy.h"
 #include "../common/ozzy_version.h"
 
 MODULE_AUTHOR("Marcel Bierling <marcel@hackerman.art>");
@@ -29,7 +29,7 @@ MODULE_VERSION(OZZY_GIT_VERSION);
 static int index[SNDRV_CARDS] = SNDRV_DEFAULT_IDX;
 static char *id[SNDRV_CARDS] = SNDRV_DEFAULT_STR;
 
-static struct usb_driver echip_driver;
+static struct usb_driver ozzy_driver;
 
 /*
  * The USB ID table, from common/ozzy_devices.def: every device of a family the engine drives,
@@ -39,57 +39,57 @@ static struct usb_driver echip_driver;
 #define OZZY_LINUX_ROW_PLOYTEC_ISOC(vid, pid) { USB_DEVICE(vid, pid) },
 #define OZZY_LINUX_ROW_USB_MIDI(vid, pid)
 
-static const struct usb_device_id echip_id_table[] = {
+static const struct usb_device_id ozzy_id_table[] = {
 #define OZZY_DEVICE(key, vid, pid, name, family, in, out, rates, status, quirks) \
 	OZZY_LINUX_ROW_##family(vid, pid)
 #include "../common/ozzy_devices.def"
 #undef OZZY_DEVICE
 	{}
 };
-MODULE_DEVICE_TABLE(usb, echip_id_table);
+MODULE_DEVICE_TABLE(usb, ozzy_id_table);
 
 /*
- * echip_restart - Process context, chip->lock held: apply the engine's rate and settings.
+ * ozzy_chip_restart - Process context, chip->lock held: apply the engine's rate and settings.
  * Running streams stop with an xrun; the engine stops resubmitting, every URB is killed,
  * then the handshake runs again with what changed.
  */
-int echip_restart(struct ozzy_echip *chip)
+int ozzy_chip_restart(struct ozzy_chip *chip)
 {
-	epcm_stop_streams(chip);
+	ozzy_pcm_stop_streams(chip);
 	ozzy_engine_suspend(chip->engine);
-	lbus_kill(&chip->bus);
+	ozzy_urb_kill(&chip->bus);
 	if (chip->gone)
 		return -ENODEV;
 	if (!ozzy_engine_start(chip->engine)) {
-		echip_err(chip, "restart failed");
+		chip_err(chip, "restart failed");
 		chip->running = false;
 		ozzy_engine_stop(chip->engine);
-		lbus_kill(&chip->bus);
+		ozzy_urb_kill(&chip->bus);
 		return -EIO;
 	}
 	chip->running = true;
 	return 0;
 }
 
-static void echip_log_endpoints(struct ozzy_echip *chip, struct usb_interface *intf)
+static void ozzy_chip_log_endpoints(struct ozzy_chip *chip, struct usb_interface *intf)
 {
 	static const char * const types[] = { "control", "isoc", "bulk", "interrupt" };
 	const struct usb_host_interface *alt = intf->cur_altsetting;
 	unsigned int i;
 
-	echip_log(chip, "  interface %u alt %u: class 0x%02x, %u endpoints", alt->desc.bInterfaceNumber,
+	chip_log(chip, "  interface %u alt %u: class 0x%02x, %u endpoints", alt->desc.bInterfaceNumber,
 		  alt->desc.bAlternateSetting, alt->desc.bInterfaceClass, alt->desc.bNumEndpoints);
 	for (i = 0; i < alt->desc.bNumEndpoints; i++) {
 		const struct usb_endpoint_descriptor *epd = &alt->endpoint[i].desc;
 
-		echip_log(chip, "    EP 0x%02x %-3s %-9s wMaxPacketSize %u x%u bInterval %u", epd->bEndpointAddress,
+		chip_log(chip, "    EP 0x%02x %-3s %-9s wMaxPacketSize %u x%u bInterval %u", epd->bEndpointAddress,
 			  usb_endpoint_dir_in(epd) ? "IN" : "OUT", types[usb_endpoint_type(epd)], usb_endpoint_maxp(epd),
 			  usb_endpoint_maxp_mult(epd), epd->bInterval);
 	}
 }
 
 /* The endpoint @spec describes (common/ozzy_ep.h) on its interface's current setting, or NULL */
-static const struct usb_endpoint_descriptor *echip_find_ep(struct ozzy_echip *chip, const struct ozzy_ep *spec)
+static const struct usb_endpoint_descriptor *ozzy_chip_find_ep(struct ozzy_chip *chip, const struct ozzy_ep *spec)
 {
 	struct usb_interface *intf = usb_ifnum_to_if(chip->dev, spec->intf);
 	const struct usb_host_interface *alt;
@@ -109,23 +109,23 @@ static const struct usb_endpoint_descriptor *echip_find_ep(struct ozzy_echip *ch
 }
 
 /* Claim the profile's interfaces (the probed one is interface 0) and select its alternate setting */
-static int echip_claim(struct ozzy_echip *chip, struct usb_interface *probed)
+static int ozzy_chip_claim(struct ozzy_chip *chip, struct usb_interface *probed)
 {
 	const struct ozzy_device_profile *p = &chip->engine->profile;
 	unsigned int i;
 	int ret;
 
-	for (i = 0; i < p->interface_count && i < ECHIP_MAX_INTERFACES; i++) {
+	for (i = 0; i < p->interface_count && i < OZZY_MAX_INTERFACES; i++) {
 		struct usb_interface *intf = usb_ifnum_to_if(chip->dev, p->interfaces[i]);
 
 		if (!intf) {
-			echip_err(chip, "interface %u not found", p->interfaces[i]);
+			chip_err(chip, "interface %u not found", p->interfaces[i]);
 			return -ENODEV;
 		}
 		if (intf != probed) {
-			ret = usb_driver_claim_interface(&echip_driver, intf, chip);
+			ret = usb_driver_claim_interface(&ozzy_driver, intf, chip);
 			if (ret < 0) {
-				echip_err(chip, "cannot claim interface %u", p->interfaces[i]);
+				chip_err(chip, "cannot claim interface %u", p->interfaces[i]);
 				return ret;
 			}
 		}
@@ -133,17 +133,17 @@ static int echip_claim(struct ozzy_echip *chip, struct usb_interface *probed)
 		if (p->alt_setting) {
 			ret = usb_set_interface(chip->dev, p->interfaces[i], p->alt_setting);
 			if (ret < 0) {
-				echip_err(chip, "interface %u: alternate setting %u failed", p->interfaces[i], p->alt_setting);
+				chip_err(chip, "interface %u: alternate setting %u failed", p->interfaces[i], p->alt_setting);
 				return ret;
 			}
 		}
-		echip_log_endpoints(chip, intf);
+		ozzy_chip_log_endpoints(chip, intf);
 	}
 	return 0;
 }
 
 /* Each pipe the engine asks for: to the bus, and its actual endpoint to the engine */
-static int echip_pipes(struct ozzy_echip *chip)
+static int ozzy_chip_pipes(struct ozzy_chip *chip)
 {
 	unsigned int role;
 	int ret;
@@ -154,12 +154,12 @@ static int echip_pipes(struct ozzy_echip *chip)
 
 		if (!spec->address && !spec->types)
 			continue;
-		epd = echip_find_ep(chip, spec);
+		epd = ozzy_chip_find_ep(chip, spec);
 		if (!epd) {
-			echip_log(chip, "  no endpoint for pipe role %u on interface %u", role, spec->intf);
+			chip_log(chip, "  no endpoint for pipe role %u on interface %u", role, spec->intf);
 			continue;
 		}
-		ret = lbus_add_pipe(&chip->bus, epd);
+		ret = ozzy_urb_add_pipe(&chip->bus, epd);
 		if (ret < 0)
 			return ret;
 		ozzy_engine_set_endpoint(chip->engine, (enum ozzy_pipe_role)role, epd->bEndpointAddress,
@@ -170,29 +170,29 @@ static int echip_pipes(struct ozzy_echip *chip)
 }
 
 /* The card's last reference is gone: free what the engine and the bus had */
-static void echip_card_free(struct snd_card *card)
+static void ozzy_chip_card_free(struct snd_card *card)
 {
-	struct ozzy_echip *chip = card->private_data;
+	struct ozzy_chip *chip = card->private_data;
 
-	lbus_free(&chip->bus);
+	ozzy_urb_free(&chip->bus);
 	kfree(chip->engine);
 	vfree(chip->shm);
 }
 
-static void echip_release_interfaces(struct ozzy_echip *chip)
+static void ozzy_chip_release_interfaces(struct ozzy_chip *chip)
 {
 	unsigned int i;
 
 	for (i = 1; i < chip->num_intf; i++)
-		usb_driver_release_interface(&echip_driver, chip->intf[i]);
+		usb_driver_release_interface(&ozzy_driver, chip->intf[i]);
 	chip->num_intf = 0;
 }
 
-static int echip_probe(struct usb_interface *intf, const struct usb_device_id *usb_id)
+static int ozzy_chip_probe(struct usb_interface *intf, const struct usb_device_id *usb_id)
 {
 	struct usb_device *dev = interface_to_usbdev(intf);
 	const struct ozzy_device *model;
-	struct ozzy_echip *chip;
+	struct ozzy_chip *chip;
 	struct snd_card *card;
 	size_t size;
 	int ret;
@@ -216,19 +216,19 @@ static int echip_probe(struct usb_interface *intf, const struct usb_device_id *u
 	spin_lock_init(&chip->stream[OZZY_PCM_OUT].lock);
 	spin_lock_init(&chip->stream[OZZY_PCM_IN].lock);
 	spin_lock_init(&chip->midi.lock);
-	card->private_free = echip_card_free;
+	card->private_free = ozzy_chip_card_free;
 	strscpy(card->driver, DRIVER_NAME, sizeof(card->driver));
 	strscpy(card->shortname, dev->product ?: model->name, sizeof(card->shortname));
 	snprintf(card->longname, sizeof(card->longname), "%s at %d:%d", card->shortname, dev->bus->busnum,
 		 dev->devnum);
 
-	echip_log(chip, "build %s (engine), %s (%04x:%04x)%s", OZZY_GIT_VERSION, model->name, model->vid, model->pid,
+	chip_log(chip, "build %s (engine), %s (%04x:%04x)%s", OZZY_GIT_VERSION, model->name, model->vid, model->pid,
 		  model->status == OZZY_STATUS_EXPERIMENTAL ? ", experimental" : "");
 
 	size = ozzy_engine_size(model);
 	chip->engine = ozzy_engine_init(size ? kzalloc(size, GFP_KERNEL) : NULL, model);
 	chip->shm = vzalloc(sizeof(*chip->shm));
-	ret = !chip->engine || !chip->shm ? -ENOMEM : lbus_init(&chip->bus, chip);
+	ret = !chip->engine || !chip->shm ? -ENOMEM : ozzy_urb_init(&chip->bus, chip);
 	if (ret < 0)
 		goto err_card;
 	chip->shm->magic = OZZY_MAGIC;
@@ -237,14 +237,14 @@ static int echip_probe(struct usb_interface *intf, const struct usb_device_id *u
 	chip->shm->product_id = model->pid;
 	ozzy_strlcpy(chip->shm->product_name, dev->product ?: model->name, sizeof(chip->shm->product_name));
 
-	ret = echip_claim(chip, intf);
+	ret = ozzy_chip_claim(chip, intf);
 	if (ret == 0)
-		ret = echip_pipes(chip);
+		ret = ozzy_chip_pipes(chip);
 	if (ret < 0)
 		goto err_intf;
 
 	ozzy_engine_attach(chip->engine, &chip->bus.bus, chip->shm);
-	ret = lbus_alloc_memory(&chip->bus, chip->engine);
+	ret = ozzy_urb_alloc_memory(&chip->bus, chip->engine);
 	if (ret < 0)
 		goto err_intf;
 	ozzy_engine_set_memory(chip->engine, &chip->bus.mem);
@@ -253,18 +253,18 @@ static int echip_probe(struct usb_interface *intf, const struct usb_device_id *u
 	chip->running = ozzy_engine_start(chip->engine);
 	mutex_unlock(&chip->lock);
 	if (!chip->running) {
-		echip_err(chip, "device initialization failed");
+		chip_err(chip, "device initialization failed");
 		ret = -EIO;
 		goto err_stop;
 	}
-	echip_log(chip, "running at %u Hz, %u in / %u out", (unsigned int)chip->shm->audio.sample_rate,
+	chip_log(chip, "running at %u Hz, %u in / %u out", (unsigned int)chip->shm->audio.sample_rate,
 		  model->in_channels, model->out_channels);
 
-	ret = epcm_init(chip);
+	ret = ozzy_pcm_init(chip);
 	if (ret == 0)
-		ret = emidi_init(chip);
+		ret = ozzy_midi_init(chip);
 	if (ret == 0)
-		ret = econtrols_init(chip);
+		ret = ozzy_controls_init(chip);
 	if (ret == 0)
 		ret = snd_card_register(card);
 	if (ret < 0)
@@ -275,17 +275,17 @@ static int echip_probe(struct usb_interface *intf, const struct usb_device_id *u
 
 err_stop:
 	ozzy_engine_stop(chip->engine);
-	lbus_kill(&chip->bus);
+	ozzy_urb_kill(&chip->bus);
 err_intf:
-	echip_release_interfaces(chip);
+	ozzy_chip_release_interfaces(chip);
 err_card:
 	snd_card_free(card);
 	return ret;
 }
 
-static void echip_disconnect(struct usb_interface *intf)
+static void ozzy_chip_disconnect(struct usb_interface *intf)
 {
-	struct ozzy_echip *chip = usb_get_intfdata(intf);
+	struct ozzy_chip *chip = usb_get_intfdata(intf);
 
 	/* The claimed interfaces come here too: the device goes with interface 0 */
 	if (!chip || intf != chip->intf[0])
@@ -295,31 +295,31 @@ static void echip_disconnect(struct usb_interface *intf)
 	chip->gone = true;
 	chip->running = false;
 	ozzy_engine_stop(chip->engine);
-	lbus_kill(&chip->bus);
+	ozzy_urb_kill(&chip->bus);
 	mutex_unlock(&chip->lock);
 
 	snd_card_disconnect(chip->card);
-	echip_release_interfaces(chip);
+	ozzy_chip_release_interfaces(chip);
 	snd_card_free_when_closed(chip->card);
 }
 
 /* Someone else resets the device (usbfs, a hub): stop around it, then the handshake again */
-static int echip_pre_reset(struct usb_interface *intf)
+static int ozzy_chip_pre_reset(struct usb_interface *intf)
 {
-	struct ozzy_echip *chip = usb_get_intfdata(intf);
+	struct ozzy_chip *chip = usb_get_intfdata(intf);
 
 	if (!chip || intf != chip->intf[0])
 		return 0;
 	mutex_lock(&chip->lock);
-	epcm_stop_streams(chip);
+	ozzy_pcm_stop_streams(chip);
 	ozzy_engine_suspend(chip->engine);
-	lbus_kill(&chip->bus);
+	ozzy_urb_kill(&chip->bus);
 	return 0;
 }
 
-static int echip_post_reset(struct usb_interface *intf)
+static int ozzy_chip_post_reset(struct usb_interface *intf)
 {
-	struct ozzy_echip *chip = usb_get_intfdata(intf);
+	struct ozzy_chip *chip = usb_get_intfdata(intf);
 	const struct ozzy_device_profile *p;
 	unsigned int i;
 
@@ -330,19 +330,19 @@ static int echip_post_reset(struct usb_interface *intf)
 		usb_set_interface(chip->dev, p->interfaces[i], p->alt_setting);
 	chip->running = ozzy_engine_start(chip->engine);
 	if (!chip->running)
-		echip_err(chip, "restart after reset failed");
+		chip_err(chip, "restart after reset failed");
 	mutex_unlock(&chip->lock);
 	return 0;
 }
 
-static struct usb_driver echip_driver = {
+static struct usb_driver ozzy_driver = {
 	.name        = DRIVER_NAME,
-	.probe       = echip_probe,
-	.disconnect  = echip_disconnect,
+	.probe       = ozzy_chip_probe,
+	.disconnect  = ozzy_chip_disconnect,
 	.soft_unbind = 1,
-	.pre_reset   = echip_pre_reset,
-	.post_reset  = echip_post_reset,
-	.id_table    = echip_id_table,
+	.pre_reset   = ozzy_chip_pre_reset,
+	.post_reset  = ozzy_chip_post_reset,
+	.id_table    = ozzy_id_table,
 };
 
-module_usb_driver(echip_driver);
+module_usb_driver(ozzy_driver);

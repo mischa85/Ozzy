@@ -379,9 +379,8 @@ Ozzy/
 │   ├── ozzy_devices.def  # The device list (one row per device)
 │   ├── ozzy_quirks.h     # Per-device differences
 │   └── devices/    # Device-specific protocol definitions and codecs
-├── linux/          # Linux ALSA kernel module
-│   └── devices/    # Linux device-specific glue
-├── engine/         # Engine shared by the macOS kext and the Windows driver
+├── linux/          # Linux ALSA kernel module (USB, PCM, MIDI, controls on the engine)
+├── engine/         # Device engines shared by the Linux module, the macOS kext and the Windows driver
 │   ├── core/       # Device-agnostic engine (C) and the bus interface (ozzy_bus)
 │   ├── devices/    # Device-specific protocol implementations
 │   └── shared/     # Shared memory layout, platform layer, logging

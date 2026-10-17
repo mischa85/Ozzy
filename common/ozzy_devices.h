@@ -6,7 +6,7 @@
  * defines OZZY_DEVICE to what it needs and includes the .def:
  *   - this header: the shared table (ozzy_device_lookup), used for channels,
  *     rates, names and the family on every platform
- *   - linux/ozzy_core.c: the USB ID table (rows of the families Linux drives)
+ *   - linux/core.c: the USB ID table (rows of the families Linux drives)
  *   - macos/Backends/OzzyKext/GenPersonalities.c: the kext's matching
  *     personalities, generated into Info.plist
  * A row left out with -DOZZY_DISABLE_<key> is left out of all of them. Each

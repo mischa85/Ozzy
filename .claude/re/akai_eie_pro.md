@@ -400,7 +400,8 @@ The Ploytec parts:
 - In `ploytec_midi.h`: `ploytec_midi_init_slots()` and `ploytec_midi_xfer_begin()` (9-byte
   transfers), both checked in `tools/ploytec_midi_test.c`.
 - `linux/devices/ploytec.c`: `ploytec_isoc_ops` is only the handshake, MIDI framing and the info
-  table. It refuses Full Speed.
+  table. It refuses Full Speed. (That driver was removed on 2026-10-17; Linux runs
+  `engine/devices/ploytec/ploytec_isoc_engine.c` now, which has no Full Speed check yet.)
 
 macOS (the same shape as Linux):
 - **Shared with Linux:**

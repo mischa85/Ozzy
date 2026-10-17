@@ -60,7 +60,9 @@ the OS can't show. Order: external clock first (it's what users need, and it bui
   one; `info->rate` / `info->clock` say what it did. A device clocked at a rate it can't stream
   (192k) fails the handshake's rate verify. So at the defaults these devices now follow an S/PDIF
   lock, like the official driver; devices without digital in send the same requests as before.
-- **Linux**: `chip->settings` / `chip->clock` (kept across resets), `linux/ozzy_controls.c`: enum
+- **Linux** (the pre-engine driver, removed 2026-10-17; today `linux/controls.c` puts the engine's
+  settings up as the same controls and a change restarts the engine, no USB reset):
+  `chip->settings` / `chip->clock` (kept across resets), `linux/ozzy_controls.c`: enum
   control "Clock Source" and read-only "S/PDIF Clock Validity". Names as snd-usb-audio builds
   them (`sound/usb/mixer.c` v6.18, copy in the investigation folder's `linux_ref/sound_usb/`):
   a UAC2 clock selector is "<selector name> Clock Source", a clock source's validity a read-only

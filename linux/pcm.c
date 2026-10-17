@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
 /*
- * Ozzy USB Audio Driver - ALSA PCM on the engine's rings (make OZZY_ENGINE=1)
+ * Ozzy USB Audio Driver - ALSA PCM on the engine's rings
  *
  * ALSA's buffer is the engine's ring (struct ozzy_pcm_ring): the engine encodes playback from
  * it and decodes capture into it in the USB completion path, and reports each packet
- * (epcm_progress), which moves the pointer and elapses periods. trigger attaches and
+ * (ozzy_pcm_progress), which moves the pointer and elapses periods. trigger attaches and
  * detaches the ring (a store, fine in atomic context); sync_stop waits out completions that
  * may still use it before ALSA frees or reuses the buffer.
  *
@@ -13,23 +13,23 @@
 
 #include <sound/pcm_params.h>
 
-#include "engine_chip.h"
+#include "ozzy.h"
 
 static const unsigned int rate_bits[OZZY_MAX_RATES] = {
 	SNDRV_PCM_RATE_44100, SNDRV_PCM_RATE_48000, SNDRV_PCM_RATE_88200,
 	SNDRV_PCM_RATE_96000, SNDRV_PCM_RATE_176400, SNDRV_PCM_RATE_192000,
 };
 
-static enum ozzy_pcm_dir epcm_dir(const struct snd_pcm_substream *substream)
+static enum ozzy_pcm_dir substream_dir(const struct snd_pcm_substream *substream)
 {
 	return substream->stream == SNDRV_PCM_STREAM_PLAYBACK ? OZZY_PCM_OUT : OZZY_PCM_IN;
 }
 
 /* hw_params rule: while the device is locked to S/PDIF, only the lock rate (the official
  * driver offers CoreAudio only the current rate) */
-static int epcm_rule_locked_rate(struct snd_pcm_hw_params *params, struct snd_pcm_hw_rule *rule)
+static int ozzy_pcm_rule_locked_rate(struct snd_pcm_hw_params *params, struct snd_pcm_hw_rule *rule)
 {
-	struct ozzy_echip *chip = rule->private;
+	struct ozzy_chip *chip = rule->private;
 	struct snd_interval lock = { .integer = 1 };
 
 	if (!chip->shm->audio.settings.clock_locked)
@@ -38,12 +38,12 @@ static int epcm_rule_locked_rate(struct snd_pcm_hw_params *params, struct snd_pc
 	return snd_interval_refine(hw_param_interval(params, SNDRV_PCM_HW_PARAM_RATE), &lock);
 }
 
-static int epcm_open(struct snd_pcm_substream *substream)
+static int ozzy_pcm_open(struct snd_pcm_substream *substream)
 {
-	struct ozzy_echip *chip = snd_pcm_substream_chip(substream);
+	struct ozzy_chip *chip = snd_pcm_substream_chip(substream);
 	struct snd_pcm_runtime *runtime = substream->runtime;
 	const struct ozzy_device *model = chip->model;
-	enum ozzy_pcm_dir dir = epcm_dir(substream);
+	enum ozzy_pcm_dir dir = substream_dir(substream);
 	unsigned int channels = dir == OZZY_PCM_OUT ? model->out_channels : model->in_channels;
 	uint32_t rates[OZZY_MAX_RATES];
 	unsigned int n = ozzy_device_rates(model, rates), i, frames, packet_bytes;
@@ -62,7 +62,7 @@ static int epcm_open(struct snd_pcm_substream *substream)
 	runtime->hw.rate_max = rates[n - 1];
 	runtime->hw.channels_min = runtime->hw.channels_max = channels;
 
-	/* As the Linux driver: periods of at least 2 transfers; isochronous out at the highest rate */
+	/* Periods of at least 2 transfers; isochronous out at the highest rate */
 	frames = model->family == OZZY_FAMILY_PLOYTEC_ISOC && dir == OZZY_PCM_OUT ?
 		 rates[n - 1] * ISOC_TRANSFER_UFRAMES / ISOC_FB_UFRAMES_PER_SEC : chip->shm->audio.frames_per_packet;
 	packet_bytes = frames * channels * 3;
@@ -73,24 +73,24 @@ static int epcm_open(struct snd_pcm_substream *substream)
 	runtime->hw.periods_max = 1024;
 
 	chip->stream[dir].substream = substream;
-	return snd_pcm_hw_rule_add(runtime, 0, SNDRV_PCM_HW_PARAM_RATE, epcm_rule_locked_rate, chip,
+	return snd_pcm_hw_rule_add(runtime, 0, SNDRV_PCM_HW_PARAM_RATE, ozzy_pcm_rule_locked_rate, chip,
 				   SNDRV_PCM_HW_PARAM_CHANNELS, -1);
 }
 
-static int epcm_close(struct snd_pcm_substream *substream)
+static int ozzy_pcm_close(struct snd_pcm_substream *substream)
 {
-	struct ozzy_echip *chip = snd_pcm_substream_chip(substream);
+	struct ozzy_chip *chip = snd_pcm_substream_chip(substream);
 
-	chip->stream[epcm_dir(substream)].substream = NULL;
+	chip->stream[substream_dir(substream)].substream = NULL;
 	return 0;
 }
 
 /* Process context: a new rate restarts the engine (suspend, kill, handshake at the rate) */
-static int epcm_prepare(struct snd_pcm_substream *substream)
+static int ozzy_pcm_prepare(struct snd_pcm_substream *substream)
 {
-	struct ozzy_echip *chip = snd_pcm_substream_chip(substream);
+	struct ozzy_chip *chip = snd_pcm_substream_chip(substream);
 	struct snd_pcm_runtime *runtime = substream->runtime;
-	struct estream *st = &chip->stream[epcm_dir(substream)];
+	struct ozzy_pcm_stream *st = &chip->stream[substream_dir(substream)];
 	unsigned long flags;
 	int ret = 0;
 
@@ -102,14 +102,14 @@ static int epcm_prepare(struct snd_pcm_substream *substream)
 		ret = -ENODEV;
 	} else if (chip->shm->audio.sample_rate != runtime->rate) {
 		if (chip->shm->audio.settings.clock_locked && runtime->rate != chip->shm->audio.settings.lock_rate) {
-			echip_err(chip, "%u Hz while locked to S/PDIF at %u Hz", runtime->rate,
+			chip_err(chip, "%u Hz while locked to S/PDIF at %u Hz", runtime->rate,
 				  (unsigned int)chip->shm->audio.settings.lock_rate);
 			ret = -EINVAL;
 		} else {
-			echip_log(chip, "sample rate %u -> %u Hz", (unsigned int)chip->shm->audio.sample_rate,
+			chip_log(chip, "sample rate %u -> %u Hz", (unsigned int)chip->shm->audio.sample_rate,
 				  runtime->rate);
 			ozzy_engine_set_rate(chip->engine, runtime->rate);
-			ret = echip_restart(chip);
+			ret = ozzy_chip_restart(chip);
 		}
 	}
 	mutex_unlock(&chip->lock);
@@ -124,12 +124,12 @@ static int epcm_prepare(struct snd_pcm_substream *substream)
 }
 
 /* Atomic: attach or detach the ring; the engine picks it up with its next packet */
-static int epcm_trigger(struct snd_pcm_substream *substream, int cmd)
+static int ozzy_pcm_trigger(struct snd_pcm_substream *substream, int cmd)
 {
-	struct ozzy_echip *chip = snd_pcm_substream_chip(substream);
+	struct ozzy_chip *chip = snd_pcm_substream_chip(substream);
 	struct snd_pcm_runtime *runtime = substream->runtime;
-	enum ozzy_pcm_dir dir = epcm_dir(substream);
-	struct estream *st = &chip->stream[dir];
+	enum ozzy_pcm_dir dir = substream_dir(substream);
+	struct ozzy_pcm_stream *st = &chip->stream[dir];
 	unsigned long flags;
 
 	spin_lock_irqsave(&st->lock, flags);
@@ -157,10 +157,10 @@ static int epcm_trigger(struct snd_pcm_substream *substream, int cmd)
 	return 0;
 }
 
-static snd_pcm_uframes_t epcm_pointer(struct snd_pcm_substream *substream)
+static snd_pcm_uframes_t ozzy_pcm_pointer(struct snd_pcm_substream *substream)
 {
-	struct ozzy_echip *chip = snd_pcm_substream_chip(substream);
-	struct estream *st = &chip->stream[epcm_dir(substream)];
+	struct ozzy_chip *chip = snd_pcm_substream_chip(substream);
+	struct ozzy_pcm_stream *st = &chip->stream[substream_dir(substream)];
 	unsigned long flags;
 	uint64_t pos;
 
@@ -173,30 +173,30 @@ static snd_pcm_uframes_t epcm_pointer(struct snd_pcm_substream *substream)
 }
 
 /* Before ALSA frees or reuses the buffer: no completion may still be using it */
-static int epcm_sync_stop(struct snd_pcm_substream *substream)
+static int ozzy_pcm_sync_stop(struct snd_pcm_substream *substream)
 {
-	struct ozzy_echip *chip = snd_pcm_substream_chip(substream);
+	struct ozzy_chip *chip = snd_pcm_substream_chip(substream);
 
-	lbus_wait_completions(&chip->bus);
+	ozzy_urb_wait_completions(&chip->bus);
 	return 0;
 }
 
-static const struct snd_pcm_ops epcm_ops = {
-	.open      = epcm_open,
-	.close     = epcm_close,
-	.prepare   = epcm_prepare,
-	.trigger   = epcm_trigger,
-	.pointer   = epcm_pointer,
-	.sync_stop = epcm_sync_stop,
+static const struct snd_pcm_ops ozzy_pcm_ops = {
+	.open      = ozzy_pcm_open,
+	.close     = ozzy_pcm_close,
+	.prepare   = ozzy_pcm_prepare,
+	.trigger   = ozzy_pcm_trigger,
+	.pointer   = ozzy_pcm_pointer,
+	.sync_stop = ozzy_pcm_sync_stop,
 };
 
 /*
- * epcm_progress - The engine moved a packet through @dir's ring (completion path): the new
+ * ozzy_pcm_progress - The engine moved a packet through @dir's ring (completion path): the new
  * position, and the periods it completed.
  */
-void epcm_progress(struct ozzy_echip *chip, enum ozzy_pcm_dir dir, uint64_t frames)
+void ozzy_pcm_progress(struct ozzy_chip *chip, enum ozzy_pcm_dir dir, uint64_t frames)
 {
-	struct estream *st = &chip->stream[dir];
+	struct ozzy_pcm_stream *st = &chip->stream[dir];
 	struct snd_pcm_substream *substream;
 	bool elapsed = false;
 	unsigned long flags;
@@ -218,7 +218,7 @@ void epcm_progress(struct ozzy_echip *chip, enum ozzy_pcm_dir dir, uint64_t fram
 }
 
 /* Process context: stop running streams with an xrun (a restart is coming) */
-void epcm_stop_streams(struct ozzy_echip *chip)
+void ozzy_pcm_stop_streams(struct ozzy_chip *chip)
 {
 	unsigned int dir;
 
@@ -230,7 +230,7 @@ void epcm_stop_streams(struct ozzy_echip *chip)
 	}
 }
 
-int epcm_init(struct ozzy_echip *chip)
+int ozzy_pcm_init(struct ozzy_chip *chip)
 {
 	const struct ozzy_device *model = chip->model;
 	struct snd_pcm *pcm;
@@ -246,9 +246,9 @@ int epcm_init(struct ozzy_echip *chip)
 	pcm->private_data = chip;
 	strscpy(pcm->name, chip->dev->product ?: model->name, sizeof(pcm->name));
 	if (model->out_channels)
-		snd_pcm_set_ops(pcm, SNDRV_PCM_STREAM_PLAYBACK, &epcm_ops);
+		snd_pcm_set_ops(pcm, SNDRV_PCM_STREAM_PLAYBACK, &ozzy_pcm_ops);
 	if (model->in_channels)
-		snd_pcm_set_ops(pcm, SNDRV_PCM_STREAM_CAPTURE, &epcm_ops);
+		snd_pcm_set_ops(pcm, SNDRV_PCM_STREAM_CAPTURE, &ozzy_pcm_ops);
 	snd_pcm_set_managed_buffer_all(pcm, SNDRV_DMA_TYPE_VMALLOC, NULL, 0, 0);
 	chip->pcm = pcm;
 	return 0;

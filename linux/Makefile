@@ -16,35 +16,23 @@ PWD := $(shell pwd)
 # The target module
 obj-m := $(MODULE_NAME).o
 
-# The shared code: common/ (protocol, codecs) and engine/ (the macOS kext's and the Windows
-# driver's engine)
-OZZY_SHARED := ../common/devices/ploytec/ploytec_codec.o \
-               ../common/devices/ploytec/ploytec_handshake.o \
-               ../common/usb_midi.o \
-               ../engine/core/ozzy_engine.o \
-               ../engine/core/ozzy_isoc_output.o \
-               ../engine/devices/ploytec/ploytec_engine.o \
-               ../engine/devices/ploytec/ploytec_io.o \
-               ../engine/devices/ploytec/ploytec_isoc_engine.o \
-               ../engine/devices/usbmidi/usb_midi_engine.o
-
-# make OZZY_ENGINE=1: Linux on the shared engine (engine_*.c), not yet tested on hardware.
-# Default: the Linux driver (ozzy_*.c, devices/), tested on hardware.
-ifeq ($(OZZY_ENGINE),1)
-$(MODULE_NAME)-y := engine_core.o \
-                    engine_bus.o \
-                    engine_pcm.o \
-                    engine_midi.o \
-                    engine_controls.o \
-                    $(OZZY_SHARED)
-else
-$(MODULE_NAME)-y := ozzy_core.o \
-                    ozzy_pcm.o \
-                    ozzy_midi.o \
-                    ozzy_controls.o \
-                    devices/ploytec.o \
-                    $(OZZY_SHARED)
-endif
+# Linux's side (ozzy.h): the USB driver, the engine's bus on URBs, ALSA PCM, rawmidi and
+# controls. The device protocol is the shared engine (engine/, as in the macOS kext and the
+# Windows driver) on common/ (protocol, codecs).
+$(MODULE_NAME)-y := core.o \
+                    bus.o \
+                    pcm.o \
+                    midi.o \
+                    controls.o \
+                    ../common/devices/ploytec/ploytec_codec.o \
+                    ../common/devices/ploytec/ploytec_handshake.o \
+                    ../common/usb_midi.o \
+                    ../engine/core/ozzy_engine.o \
+                    ../engine/core/ozzy_isoc_output.o \
+                    ../engine/devices/ploytec/ploytec_engine.o \
+                    ../engine/devices/ploytec/ploytec_io.o \
+                    ../engine/devices/ploytec/ploytec_isoc_engine.o \
+                    ../engine/devices/usbmidi/usb_midi_engine.o
 
 # Devices to leave out (keys from common/ozzy_devices.def), e.g. make OZZY_DISABLE="ReloopDJ2".
 # By default the ones mainline drives: Tascam US-144 (snd-usb-us122l, us144mkii) and US-144MKII
@@ -54,12 +42,10 @@ ccflags-y += $(addprefix -DOZZY_DISABLE_,$(OZZY_DISABLE))
 
 # Commit the module is built from: logged at probe, shown by `modinfo -F version`
 OZZY_GIT_VERSION := $(shell git -C $(src) describe --always --dirty 2>/dev/null || echo unknown)
-CFLAGS_ozzy_core.o := -DOZZY_GIT_VERSION='"$(OZZY_GIT_VERSION)"'
-CFLAGS_engine_core.o := -DOZZY_GIT_VERSION='"$(OZZY_GIT_VERSION)"'
+CFLAGS_core.o := -DOZZY_GIT_VERSION='"$(OZZY_GIT_VERSION)"'
 
-# To add a new device family, append:
-#   devices/newdevice.o
-#   ../common/devices/newdevice/newdevice_codec.o  (if shared codec)
+# A new device family is an engine (engine/devices/) and its common/ code: add their objects
+# above.
 
 # ------------------------------------------
 #  Targets

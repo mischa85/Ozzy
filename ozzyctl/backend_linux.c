@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 /*
  * ozzyctl backend for Linux: the snd-usb-ozzy cards through alsa-lib. Each setting is a mixer
- * control named after ozzy_setting_descs[].name (linux/ozzy_controls.c), the digital lock is
+ * control named after ozzy_setting_descs[].name (linux/controls.c), the digital lock is
  * "S/PDIF Clock Validity". The channel counts come from the device table, through the card's
  * USB IDs in sysfs; the rate from /proc/asound while a stream is open.
  *
@@ -18,7 +18,7 @@
 #include "../common/ozzy_devices.h"
 
 #ifndef OZZY_ALSA_DRIVER
-#define OZZY_ALSA_DRIVER "snd-usb-ozzy"   /* card->driver, linux/ozzy_core.c */
+#define OZZY_ALSA_DRIVER "snd-usb-ozzy"   /* card->driver, linux/core.c */
 #endif
 
 /* A hex number from a sysfs file, or -1 */

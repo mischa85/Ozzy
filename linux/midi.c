@@ -1,17 +1,17 @@
 // SPDX-License-Identifier: MIT
 /*
- * Ozzy USB Audio Driver - rawmidi on the engine's MIDI rings (make OZZY_ENGINE=1)
+ * Ozzy USB Audio Driver - rawmidi on the engine's MIDI rings
  *
  * The engine sends MIDI out from the shared memory's midi_out ring (embedded in every PCM
  * packet on the Xones, on its own endpoint elsewhere) and fills the midi_in ring. This side
- * moves bytes between those rings and rawmidi: emidi_service() runs after every completion
+ * moves bytes between those rings and rawmidi: ozzy_midi_service() runs after every completion
  * and timer tick, so the rings keep up with the device. Output gets its running status
  * expanded on the way in (common/midi_running_status.h).
  *
  * Copyright (C) 2024 Marcel Bierling <marcel@hackerman.art>
  */
 
-#include "engine_chip.h"
+#include "ozzy.h"
 
 static uint32_t ring_free(volatile struct ozzy_midi_buffer *ring)
 {
@@ -19,9 +19,9 @@ static uint32_t ring_free(volatile struct ozzy_midi_buffer *ring)
 }
 
 /* Rawmidi output into midi_out while it has room; expanded bytes that don't fit wait */
-static bool fill_out(struct ozzy_echip *chip)
+static bool fill_out(struct ozzy_chip *chip)
 {
-	struct emidi *m = &chip->midi;
+	struct ozzy_midi *m = &chip->midi;
 	volatile struct ozzy_midi_buffer *ring = &chip->shm->midi_out;
 	bool queued = false;
 	u8 byte;
@@ -42,9 +42,9 @@ static bool fill_out(struct ozzy_echip *chip)
 }
 
 /* midi_in into rawmidi input (dropped while nobody listens) */
-static void drain_in(struct ozzy_echip *chip)
+static void drain_in(struct ozzy_chip *chip)
 {
-	struct emidi *m = &chip->midi;
+	struct ozzy_midi *m = &chip->midi;
 	u8 bytes[64];
 	uint32_t n;
 
@@ -54,9 +54,9 @@ static void drain_in(struct ozzy_echip *chip)
 }
 
 /* Any context: catch the rings up with rawmidi */
-void emidi_service(struct ozzy_echip *chip)
+void ozzy_midi_service(struct ozzy_chip *chip)
 {
-	struct emidi *m = &chip->midi;
+	struct ozzy_midi *m = &chip->midi;
 	unsigned long flags;
 	bool queued;
 
@@ -70,19 +70,19 @@ void emidi_service(struct ozzy_echip *chip)
 		ozzy_engine_midi_out_pending(chip->engine);
 }
 
-static int emidi_open(struct snd_rawmidi_substream *substream)
+static int ozzy_midi_open(struct snd_rawmidi_substream *substream)
 {
 	return 0;
 }
 
-static int emidi_close(struct snd_rawmidi_substream *substream)
+static int ozzy_midi_close(struct snd_rawmidi_substream *substream)
 {
 	return 0;
 }
 
-static void emidi_in_trigger(struct snd_rawmidi_substream *substream, int up)
+static void ozzy_midi_in_trigger(struct snd_rawmidi_substream *substream, int up)
 {
-	struct ozzy_echip *chip = substream->rmidi->private_data;
+	struct ozzy_chip *chip = substream->rmidi->private_data;
 	unsigned long flags;
 
 	spin_lock_irqsave(&chip->midi.lock, flags);
@@ -90,10 +90,10 @@ static void emidi_in_trigger(struct snd_rawmidi_substream *substream, int up)
 	spin_unlock_irqrestore(&chip->midi.lock, flags);
 }
 
-/* While triggered, emidi_service keeps pulling from the substream */
-static void emidi_out_trigger(struct snd_rawmidi_substream *substream, int up)
+/* While triggered, ozzy_midi_service keeps pulling from the substream */
+static void ozzy_midi_out_trigger(struct snd_rawmidi_substream *substream, int up)
 {
-	struct ozzy_echip *chip = substream->rmidi->private_data;
+	struct ozzy_chip *chip = substream->rmidi->private_data;
 	unsigned long flags;
 
 	spin_lock_irqsave(&chip->midi.lock, flags);
@@ -103,22 +103,22 @@ static void emidi_out_trigger(struct snd_rawmidi_substream *substream, int up)
 		chip->midi.out = NULL;
 	spin_unlock_irqrestore(&chip->midi.lock, flags);
 	if (up)
-		emidi_service(chip);
+		ozzy_midi_service(chip);
 }
 
-static const struct snd_rawmidi_ops emidi_out_ops = {
-	.open    = emidi_open,
-	.close   = emidi_close,
-	.trigger = emidi_out_trigger,
+static const struct snd_rawmidi_ops ozzy_midi_out_ops = {
+	.open    = ozzy_midi_open,
+	.close   = ozzy_midi_close,
+	.trigger = ozzy_midi_out_trigger,
 };
 
-static const struct snd_rawmidi_ops emidi_in_ops = {
-	.open    = emidi_open,
-	.close   = emidi_close,
-	.trigger = emidi_in_trigger,
+static const struct snd_rawmidi_ops ozzy_midi_in_ops = {
+	.open    = ozzy_midi_open,
+	.close   = ozzy_midi_close,
+	.trigger = ozzy_midi_in_trigger,
 };
 
-int emidi_init(struct ozzy_echip *chip)
+int ozzy_midi_init(struct ozzy_chip *chip)
 {
 	const struct ozzy_device_profile *p = &chip->engine->profile;
 	struct snd_rawmidi *rmidi;
@@ -136,8 +136,8 @@ int emidi_init(struct ozzy_echip *chip)
 	rmidi->private_data = chip;
 	strscpy(rmidi->name, chip->dev->product ?: chip->model->name, sizeof(rmidi->name));
 	rmidi->info_flags = SNDRV_RAWMIDI_INFO_OUTPUT | SNDRV_RAWMIDI_INFO_INPUT | SNDRV_RAWMIDI_INFO_DUPLEX;
-	snd_rawmidi_set_ops(rmidi, SNDRV_RAWMIDI_STREAM_OUTPUT, &emidi_out_ops);
-	snd_rawmidi_set_ops(rmidi, SNDRV_RAWMIDI_STREAM_INPUT, &emidi_in_ops);
+	snd_rawmidi_set_ops(rmidi, SNDRV_RAWMIDI_STREAM_OUTPUT, &ozzy_midi_out_ops);
+	snd_rawmidi_set_ops(rmidi, SNDRV_RAWMIDI_STREAM_INPUT, &ozzy_midi_in_ops);
 	chip->midi.rmidi = rmidi;
 	return 0;
 }

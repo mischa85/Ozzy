@@ -31,6 +31,25 @@ static inline bool ploytec_submit_pcm_in(const struct ozzy_bus *bus, volatile st
 	return ozzy_bus_submit(bus, address, buffer, PLOYTEC_IN_PKT_SIZE, (void *)(uintptr_t)idx);
 }
 
+/*
+ * MIDI IN: PLOYTEC_MIDI_IN_XFERS reads of the framing's transfer size (9 bytes on the Xones,
+ * as Linux reads them), each into its own slot of midi_in_usb_buffer, so no two transfers
+ * share memory or a cache line
+ */
+#define PLOYTEC_MIDI_IN_XFERS   4
+#define PLOYTEC_MIDI_IN_SLOT    64     /* >= PLOYTEC_MIDI_XFER_MAX, a cache line */
+
+static inline uint8_t *ploytec_midi_in_slot(volatile struct ozzy_shared_memory *shm, uint32_t slot)
+{
+	return (uint8_t *)shm->midi_in_usb_buffer + slot * PLOYTEC_MIDI_IN_SLOT;
+}
+
+static inline bool ploytec_submit_midi_in(const struct ozzy_bus *bus, volatile struct ozzy_shared_memory *shm,
+					  uint8_t address, const struct ploytec_midi *midi, uint32_t slot)
+{
+	return ozzy_bus_submit(bus, address, ploytec_midi_in_slot(shm, slot), midi->xfer_size, (void *)(uintptr_t)slot);
+}
+
 /* The MIDI bytes of one MIDI IN transfer (ploytec_midi.h) into the midi_in ring */
 static inline void ploytec_midi_in_to_ring(const struct ploytec_midi *midi, volatile struct ozzy_shared_memory *shm,
 					   const uint8_t *transfer, uint32_t bytes)

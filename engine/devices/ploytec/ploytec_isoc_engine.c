@@ -12,7 +12,6 @@
 #include <string.h>
 
 #define IN_TRANSFERS   2
-#define MIDI_IN_SLOT   256   /* bytes per MIDI IN read slot in midi_in_usb_buffer */
 
 /* Feedback format (ploytec_defs.h) */
 static const struct isoc_fb_config feedback = PLOYTEC_ISOC_FEEDBACK;
@@ -49,10 +48,7 @@ static void isoc_set_endpoint(struct ozzy_engine *e, enum ozzy_pipe_role role, u
 /* MIDI IN reads of the framing's transfer size (AJ::configurationDone), one slot each */
 static void submit_midi_in(struct ploytec_isoc_engine *pe, uint32_t slot)
 {
-	volatile struct ozzy_shared_memory *shm = pe->base.shm;
-	void *buf = (void *)(shm->midi_in_usb_buffer + slot * MIDI_IN_SLOT);
-
-	if (!ozzy_bus_submit(pe->base.bus, pe->midi_in_addr, buf, pe->midi.xfer_size, (void *)(uintptr_t)slot))
+	if (!ploytec_submit_midi_in(pe->base.bus, pe->base.shm, pe->midi_in_addr, &pe->midi, slot))
 		ploytec_log("isoc: MIDI input submission failed (slot %u)", slot);
 }
 
@@ -130,7 +126,7 @@ static bool isoc_start(struct ozzy_engine *e)
 	if (!ozzy_isoc_output_start(&pe->output, e->bus, shm, &out))
 		return false;
 
-	for (i = 0; pe->midi_in_addr && i < 2; i++)
+	for (i = 0; pe->midi_in_addr && i < PLOYTEC_MIDI_IN_XFERS; i++)
 		submit_midi_in(pe, i);
 	if (pe->midi_out_addr)
 		ozzy_bus_start_timer(e->bus, PLOYTEC_MIDI_XFER_INTERVAL_US);
@@ -190,10 +186,9 @@ static void isoc_complete(struct ozzy_engine *e, uint8_t pipe, void *xfer, int s
 		if (!ploytec_submit_pcm_in(e->bus, shm, pe->in_addr, idx + IN_TRANSFERS))
 			ploytec_log("isoc: input submission failed (idx: %u)", idx + IN_TRANSFERS);
 	} else if (pipe == pe->midi_in_addr) {
-		const uint8_t *buf = (const uint8_t *)shm->midi_in_usb_buffer + idx * MIDI_IN_SLOT;
-
 		if (status == 0)
-			ploytec_midi_in_to_ring(&pe->midi, shm, buf, bytes < MIDI_IN_SLOT ? bytes : MIDI_IN_SLOT);
+			ploytec_midi_in_to_ring(&pe->midi, shm, ploytec_midi_in_slot(shm, idx),
+						bytes < PLOYTEC_MIDI_IN_SLOT ? bytes : PLOYTEC_MIDI_IN_SLOT);
 		submit_midi_in(pe, idx);
 	} else if (pipe == pe->midi_out_addr) {
 		if (status != 0)

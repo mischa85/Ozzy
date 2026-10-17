@@ -80,13 +80,10 @@ static void submit_pcm_out(struct ploytec_engine *pe, uint32_t idx)
 		ploytec_log("output submission failed (idx: %u)", idx);
 }
 
-static void submit_midi_in(struct ploytec_engine *pe, uint32_t idx)
+static void submit_midi_in(struct ploytec_engine *pe, uint32_t slot)
 {
-	volatile struct ozzy_shared_memory *shm = pe->base.shm;
-
-	if (!ozzy_bus_submit(pe->base.bus, EP_MIDI_IN, (void *)shm->midi_in_usb_buffer,
-			     sizeof(shm->midi_in_usb_buffer), (void *)(uintptr_t)idx))
-		ploytec_log("MIDI input submission failed (idx: %u)", idx);
+	if (!ploytec_submit_midi_in(pe->base.bus, pe->base.shm, EP_MIDI_IN, &pe->midi, slot))
+		ploytec_log("MIDI input submission failed (slot %u)", slot);
 }
 
 static bool ploytec_start(struct ozzy_engine *e)
@@ -141,14 +138,15 @@ static bool ploytec_start(struct ozzy_engine *e)
 	for (i = 0; i < OZZY_NUM_PACKETS; i++)
 		ploytec_out_init_packet(pe->out_layout, (uint8_t *)shm->audio.output_buffer + i * OZZY_MAX_PACKET_SIZE);
 
-	/* 5. Two transfers in flight per pipe */
+	/* 5. Two PCM transfers in flight per pipe, PLOYTEC_MIDI_IN_XFERS MIDI IN reads */
 	pe->running = true;
 	for (i = 0; i < 2; i++) {
 		if (!ploytec_submit_pcm_in(e->bus, shm, EP_PCM_IN, i))
 			ploytec_log("input submission failed (idx: %u)", i);
 		submit_pcm_out(pe, i);
-		submit_midi_in(pe, i);
 	}
+	for (i = 0; i < PLOYTEC_MIDI_IN_XFERS; i++)
+		submit_midi_in(pe, i);
 
 	ozzy_store_release_bool(&shm->audio.driver_ready, true);
 	return true;
@@ -325,11 +323,11 @@ static void ploytec_complete(struct ozzy_engine *e, uint8_t pipe, void *xfer, in
 		if (!ploytec_submit_pcm_in(e->bus, shm, EP_PCM_IN, next))
 			ploytec_log("input submission failed (idx: %u)", next);
 	} else if (pipe == EP_MIDI_IN) {
-		/* Only the MIDI bytes of the frame (ploytec_midi.h) */
+		/* Only the MIDI bytes of the frame (ploytec_midi.h); the slot is the transfer's */
 		if (bytes)
-			ploytec_midi_in_to_ring(&pe->midi, shm, (const uint8_t *)shm->midi_in_usb_buffer,
-						bytes < sizeof(shm->midi_in_usb_buffer) ? bytes : sizeof(shm->midi_in_usb_buffer));
-		submit_midi_in(pe, next);
+			ploytec_midi_in_to_ring(&pe->midi, shm, ploytec_midi_in_slot(shm, finished),
+						bytes < PLOYTEC_MIDI_IN_SLOT ? bytes : PLOYTEC_MIDI_IN_SLOT);
+		submit_midi_in(pe, finished);
 	}
 }
 

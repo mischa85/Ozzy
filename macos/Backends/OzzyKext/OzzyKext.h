@@ -10,7 +10,7 @@
 #include <IOKit/IOLocks.h>
 
 class KextBus;
-class OzzyEngine;
+struct ozzy_engine;
 struct ozzy_shared_memory;
 
 #define kMaxInterfaces 4
@@ -40,7 +40,7 @@ private:
 
     IOUSBHostDevice* mHostDevice = nullptr;
     KextBus* mBus = nullptr;
-    OzzyEngine* mEngine = nullptr;
+    struct ozzy_engine* mEngine = nullptr;
     size_t mEngineSize = 0;
     volatile bool mRunning = false;   // engine started and device present
     IOLock* mSettingsLock = nullptr;  // serializes ApplySetting with itself and termination

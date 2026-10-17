@@ -29,7 +29,7 @@ private:
 
     void Detach();
     uint64_t Position() { return (uint64_t)InterlockedCompareExchange64(&mPos, 0, 0); }
-    OzzyPcmDir Dir() const { return mRender ? kOzzyPcmOut : kOzzyPcmIn; }
+    enum ozzy_pcm_dir Dir() const { return mRender ? OZZY_PCM_OUT : OZZY_PCM_IN; }
     // Frames between the ring position and the device: the PCM out packets in flight
     uint32_t InFlightFrames() const;
 
@@ -45,7 +45,7 @@ private:
     ULONG mPacketFrames = 0;
     PMDL mMdl[kMaxPackets] = {};
 
-    OzzyPcmRing mRing = {};
+    struct ozzy_pcm_ring mRing = {};
     bool mAttached = false;
 
     // Written in OnPcmProgress, read by the RT callbacks

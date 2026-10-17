@@ -1,5 +1,4 @@
 #include "Device.h"
-#include "../../engine/devices/ploytec/PloytecEngine.h"
 #include "../../common/ozzy_version.h"
 
 static EVT_WDF_DEVICE_PREPARE_HARDWARE OzzyEvtPrepareHardware;
@@ -117,7 +116,9 @@ static NTSTATUS OzzyEvtPrepareHardware(WDFDEVICE device, WDFCMRESLIST resources,
     }
     if (!ctx->bus) {
         ctx->bus = new KmdfBus();
-        ctx->engine = new PloytecEngine(ctx->model);
+        size_t size = ozzy_engine_size(ctx->model);
+        void* mem = size ? ExAllocatePool2(POOL_FLAG_NON_PAGED, size, OZZY_POOL_TAG) : nullptr;
+        ctx->engine = ozzy_engine_init(mem, ctx->model);
         if (!ctx->bus || !ctx->engine) return STATUS_INSUFFICIENT_RESOURCES;
         ctx->bus->SetEngine(ctx->engine);
     }
@@ -125,7 +126,7 @@ static NTSTATUS OzzyEvtPrepareHardware(WDFDEVICE device, WDFCMRESLIST resources,
         NTSTATUS status = ctx->bus->Create(device);
         if (NT_SUCCESS(status)) status = ctx->bus->Configure(ctx->engine, ctx->shm, sizeof(ozzy_shared_memory));
         if (!NT_SUCCESS(status)) return status;
-        ctx->engine->Init(ctx->bus, ctx->shm);
+        ozzy_engine_attach(ctx->engine, ctx->bus->Bus(), ctx->shm);
         ctx->configured = true;
     }
 
@@ -154,7 +155,7 @@ static NTSTATUS OzzyEvtReleaseHardware(WDFDEVICE device, WDFCMRESLIST translated
         ctx->circuitsAdded = false;
     }
     // D0Exit has stopped the engine and its transfers
-    delete ctx->engine;
+    if (ctx->engine) ExFreePoolWithTag(ctx->engine, OZZY_POOL_TAG);
     delete ctx->bus;
     ctx->engine = nullptr;
     ctx->bus = nullptr;
@@ -172,8 +173,8 @@ static NTSTATUS OzzyEvtD0Entry(WDFDEVICE device, WDF_POWER_DEVICE_STATE previous
     OzzyDeviceContext* ctx = GetOzzyDevice(device);
 
     ctx->bus->StartIo();
-    if (!ctx->engine->Start()) {
-        ctx->engine->Stop();
+    if (!ozzy_engine_start(ctx->engine)) {
+        ozzy_engine_stop(ctx->engine);
         ctx->bus->StopIo();
         return STATUS_DEVICE_NOT_READY;
     }
@@ -189,7 +190,7 @@ static NTSTATUS OzzyEvtD0Exit(WDFDEVICE device, WDF_POWER_DEVICE_STATE target) {
     OzzyDeviceContext* ctx = GetOzzyDevice(device);
 
     // No more resubmits, then cancel what is in flight
-    ctx->engine->Stop();
+    ozzy_engine_stop(ctx->engine);
     ctx->bus->StopIo();
     return STATUS_SUCCESS;
 }

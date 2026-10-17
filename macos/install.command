@@ -195,11 +195,11 @@ BUILD_DIR="$DIR/Build"
 SOURCES=(
     "Backends/OzzyKext/OzzyKext.cpp"
     "Backends/OzzyKext/KextBus.cpp"
-    "../engine/core/OzzyEngine.cpp"
-    "../engine/core/OzzyIsocOutput.cpp"
-    "../engine/devices/ploytec/PloytecEngine.cpp"
-    "../engine/devices/ploytec/PloytecIsocEngine.cpp"
-    "../engine/devices/usbmidi/UsbMidiEngine.cpp"
+    "../engine/core/ozzy_engine.c"
+    "../engine/core/ozzy_isoc_output.c"
+    "../engine/devices/ploytec/ploytec_engine.c"
+    "../engine/devices/ploytec/ploytec_isoc_engine.c"
+    "../engine/devices/usbmidi/usb_midi_engine.c"
     "../common/devices/ploytec/ploytec_handshake.c"
     "../common/devices/ploytec/ploytec_codec.c"
     "../common/usb_midi.c"
@@ -231,10 +231,14 @@ DISABLE_FLAGS=""
 for KEY in $OZZY_DISABLE; do DISABLE_FLAGS="$DISABLE_FLAGS -DOZZY_DISABLE_$KEY"; done
 if [ -n "$DISABLE_FLAGS" ]; then echo "   🚫 Left out:$DISABLE_FLAGS"; fi
 
-# -Wno-implicit-int-conversion: the frame codecs (ploytec_codec.c) narrow to bytes on purpose
 CFLAGS="-x c++ -arch $KEXT_ARCH -std=c++11 -O2 -DKERNEL -D__KERNEL__ -mkernel \
 -fno-builtin -fno-exceptions -fno-rtti -fno-common -fno-use-cxa-atexit \
--Wno-deprecated-declarations -Wno-inconsistent-missing-override -Wno-implicit-int-conversion \
+-Wno-deprecated-declarations -Wno-inconsistent-missing-override \
+-nostdinc -I. -I$KERNEL_HEADERS -include Backends/OzzyKext/SdkCompat.h -DOZZY_GIT_VERSION=\"$GIT_VERSION\"$DISABLE_FLAGS"
+
+# The engine and common/ are C
+CFLAGS_C="-x c -arch $KEXT_ARCH -std=gnu11 -O2 -DKERNEL -D__KERNEL__ -mkernel \
+-fno-builtin -fno-common -Wno-deprecated-declarations -Wno-implicit-int-conversion \
 -nostdinc -I. -I$KERNEL_HEADERS -include Backends/OzzyKext/SdkCompat.h -DOZZY_GIT_VERSION=\"$GIT_VERSION\"$DISABLE_FLAGS"
 
 LDFLAGS="-arch $KEXT_ARCH -Xlinker -kext -nostdlib -lkmod -lcc_kext"
@@ -250,7 +254,8 @@ for SRC in "${SOURCES[@]}"; do
     FLAT_NAME=$(basename "${SRC%.*}")
     OBJ="$BUILD_DIR/$FLAT_NAME.o"
     
-    clang++ $CFLAGS -c "$SRC" -o "$OBJ" 2>&1 | grep -v "warning:" || true
+    if [[ "$SRC" == *.c ]]; then FLAGS="$CFLAGS_C"; else FLAGS="$CFLAGS"; fi
+    clang++ $FLAGS -c "$SRC" -o "$OBJ" 2>&1 | grep -v "warning:" || true
     
     if [ $? -ne 0 ]; then
         echo "❌ Compilation Failed: $SRC"

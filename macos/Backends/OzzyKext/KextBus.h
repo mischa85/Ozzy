@@ -5,32 +5,34 @@
 #include <IOKit/usb/IOUSBHostPipe.h>
 #include <IOKit/IOBufferMemoryDescriptor.h> 
 #include <IOKit/IOSubMemoryDescriptor.h> // REQUIRED for withSubRange
-#include "../../../engine/devices/ploytec/PloytecBus.h"
+#include "../../../engine/core/ozzy_engine.h"
 #include <kern/thread_call.h>
 
-class KextBus : public PloytecBus {
+// The engine's bus (engine/core/ozzy_bus.h) on IOUSBHost: zero-copy transfers on slices of the
+// shared memory descriptor, completions to the engine
+class KextBus {
 public:
     KextBus(IOUSBHostDevice* device, IOService* driver);
-    virtual ~KextBus();
+    ~KextBus();
 
-    // IOzzyBus Implementation
-    virtual bool SubmitUSBPacket(uint8_t pipeID, void* buffer, uint32_t size, void* contextID) override;
-    virtual bool SubmitIsoc(uint8_t pipeID, void* buffer, uint32_t bufferSize,
-                            OzzyIsocPacket* packets, uint32_t count, void* contextID) override;
-    virtual bool VendorRequest(uint8_t type, uint8_t req, uint16_t val, uint16_t idx, void* data, uint16_t len) override;
-    
-    virtual void Sleep(uint32_t ms) override;
-    virtual uint64_t GetTime() override;
-    virtual void Log(const char* fmt, ...) override;
-    virtual void SetEngine(OzzyEngine* engine) override;
-    virtual bool StartTimer(uint32_t intervalUs) override;
-    virtual void StopTimer() override;
+    // What the engine runs on (ozzy_engine_attach)
+    const struct ozzy_bus* Bus() const { return &mOzzyBus; }
+
+    bool SubmitUSBPacket(uint8_t pipeID, void* buffer, uint32_t size, void* contextID);
+    bool SubmitIsoc(uint8_t pipeID, void* buffer, uint32_t bufferSize,
+                    struct ozzy_isoc_packet* packets, uint32_t count, void* contextID);
+    bool VendorRequest(uint8_t type, uint8_t req, uint16_t val, uint16_t idx, void* data, uint16_t len);
+    void Sleep(uint32_t ms);
+    uint64_t GetTime();
+    void SetEngine(struct ozzy_engine* engine);
+    bool StartTimer(uint32_t intervalUs);
+    void StopTimer();
     
     // NEW: Receive the Master Shared Memory Descriptor
     void SetSharedMemory(IOBufferMemoryDescriptor* mainDesc, void* virtBase);
     
     void SetPipePool(IOUSBHostPipe** pipes, int count);
-    OzzyEngine* GetEngine();
+    struct ozzy_engine* GetEngine();
 
     // Legacy Stub
     static void StaticCompletion(void* owner, void* parameter, IOReturn status, uint32_t bytesTransferred);
@@ -40,7 +42,9 @@ private:
     IOService* mDriver; 
     IOUSBHostPipe** mPipes;
     int mPipeCount;
-    OzzyEngine* mEngine;
+    struct ozzy_engine* mEngine;
+    struct ozzy_bus mOzzyBus;
+    static const struct ozzy_bus_ops sOps;
 
     // Master Memory References
     IOBufferMemoryDescriptor* mMainShmDesc;

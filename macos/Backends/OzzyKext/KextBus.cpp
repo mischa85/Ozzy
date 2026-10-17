@@ -60,9 +60,9 @@ void KextBus_GlobalCompletion(void* owner, void* parameter, IOReturn status, uin
 
     // 4. NOTIFY ENGINE
     if (bus) {
-        OzzyEngine* engine = bus->GetEngine();
+        struct ozzy_engine* engine = bus->GetEngine();
         if (engine) {
-            engine->OnPacketComplete(pipeID, originalUserContext, status, bytesTransferred);
+            ozzy_engine_complete(engine, pipeID, originalUserContext, status, bytesTransferred);
         }
     }
 }
@@ -73,9 +73,9 @@ struct IsocContext {
     void* userContext;
     uint8_t pipeID;
     KextBus* busInstance;
-    OzzyIsocPacket* packets;
+    struct ozzy_isoc_packet* packets;
     uint32_t count;
-    IOUSBHostIsochronousTransaction transactions[kOzzyMaxIsocPackets];
+    IOUSBHostIsochronousTransaction transactions[OZZY_MAX_ISOC_PACKETS];
 };
 
 /* Copy each transaction's result back to the engine's packets, then notify the engine */
@@ -100,19 +100,42 @@ static void KextBus_IsocCompletion(void* owner, void* parameter, IOReturn status
     KextBus* bus = ctx->busInstance;
     void* userContext = ctx->userContext;
     uint8_t pipeID = ctx->pipeID;
-    OzzyIsocPacket* packets = ctx->packets;
+    struct ozzy_isoc_packet* packets = ctx->packets;
     uint32_t count = ctx->count;
     delete ctx;
 
-    OzzyEngine* engine = bus ? bus->GetEngine() : nullptr;
-    if (engine) engine->OnIsocComplete(pipeID, userContext, status, packets, count);
+    struct ozzy_engine* engine = bus ? bus->GetEngine() : nullptr;
+    if (engine) ozzy_engine_isoc_complete(engine, pipeID, userContext, status, packets, count);
 }
 
 // --- Class Implementation ---
 
+// --- struct ozzy_bus_ops: the engine's calls, to the methods ---
+static bool OpsSubmit(void* ctx, uint8_t pipe, void* buf, uint32_t size, void* xfer) {
+    return ((KextBus*)ctx)->SubmitUSBPacket(pipe, buf, size, xfer);
+}
+static bool OpsSubmitIsoc(void* ctx, uint8_t pipe, void* buf, uint32_t bufSize, struct ozzy_isoc_packet* packets,
+                          uint32_t count, void* xfer) {
+    return ((KextBus*)ctx)->SubmitIsoc(pipe, buf, bufSize, packets, count, xfer);
+}
+static bool OpsControl(void* ctx, uint8_t type, uint8_t req, uint16_t val, uint16_t idx, void* data, uint16_t len) {
+    return ((KextBus*)ctx)->VendorRequest(type, req, val, idx, data, len);
+}
+static bool OpsStartTimer(void* ctx, uint32_t intervalUs) { return ((KextBus*)ctx)->StartTimer(intervalUs); }
+static void OpsStopTimer(void* ctx) { ((KextBus*)ctx)->StopTimer(); }
+static void OpsSleep(void* ctx, unsigned int ms) { ((KextBus*)ctx)->Sleep(ms); }
+static uint64_t OpsTime(void* ctx) { return ((KextBus*)ctx)->GetTime(); }
+
+// No PCM rings on macOS: the HAL writes the shared memory itself
+const struct ozzy_bus_ops KextBus::sOps = {
+    OpsSubmit, OpsSubmitIsoc, OpsControl, OpsStartTimer, OpsStopTimer, nullptr, OpsSleep, OpsTime
+};
+
 KextBus::KextBus(IOUSBHostDevice* device, IOService* driver) 
     : mDevice(device), mDriver(driver), mPipes(nullptr), mPipeCount(0), mEngine(nullptr), mMainShmDesc(nullptr), mShmBase(0) {
     for (int i = 0; i < kPipeSlots; i++) mPipeByAddress[i] = nullptr;
+    mOzzyBus.ops = &sOps;
+    mOzzyBus.ctx = this;
 }
 
 KextBus::~KextBus() {
@@ -142,7 +165,7 @@ void KextBus::StopTimer() {
 void KextBus::TimerFired(thread_call_param_t param, thread_call_param_t) {
     KextBus* bus = (KextBus*)param;
     if (!bus->mTimerOn) return;
-    if (bus->mEngine) bus->mEngine->OnTimer();
+    if (bus->mEngine) ozzy_engine_timer(bus->mEngine);
 
     // Next deadline from the last one; if we fell behind, skip to the next one ahead
     uint64_t now = mach_absolute_time();
@@ -163,7 +186,7 @@ void KextBus::SetPipePool(IOUSBHostPipe** pipes, int count) {
     }
 }
 
-void KextBus::SetEngine(OzzyEngine* engine) {
+void KextBus::SetEngine(struct ozzy_engine* engine) {
     mEngine = engine;
 }
 
@@ -173,7 +196,7 @@ void KextBus::SetSharedMemory(IOBufferMemoryDescriptor* mainDesc, void* virtBase
     mShmBase = (uintptr_t)virtBase;
 }
 
-OzzyEngine* KextBus::GetEngine() {
+struct ozzy_engine* KextBus::GetEngine() {
     return mEngine;
 }
 
@@ -234,9 +257,9 @@ bool KextBus::SubmitUSBPacket(uint8_t pipeID, void* buffer, uint32_t size, void*
 /* Zero copy like SubmitUSBPacket: the transactions point into a slice of the shared memory.
  * A packet that runs past the end of the buffer wraps to its start (XHCI). */
 bool KextBus::SubmitIsoc(uint8_t pipeID, void* buffer, uint32_t bufferSize,
-                         OzzyIsocPacket* packets, uint32_t count, void* contextID) {
+                         struct ozzy_isoc_packet* packets, uint32_t count, void* contextID) {
     IOUSBHostPipe* pipe = FindPipe(pipeID);
-    if (!pipe || !mMainShmDesc || mShmBase == 0 || count == 0 || count > kOzzyMaxIsocPackets) return false;
+    if (!pipe || !mMainShmDesc || mShmBase == 0 || count == 0 || count > OZZY_MAX_ISOC_PACKETS) return false;
 
     IODirection dir = (pipeID & 0x80) ? kIODirectionIn : kIODirectionOut;
     IOSubMemoryDescriptor* slice = IOSubMemoryDescriptor::withSubRange(
@@ -297,13 +320,6 @@ bool KextBus::VendorRequest(uint8_t type, uint8_t req, uint16_t val, uint16_t id
 
 void KextBus::Sleep(uint32_t ms) { IOSleep(ms); }
 uint64_t KextBus::GetTime() { return mach_absolute_time(); }
-
-void KextBus::Log(const char* fmt, ...) {
-    va_list args;
-    va_start(args, fmt);
-    IOLogv(fmt, args);
-    va_end(args);
-}
 
 // Stub
 void KextBus::StaticCompletion(void* owner, void* parameter, IOReturn status, uint32_t bytesTransferred) {}

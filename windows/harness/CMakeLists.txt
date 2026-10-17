@@ -8,9 +8,11 @@ set(OZZY ${CMAKE_CURRENT_SOURCE_DIR}/../..)
 add_executable(ozzy-harness
     main.cpp
     WinUsbBus.cpp
-    ${OZZY}/engine/core/OzzyEngine.cpp
-    ${OZZY}/engine/devices/ploytec/PloytecEngine.cpp
-    ${OZZY}/engine/devices/usbmidi/UsbMidiEngine.cpp
+    ${OZZY}/engine/core/ozzy_engine.c
+    ${OZZY}/engine/core/ozzy_isoc_output.c
+    ${OZZY}/engine/devices/ploytec/ploytec_engine.c
+    ${OZZY}/engine/devices/ploytec/ploytec_isoc_engine.c
+    ${OZZY}/engine/devices/usbmidi/usb_midi_engine.c
     ${OZZY}/common/devices/ploytec/ploytec_handshake.c
     ${OZZY}/common/devices/ploytec/ploytec_codec.c
     ${OZZY}/common/usb_midi.c

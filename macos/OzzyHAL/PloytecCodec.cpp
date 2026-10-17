@@ -1,5 +1,5 @@
 #include "PloytecCodec.h"
-#include "../../engine/devices/ploytec/PloytecProtocol.h"
+#include "../../common/devices/ploytec/ploytec_protocol.h"
 #include "../../common/devices/ploytec/ploytec_codec.h"
 #include "../../engine/shared/ozzy_shared_data.h"
 #include <cstring>

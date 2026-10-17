@@ -5,6 +5,29 @@
 
 #define OZZY_POOL_TAG 'yzzO'
 
+// --- struct ozzy_bus_ops: the engine's calls, to the methods ---
+static bool OpsSubmit(void* ctx, uint8_t pipe, void* buf, uint32_t size, void* xfer) {
+    return ((KmdfBus*)ctx)->SubmitUSBPacket(pipe, buf, size, xfer);
+}
+static bool OpsControl(void* ctx, uint8_t type, uint8_t req, uint16_t val, uint16_t idx, void* data, uint16_t len) {
+    return ((KmdfBus*)ctx)->VendorRequest(type, req, val, idx, data, len);
+}
+static bool OpsStartTimer(void* ctx, uint32_t intervalUs) { return ((KmdfBus*)ctx)->StartTimer(intervalUs); }
+static void OpsStopTimer(void* ctx) { ((KmdfBus*)ctx)->StopTimer(); }
+static void OpsPcmProgress(void* ctx, enum ozzy_pcm_dir dir, uint64_t frames) { ((KmdfBus*)ctx)->PcmProgress(dir, frames); }
+static void OpsSleep(void* ctx, unsigned int ms) { ((KmdfBus*)ctx)->Sleep(ms); }
+static uint64_t OpsTime(void* ctx) { return ((KmdfBus*)ctx)->GetTime(); }
+
+// Isochronous URBs (per-packet lengths, ring wrap) come with the Ploytec isochronous family
+const struct ozzy_bus_ops KmdfBus::sOps = {
+    OpsSubmit, nullptr, OpsControl, OpsStartTimer, OpsStopTimer, OpsPcmProgress, OpsSleep, OpsTime
+};
+
+KmdfBus::KmdfBus() {
+    mOzzyBus.ops = &sOps;
+    mOzzyBus.ctx = this;
+}
+
 /* ReleaseHardware: everything Create and Configure made, so PrepareHardware can run again */
 KmdfBus::~KmdfBus() {
     StopTimer();
@@ -67,8 +90,8 @@ const USB_ENDPOINT_DESCRIPTOR* KmdfBus::FindEndpoint(uint8_t intf, uint8_t alt, 
     return nullptr;
 }
 
-NTSTATUS KmdfBus::Configure(OzzyEngine* engine, void* shm, size_t shmSize) {
-    const OzzyDeviceProfile& profile = engine->GetProfile();
+NTSTATUS KmdfBus::Configure(struct ozzy_engine* engine, void* shm, size_t shmSize) {
+    const struct ozzy_device_profile& profile = engine->profile;
 
     mShmBase = (uint8_t*)shm;
     NTSTATUS status = WdfMemoryCreatePreallocated(WDF_NO_OBJECT_ATTRIBUTES, shm, shmSize, &mShm);
@@ -77,38 +100,35 @@ NTSTATUS KmdfBus::Configure(OzzyEngine* engine, void* shm, size_t shmSize) {
     // The profile's interfaces, with its alternate setting
     WDFUSBINTERFACE byIndex[4] = {};
     UCHAR count = WdfUsbTargetDeviceGetNumInterfaces(mUsb);
-    for (int i = 0; i < profile.interfaceCount; i++) {
+    for (int i = 0; i < profile.interface_count; i++) {
         for (UCHAR k = 0; k < count; k++) {
             WDFUSBINTERFACE intf = WdfUsbTargetDeviceGetInterface(mUsb, k);
-            if (WdfUsbInterfaceGetInterfaceNumber(intf) == profile.interfaceIndices[i]) byIndex[i] = intf;
+            if (WdfUsbInterfaceGetInterfaceNumber(intf) == profile.interfaces[i]) byIndex[i] = intf;
         }
         if (!byIndex[i]) {
-            Log("[Ozzy] interface %u not found", profile.interfaceIndices[i]);
+            Log("[Ozzy] interface %u not found", profile.interfaces[i]);
             return STATUS_DEVICE_CONFIGURATION_ERROR;
         }
-        if (profile.altSetting) {
+        if (profile.alt_setting) {
             WDF_USB_INTERFACE_SELECT_SETTING_PARAMS params;
-            WDF_USB_INTERFACE_SELECT_SETTING_PARAMS_INIT_SETTING(&params, profile.altSetting);
+            WDF_USB_INTERFACE_SELECT_SETTING_PARAMS_INIT_SETTING(&params, profile.alt_setting);
             status = WdfUsbInterfaceSelectSetting(byIndex[i], WDF_NO_OBJECT_ATTRIBUTES, &params);
             if (!NT_SUCCESS(status)) {
-                Log("[Ozzy] interface %u: alternate setting %u: 0x%08x", profile.interfaceIndices[i],
-                    profile.altSetting, status);
+                Log("[Ozzy] interface %u: alternate setting %u: 0x%08x", profile.interfaces[i],
+                    profile.alt_setting, status);
                 return status;
             }
         }
     }
 
     // Each role: a fixed address, or the first endpoint of the wanted type (as OzzyKext)
-    const OzzyPipeConfig* configs[kOzzyPipeRoles] = {
-        &profile.pcmOut, &profile.pcmIn, &profile.midiIn, &profile.midiOut, &profile.feedback
-    };
-    for (int role = 0; role < kOzzyPipeRoles; role++) {
-        const OzzyPipeConfig* cfg = configs[role];
+    for (int role = 0; role < OZZY_PIPE_ROLES; role++) {
+        const struct ozzy_ep* cfg = &profile.pipes[role];
         if (cfg->address == 0 && cfg->types == 0) continue;
 
         WDFUSBINTERFACE intf = nullptr;
-        for (int i = 0; i < profile.interfaceCount; i++) {
-            if (profile.interfaceIndices[i] == cfg->intf) intf = byIndex[i];
+        for (int i = 0; i < profile.interface_count; i++) {
+            if (profile.interfaces[i] == cfg->intf) intf = byIndex[i];
         }
         if (!intf) continue;
         uint8_t alt = WdfUsbInterfaceGetConfiguredSettingIndex(intf);
@@ -133,7 +153,7 @@ NTSTATUS KmdfBus::Configure(OzzyEngine* engine, void* shm, size_t shmSize) {
             uint16_t maxPacketSize = (uint16_t)((w & 0x07FF) * (((w >> 11) & 3) + 1));
             Log("[Ozzy]   pipe 0x%02x (%s, wMaxPacketSize %u, bInterval %u)", e->bEndpointAddress,
                 type == 1 ? "isochronous" : type == 2 ? "bulk" : "interrupt", maxPacketSize, e->bInterval);
-            engine->SetEndpoint((OzzyPipeRole)role, e->bEndpointAddress, type, maxPacketSize, e->bInterval);
+            ozzy_engine_set_endpoint(engine, (enum ozzy_pipe_role)role, e->bEndpointAddress, type, maxPacketSize, e->bInterval);
         }
         if (!found) Log("[Ozzy]   no endpoint for pipe role %d on interface %u", role, cfg->intf);
     }
@@ -221,7 +241,7 @@ void KmdfBus::Completion(WDFREQUEST request, WDFIOTARGET target, PWDF_REQUEST_CO
     InterlockedIncrement(&bus->mInCompletion);
     if (!NT_SUCCESS(status) && status != STATUS_CANCELLED)
         DbgPrintEx(DPFLTR_IHVAUDIO_ID, DPFLTR_ERROR_LEVEL, "[Ozzy] pipe 0x%02x error: 0x%08x\n", p.address, status);
-    if (bus->mEngine) bus->mEngine->OnPacketComplete(p.address, engineContext, (int)status, bytes);
+    if (bus->mEngine) ozzy_engine_complete(bus->mEngine, p.address, engineContext, (int)status, bytes);
     InterlockedDecrement(&bus->mInCompletion);
 }
 
@@ -234,7 +254,7 @@ void KmdfBus::StartIo() {
     for (int i = 0; i < mPipeCount; i++) WdfIoTargetStart(WdfUsbTargetPipeGetIoTarget(mPipes[i].pipe));
 }
 
-void KmdfBus::SetPcmClient(OzzyPcmDir dir, IOzzyPcmClient* client) {
+void KmdfBus::SetPcmClient(enum ozzy_pcm_dir dir, IOzzyPcmClient* client) {
     InterlockedExchangePointer((PVOID volatile*)&mClient[dir], client);
 }
 
@@ -245,16 +265,10 @@ void KmdfBus::WaitCompletions() {
     KeFlushQueuedDpcs();
 }
 
-void KmdfBus::PcmProgress(int dir, uint64_t frames) {
+void KmdfBus::PcmProgress(enum ozzy_pcm_dir dir, uint64_t frames) {
     IOzzyPcmClient* client = (IOzzyPcmClient*)InterlockedCompareExchangePointer((PVOID volatile*)&mClient[dir],
                                                                                nullptr, nullptr);
     if (client) client->OnPcmProgress(frames, GetTime());
-}
-
-bool KmdfBus::SubmitIsoc(uint8_t pipeID, void*, uint32_t, OzzyIsocPacket*, uint32_t, void*) {
-    // Isochronous URBs (per-packet lengths, ring wrap) come with the Ploytec isochronous family
-    Log("[Ozzy] isochronous pipe 0x%02x: not implemented yet", pipeID);
-    return false;
 }
 
 /* PASSIVE_LEVEL (the handshake), 5 s timeout like the kext's deviceRequest */
@@ -284,7 +298,7 @@ bool KmdfBus::VendorRequest(uint8_t type, uint8_t req, uint16_t val, uint16_t id
 void KmdfBus::TimerCallback(PEX_TIMER timer, PVOID context) {
     UNREFERENCED_PARAMETER(timer);
     KmdfBus* bus = (KmdfBus*)context;
-    if (bus->mEngine) bus->mEngine->OnTimer();
+    if (bus->mEngine) ozzy_engine_timer(bus->mEngine);
 }
 
 bool KmdfBus::StartTimer(uint32_t intervalUs) {

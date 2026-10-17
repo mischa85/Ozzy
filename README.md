@@ -382,7 +382,7 @@ Ozzy/
 ├── linux/          # Linux ALSA kernel module
 │   └── devices/    # Linux device-specific glue
 ├── engine/         # Engine shared by the macOS kext and the Windows driver
-│   ├── core/       # Device-agnostic audio engine and the bus interface (IOzzyBus)
+│   ├── core/       # Device-agnostic engine (C) and the bus interface (ozzy_bus)
 │   ├── devices/    # Device-specific protocol implementations
 │   └── shared/     # Shared memory layout, platform layer, logging
 ├── macos/          # macOS kext + HAL/MIDI drivers

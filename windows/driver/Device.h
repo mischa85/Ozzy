@@ -19,7 +19,7 @@ struct OzzyDeviceContext {
     const struct ozzy_device* model;   // common/ozzy_devices.def row, from the hardware ID
     uint32_t rate;                     // the stream format's rate: the engine's default rate
     KmdfBus* bus;
-    OzzyEngine* engine;
+    struct ozzy_engine* engine;        // ozzy_engine_size(model) bytes of nonpaged pool
     ozzy_shared_memory* shm;
     ACXCIRCUIT render;                 // nullptr if the model has no channels that way
     ACXCIRCUIT capture;

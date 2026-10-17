@@ -19,7 +19,7 @@ USB completion path:
 | `Device.cpp` | device add (model from the hardware ID), engine, bus and shared memory, D0 entry/exit |
 | `Circuit.cpp` | render and capture circuits: host and bridge pins, the one S24_3LE format |
 | `Stream.cpp` | RT stream: WaveRT packets as one ring, positions, packet completion |
-| `KmdfBus.cpp` | IOzzyBus on KMDF USB: requests into the shared memory, control requests |
+| `KmdfBus.cpp` | the engine's bus (`ozzy_bus`) on KMDF USB: requests into the shared memory, control requests |
 | `ozzy.inf.in` | INF template: endpoints, service; the build fills in the devices |
 | `GenInf.c` | writes `ozzy.inf`: one line per supported device in `common/ozzy_devices.def` (compiled and run by `ozzy.vcxproj` before the build, like `GenPersonalities.c` for the kext) |
 

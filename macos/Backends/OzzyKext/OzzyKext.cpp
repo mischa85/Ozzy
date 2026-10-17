@@ -1,8 +1,6 @@
 #include "OzzyKext.h"
 #include "KextBus.h"
-#include "../../../engine/devices/ploytec/PloytecEngine.h"
-#include "../../../engine/devices/ploytec/PloytecIsocEngine.h"
-#include "../../../engine/devices/usbmidi/UsbMidiEngine.h"
+#include "../../../engine/core/ozzy_engine.h"
 #include "../../../engine/shared/ozzy_shared_data.h"
 #include "../../../engine/shared/ozzy_log.h"
 #include "../../../common/ozzy_version.h"
@@ -97,8 +95,8 @@ IOReturn OzzyKext::newUserClient(task_t owningTask, void* securityID,
 
 /* The engine for a device's family (common/ozzy_devices.def). The kext's personalities are
  * generated from the same list, so the lookup fails only for a device that isn't in it.
- * @size returns the allocation size for SafeKernelDelete. */
-OzzyEngine* CreateEngine(uint16_t vid, uint16_t pid, size_t* size) {
+ * @size returns the allocation size for IOFree. */
+static struct ozzy_engine* CreateEngine(uint16_t vid, uint16_t pid, size_t* size) {
     const struct ozzy_device* device = ozzy_device_lookup(vid, pid);
     if (!device) {
         ozzy_log("%04x:%04x is not in the device list", vid, pid);
@@ -106,19 +104,9 @@ OzzyEngine* CreateEngine(uint16_t vid, uint16_t pid, size_t* size) {
     }
     ozzy_log("  device: %s%s", device->name, device->status == OZZY_STATUS_EXPERIMENTAL ? " (experimental)" : "");
 
-    switch (device->family) {
-    case OZZY_FAMILY_USB_MIDI:     *size = sizeof(UsbMidiEngine); break;
-    case OZZY_FAMILY_PLOYTEC_ISOC: *size = sizeof(PloytecIsocEngine); break;
-    default:                       *size = sizeof(PloytecEngine); break;
-    }
-    void* raw = IOMalloc(*size);
-    if (!raw) return nullptr;
-    memset(raw, 0, *size);
-    switch (device->family) {
-    case OZZY_FAMILY_USB_MIDI:     return new(raw) UsbMidiEngine();
-    case OZZY_FAMILY_PLOYTEC_ISOC: return new(raw) PloytecIsocEngine(device);
-    default:                       return new(raw) PloytecEngine(device);
-    }
+    *size = ozzy_engine_size(device);
+    void* raw = *size ? IOMalloc(*size) : nullptr;
+    return ozzy_engine_init(raw, device);
 }
 
 KextBus* CreateBus(IOUSBHostDevice* dev, IOService* driver) {
@@ -218,9 +206,9 @@ bool OzzyKext::start(IOService* provider) {
     mBus->SetPipePool(mPipes, kMaxPipes);
 
     ozzy_log("initializing engine...");
-    mEngine->Init(mBus, mSHM);
+    ozzy_engine_attach(mEngine, mBus->Bus(), mSHM);
     
-    if (!mEngine->Start()) {
+    if (!ozzy_engine_start(mEngine)) {
         ozzy_log("engine start failed");
         return false;
     }
@@ -237,7 +225,7 @@ bool OzzyKext::start(IOService* provider) {
 }
 
 void OzzyKext::MidiOutPending() {
-    if (mRunning && mEngine) mEngine->OnMidiOutPending();
+    if (mRunning && mEngine) ozzy_engine_midi_out_pending(mEngine);
 }
 
 /* OZZY_METHOD_APPLY_SETTING: restart the engine with setting @id = @value, the way the official
@@ -256,21 +244,21 @@ IOReturn OzzyKext::ApplySetting(uint32_t id, uint32_t value) {
 IOReturn OzzyKext::ApplySettingLocked(uint32_t id, uint32_t value) {
     if (!mRunning || !mEngine) return kIOReturnNotReady;
     // Device settings only: the HAL applies routes itself
-    if (!mEngine->HasSetting(id) || ozzy_setting_descs[id].kind != OZZY_SETTING_DEVICE ||
+    if (!ozzy_engine_has_setting(mEngine, id) || ozzy_setting_descs[id].kind != OZZY_SETTING_DEVICE ||
         value >= ozzy_setting_descs[id].num_values)
         return kIOReturnBadArgument;
 
     ozzy_log("%s: %s", ozzy_setting_descs[id].name, ozzy_setting_descs[id].value_names[value]);
-    mEngine->Suspend();
+    ozzy_engine_suspend(mEngine);
     for (int i = 0; i < kMaxPipes; i++) {
         if (mPipes[i]) mPipes[i]->abort(IOUSBHostIOSource::kAbortSynchronous);
     }
-    mEngine->SetSetting(id, (uint8_t)value);
-    if (!mEngine->Start()) {
+    ozzy_engine_set_setting(mEngine, id, (uint8_t)value);
+    if (!ozzy_engine_start(mEngine)) {
         // The device didn't take it: let the HAL drop it, as on a failed start
         ozzy_log("engine restart failed");
         mRunning = false;
-        mEngine->Stop();
+        ozzy_engine_stop(mEngine);
         return kIOReturnIOError;
     }
     return kIOReturnSuccess;
@@ -292,7 +280,7 @@ IOReturn OzzyKext::message(UInt32 type, IOService* provider, void* argument) {
         
         // CRITICAL: Stop engine and abort transfers NOW to prevent callback deadlocks
         if (mEngine) {
-            mEngine->Stop();
+            ozzy_engine_stop(mEngine);
         }
         
         // Close the device and interfaces now: IOKit only calls stop() once we have closed
@@ -333,7 +321,7 @@ void OzzyKext::stop(IOService* provider) {
     // 1. Stop the engine first (clears flags, signals HAL)
     mRunning = false;
     if (mEngine) { 
-        mEngine->Stop();
+        ozzy_engine_stop(mEngine);
     }
     
     // 2. Abort all pending USB transfers and close interfaces and device (if not done on termination)
@@ -360,7 +348,7 @@ void OzzyKext::stop(IOService* provider) {
     
     // 6. Clean up engine and bus
     if (mEngine) { 
-        SafeKernelDelete(mEngine, mEngineSize); 
+        IOFree(mEngine, mEngineSize);
         mEngine = nullptr; 
     }
     if (mBus) { 
@@ -450,7 +438,7 @@ bool OzzyKext::ConfigureHardware() {
     IOWorkLoop* wl = getWorkLoop();
     if (!wl) { ozzy_log("no workloop"); return false; }
 
-    const OzzyDeviceProfile& profile = mEngine->GetProfile();
+    const struct ozzy_device_profile& profile = mEngine->profile;
 
     mHostDevice->setConfiguration(1);
     IOSleep(500); 
@@ -467,14 +455,14 @@ bool OzzyKext::ConfigureHardware() {
             const StandardUSB::InterfaceDescriptor* d = iface->getInterfaceDescriptor();
             if (!d) continue;
 
-            for(int i=0; i < profile.interfaceCount; i++) {
-                if (d->bInterfaceNumber == profile.interfaceIndices[i] && !mInterfaces[i]) {
+            for(int i=0; i < profile.interface_count; i++) {
+                if (d->bInterfaceNumber == profile.interfaces[i] && !mInterfaces[i]) {
                     if (iface->open(this)) {
                         iface->retain();
                         mInterfaces[i] = iface;
                         foundCount++;
-                        if (profile.altSetting) {
-                            iface->selectAlternateSetting(profile.altSetting);
+                        if (profile.alt_setting) {
+                            iface->selectAlternateSetting(profile.alt_setting);
                             IOSleep(50);
                         }
                     }
@@ -484,21 +472,17 @@ bool OzzyKext::ConfigureHardware() {
         it->release();
     }
 
-    if (foundCount != profile.interfaceCount) return false;
-    for (int i = 0; i < profile.interfaceCount; i++) LogEndpoints(mInterfaces[i]);
+    if (foundCount != profile.interface_count) return false;
+    for (int i = 0; i < profile.interface_count; i++) LogEndpoints(mInterfaces[i]);
 
     int pipeCounter = 0;
-    const OzzyPipeConfig* configs[kOzzyPipeRoles] = {
-        &profile.pcmOut, &profile.pcmIn, &profile.midiIn, &profile.midiOut, &profile.feedback
-    };
-
-    for (int k = 0; k < kOzzyPipeRoles; k++) {
-        const OzzyPipeConfig* cfg = configs[k];
+    for (int k = 0; k < OZZY_PIPE_ROLES; k++) {
+        const struct ozzy_ep* cfg = &profile.pipes[k];
         if (cfg->address == 0 && cfg->types == 0) continue;
 
         IOUSBHostInterface* targetIntf = nullptr;
-        for(int i=0; i < profile.interfaceCount; i++) {
-            if (profile.interfaceIndices[i] == cfg->intf) {
+        for(int i=0; i < profile.interface_count; i++) {
+            if (profile.interfaces[i] == cfg->intf) {
                 targetIntf = mInterfaces[i];
                 break;
             }
@@ -523,7 +507,7 @@ bool OzzyKext::ConfigureHardware() {
                     uint16_t w = d ? USBToHost16(d->wMaxPacketSize) : 0;
                     uint16_t maxPacketSize = (w & 0x07FF) * (((w >> 11) & 3) + 1);
                     ozzy_log("  pipe 0x%02x opened (wMaxPacketSize %u)", address, maxPacketSize);
-                    if (d) mEngine->SetEndpoint((OzzyPipeRole)k, address, d->bmAttributes & 0x03,
+                    if (d) ozzy_engine_set_endpoint(mEngine, (enum ozzy_pipe_role)k, address, d->bmAttributes & 0x03,
                                                 maxPacketSize, d->bInterval);
                 } else p->release();
             } else {

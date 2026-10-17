@@ -79,6 +79,14 @@ typedef std::atomic<bool>     ozzy_atomic_bool;
 #define OZZY_MIDI_RING_SIZE             1024
 #define OZZY_MIDI_RING_MASK             (OZZY_MIDI_RING_SIZE - 1)
 
+/* The device's clock: an anchor every OZZY_TIMESTAMP_PACKETS, as a seqlock (odd sequence while
+ * the engine writes) */
+struct ozzy_timestamp {
+	ozzy_atomic_u32 sequence;
+	ozzy_atomic_u64 sample_time;     /* frames */
+	ozzy_atomic_u64 host_time;       /* the platform's clock (ozzy_bus_ops.time) */
+};
+
 struct ozzy_audio_buffer {
 	ozzy_atomic_bool hardware_present;
 	ozzy_atomic_bool driver_ready;
@@ -106,12 +114,7 @@ struct ozzy_audio_buffer {
 		uint32_t lock_rate;            /* Hz while clock_locked */
 	} settings;
 
-	/* Seqlock: odd sequence while the engine writes */
-	struct {
-		ozzy_atomic_u32 sequence;
-		ozzy_atomic_u64 sample_time;
-		ozzy_atomic_u64 host_time;
-	} timestamp;
+	struct ozzy_timestamp timestamp;
 
 	uint8_t _pad1[64];
 	OZZY_CACHE_ALIGN ozzy_atomic_u64 hal_write_position;

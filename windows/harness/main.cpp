@@ -10,8 +10,8 @@
 //     -q  silence instead of the test tone
 
 #include "WinUsbBus.h"
-#include "../../engine/devices/ploytec/PloytecEngine.h"
-#include "../../engine/devices/usbmidi/UsbMidiEngine.h"
+#include "../../engine/core/ozzy_engine.h"
+#include "../../common/devices/ploytec/ploytec_protocol.h"
 #include "../../engine/shared/ozzy_shared_data.h"
 #include "../../common/devices/ploytec/ploytec_codec.h"
 #include "../../common/ozzy_version.h"
@@ -217,14 +217,14 @@ int main(int argc, char** argv) {
     fprintf(stderr, "device: %s %s (%s), %04x:%04x\n", shm->manufacturer_name, shm->product_name, model->name,
             shm->vendor_id, shm->product_id);
 
-    OzzyEngine* engine = model->family == OZZY_FAMILY_USB_MIDI ? (OzzyEngine*)new UsbMidiEngine()
-                                                               : (OzzyEngine*)new PloytecEngine(model);
+    struct ozzy_engine* engine = ozzy_engine_init(malloc(ozzy_engine_size(model)), model);
+    if (!engine) return 1;
     bus.SetEngine(engine);
     if (!bus.Configure(engine)) return 1;
-    engine->Init(&bus, shm);
-    if (!engine->Start()) {
+    ozzy_engine_attach(engine, bus.Bus(), shm);
+    if (!ozzy_engine_start(engine)) {
         fprintf(stderr, "engine start failed\n");
-        engine->Stop();
+        ozzy_engine_stop(engine);
         bus.Close();
         return 1;
     }
@@ -291,10 +291,10 @@ int main(int argc, char** argv) {
     }
 
     fprintf(stderr, "stopping\n");
-    engine->Stop();
+    ozzy_engine_stop(engine);
     bus.Close();
     wav.Close();
-    delete engine;
+    free(engine);
     VirtualFree(shm, 0, MEM_RELEASE);
     return 0;
 }

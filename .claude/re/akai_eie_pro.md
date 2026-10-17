@@ -410,7 +410,7 @@ macOS (the same shape as Linux):
   - `isoc_fb_layout()` and the transfer constants in `isoc_feedback.h`.
   - The handshake and the MIDI framing.
 - **Generic kext pieces:**
-  - `engine/core/OzzyIsocOutput`: the macOS counterpart of the Linux core's isochronous output. It
+  - `engine/core/ozzy_isoc_output`: the macOS counterpart of the Linux core's isochronous output. It
     owns the ring, the OUT and feedback transfers, and the timestamps, so any isochronous device
     can use it.
   - `KextBus::SubmitIsoc`: `IOUSBHostPipe::io()` with an `IOUSBHostIsochronousTransaction` per
@@ -427,7 +427,7 @@ macOS (the same shape as Linux):
   - `isocInUSBBuffer`: the feedback transfers.
 - **`PloytecIsocEngine`:** only the EIE-specific parts.
   - The handshake on the endpoints found.
-  - PCM in and MIDI in through `PloytecIO.h`, which it shares with the Xone engine.
+  - PCM in and MIDI in through `ploytec_io.h`, which it shares with the Xone engine.
   - 9-byte MIDI in reads.
   - MIDI out: one 9-byte transfer per timer tick (1 ms) when the previous one is done, the same
     pacing as Linux.

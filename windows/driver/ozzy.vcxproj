@@ -67,10 +67,14 @@
     <ClCompile Include="Stream.cpp" />
     <ClCompile Include="KmdfBus.cpp" />
     <ClCompile Include="KernelNew.cpp" />
-    <ClCompile Include="..\..\engine\core\OzzyEngine.cpp" />
-    <ClCompile Include="..\..\engine\devices\ploytec\PloytecEngine.cpp" />
+    <ClCompile Include="..\..\engine\core\ozzy_engine.c" />
+    <ClCompile Include="..\..\engine\core\ozzy_isoc_output.c" />
+    <ClCompile Include="..\..\engine\devices\ploytec\ploytec_engine.c" />
+    <ClCompile Include="..\..\engine\devices\ploytec\ploytec_isoc_engine.c" />
+    <ClCompile Include="..\..\engine\devices\usbmidi\usb_midi_engine.c" />
     <ClCompile Include="..\..\common\devices\ploytec\ploytec_handshake.c" />
     <ClCompile Include="..\..\common\devices\ploytec\ploytec_codec.c" />
+    <ClCompile Include="..\..\common\usb_midi.c" />
   </ItemGroup>
   <ItemGroup>
     <!-- Generated before the build from ozzy.inf.in (OzzyGenerateInf) -->

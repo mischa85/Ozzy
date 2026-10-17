@@ -13,6 +13,29 @@ static void MakeAudioThread() {
     SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
 }
 
+// --- struct ozzy_bus_ops: the engine's calls, to the methods ---
+static bool OpsSubmit(void* ctx, uint8_t pipe, void* buf, uint32_t size, void* xfer) {
+    return ((WinUsbBus*)ctx)->SubmitUSBPacket(pipe, buf, size, xfer);
+}
+static bool OpsControl(void* ctx, uint8_t type, uint8_t req, uint16_t val, uint16_t idx, void* data, uint16_t len) {
+    return ((WinUsbBus*)ctx)->VendorRequest(type, req, val, idx, data, len);
+}
+static bool OpsStartTimer(void* ctx, uint32_t intervalUs) { return ((WinUsbBus*)ctx)->StartTimer(intervalUs); }
+static void OpsStopTimer(void* ctx) { ((WinUsbBus*)ctx)->StopTimer(); }
+static void OpsSleep(void* ctx, unsigned int ms) { ((WinUsbBus*)ctx)->Sleep(ms); }
+static uint64_t OpsTime(void* ctx) { return ((WinUsbBus*)ctx)->GetTime(); }
+
+// No isochronous transfers (WinUSB can't give each packet its own length) and no PCM rings
+// (the harness plays the HAL's part of the shared memory)
+const struct ozzy_bus_ops WinUsbBus::sOps = {
+    OpsSubmit, nullptr, OpsControl, OpsStartTimer, OpsStopTimer, nullptr, OpsSleep, OpsTime
+};
+
+WinUsbBus::WinUsbBus() {
+    mOzzyBus.ops = &sOps;
+    mOzzyBus.ctx = this;
+}
+
 WinUsbBus::~WinUsbBus() {
     Close();
 }
@@ -62,7 +85,7 @@ bool WinUsbBus::Open(const wchar_t* path) {
 void WinUsbBus::Close() {
     StopTimer();
 
-    // Abort what is in flight; the engine has stopped resubmitting (OzzyEngine::Stop first)
+    // Abort what is in flight; the engine has stopped resubmitting (ozzy_engine_stop first)
     for (int s = 0; s < kPipeSlots; s++) {
         if (mPipeIntf[s]) WinUsb_AbortPipe(mPipeIntf[s], mPipeAddr[s]);
     }
@@ -83,40 +106,37 @@ void WinUsbBus::Close() {
     if (mFile != INVALID_HANDLE_VALUE) { CloseHandle(mFile); mFile = INVALID_HANDLE_VALUE; }
 }
 
-bool WinUsbBus::Configure(OzzyEngine* engine) {
-    const OzzyDeviceProfile& profile = engine->GetProfile();
+bool WinUsbBus::Configure(struct ozzy_engine* engine) {
+    const struct ozzy_device_profile& profile = engine->profile;
 
     // The profile's interfaces, with its alternate setting
     WINUSB_INTERFACE_HANDLE byIndex[4] = {};
-    for (int i = 0; i < profile.interfaceCount; i++) {
+    for (int i = 0; i < profile.interface_count; i++) {
         for (int k = 0; k < mIntfCount; k++) {
-            if (mIntfNumber[k] == profile.interfaceIndices[i]) byIndex[i] = mIntf[k];
+            if (mIntfNumber[k] == profile.interfaces[i]) byIndex[i] = mIntf[k];
         }
         if (!byIndex[i]) {
             Log("[WinUsbBus] interface %u not found (is WinUSB bound to the whole device, not one interface?)",
-                profile.interfaceIndices[i]);
+                profile.interfaces[i]);
             return false;
         }
-        if (profile.altSetting) {
-            if (!WinUsb_SetCurrentAlternateSetting(byIndex[i], profile.altSetting)) {
+        if (profile.alt_setting) {
+            if (!WinUsb_SetCurrentAlternateSetting(byIndex[i], profile.alt_setting)) {
                 Log("[WinUsbBus] interface %u: alternate setting %u failed: %lu",
-                    profile.interfaceIndices[i], profile.altSetting, GetLastError());
+                    profile.interfaces[i], profile.alt_setting, GetLastError());
                 return false;
             }
             ::Sleep(50);
         }
     }
 
-    const OzzyPipeConfig* configs[kOzzyPipeRoles] = {
-        &profile.pcmOut, &profile.pcmIn, &profile.midiIn, &profile.midiOut, &profile.feedback
-    };
-    for (int role = 0; role < kOzzyPipeRoles; role++) {
-        const OzzyPipeConfig* cfg = configs[role];
+    for (int role = 0; role < OZZY_PIPE_ROLES; role++) {
+        const struct ozzy_ep* cfg = &profile.pipes[role];
         if (cfg->address == 0 && cfg->types == 0) continue;
 
         WINUSB_INTERFACE_HANDLE h = nullptr;
-        for (int i = 0; i < profile.interfaceCount; i++) {
-            if (profile.interfaceIndices[i] == cfg->intf) h = byIndex[i];
+        for (int i = 0; i < profile.interface_count; i++) {
+            if (profile.interfaces[i] == cfg->intf) h = byIndex[i];
         }
         if (!h) {
             Log("[WinUsbBus] no interface %u for pipe role %d", cfg->intf, role);
@@ -144,7 +164,7 @@ bool WinUsbBus::Configure(OzzyEngine* engine) {
             uint16_t maxPacketSize = (uint16_t)((w & 0x07FF) * (((w >> 11) & 3) + 1));
             Log("[WinUsbBus]   pipe 0x%02x opened (%s, wMaxPacketSize %u, bInterval %u)", pipe.PipeId,
                 type == 1 ? "isochronous" : type == 2 ? "bulk" : "interrupt", maxPacketSize, pipe.Interval);
-            engine->SetEndpoint((OzzyPipeRole)role, pipe.PipeId, type, maxPacketSize, pipe.Interval);
+            ozzy_engine_set_endpoint(engine, (enum ozzy_pipe_role)role, pipe.PipeId, type, maxPacketSize, pipe.Interval);
         }
         if (!found) Log("[WinUsbBus]   no endpoint for pipe role %d on interface %u", role, cfg->intf);
     }
@@ -193,15 +213,6 @@ bool WinUsbBus::SubmitUSBPacket(uint8_t pipeID, void* buffer, uint32_t size, voi
     return true;
 }
 
-bool WinUsbBus::SubmitIsoc(uint8_t pipeID, void*, uint32_t, OzzyIsocPacket*, uint32_t, void*) {
-    static bool logged = false;
-    if (!logged) {
-        logged = true;
-        Log("[WinUsbBus] isochronous pipe 0x%02x: not possible over WinUSB (no per-packet lengths)", pipeID);
-    }
-    return false;
-}
-
 bool WinUsbBus::VendorRequest(uint8_t type, uint8_t req, uint16_t val, uint16_t idx, void* data, uint16_t len) {
     WINUSB_SETUP_PACKET setup = { type, req, val, idx, len };
     ULONG done = 0;
@@ -234,7 +245,7 @@ void WinUsbBus::CompletionThread() {
         else if (status != ERROR_OPERATION_ABORTED && mErrors++ < 10)
             Log("[WinUsbBus] pipe 0x%02x error: %d", pipeID, status);
 
-        if (mEngine) mEngine->OnPacketComplete(pipeID, context, status, bytes);
+        if (mEngine) ozzy_engine_complete(mEngine, pipeID, context, status, bytes);
         mPending--;
     }
 }
@@ -252,7 +263,7 @@ void WinUsbBus::StopTimer() {
     if (mTimer.joinable()) mTimer.join();   // waits for a call in progress
 }
 
-/* OzzyEngine::OnTimer every interval, on absolute deadlines (no drift); if we fell behind,
+/* ozzy_engine_timer every interval, on absolute deadlines (no drift); if we fell behind,
  * skip to the next deadline ahead, as KextBus does */
 void WinUsbBus::TimerThread() {
     MakeAudioThread();
@@ -277,7 +288,7 @@ void WinUsbBus::TimerThread() {
             WaitForSingleObject(timer, INFINITE);
         }
         if (!mTimerOn.load()) break;
-        if (mEngine) mEngine->OnTimer();
+        if (mEngine) ozzy_engine_timer(mEngine);
         deadline += interval;
         now = (int64_t)GetTime();
         if (deadline <= now) deadline = now + interval;

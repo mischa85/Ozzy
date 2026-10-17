@@ -1,7 +1,7 @@
 #ifndef WinUsbBus_h
 #define WinUsbBus_h
 
-// IOzzyBus over WinUSB, for the Windows dev harness: the engine runs in a console program and
+// The engine's bus (engine/core/ozzy_bus.h) over WinUSB, for the Windows dev harness: the engine runs in a console program and
 // talks to a device bound to WinUsb.sys (e.g. with Zadig). Not shipped; the driver is ACX.
 //
 // Transfers are overlapped I/O on the device handle, completed on one thread through an I/O
@@ -14,11 +14,14 @@
 #include <usb.h>
 #include <atomic>
 #include <thread>
-#include "../../engine/core/OzzyEngine.h"
+#include "../../engine/core/ozzy_engine.h"
 
-class WinUsbBus : public IOzzyBus {
+class WinUsbBus {
 public:
-    WinUsbBus() {}
+    WinUsbBus();
+
+    // What the engine runs on (ozzy_engine_attach)
+    const struct ozzy_bus* Bus() const { return &mOzzyBus; }
     virtual ~WinUsbBus();
 
     // Open the device at @path (a WinUSB device interface path) and start the completion thread
@@ -27,8 +30,8 @@ public:
     void Close();
 
     // What OzzyKext::ConfigureHardware does: claim the profile's interfaces, select the
-    // alternate setting, find each pipe and report it with OzzyEngine::SetEndpoint
-    bool Configure(OzzyEngine* engine);
+    // alternate setting, find each pipe and report it with ozzy_engine_set_endpoint
+    bool Configure(struct ozzy_engine* engine);
 
     // String descriptor @index (US English) as ASCII into @dst; false if there is none
     bool GetString(uint8_t index, char* dst, size_t size);
@@ -38,17 +41,14 @@ public:
     struct Stats { uint32_t outDone, inDone, errors; };
     Stats TakeStats();
 
-    // --- IOzzyBus ---
-    bool SubmitUSBPacket(uint8_t pipeID, void* buffer, uint32_t size, void* contextID) override;
-    bool SubmitIsoc(uint8_t pipeID, void* buffer, uint32_t bufferSize,
-                    OzzyIsocPacket* packets, uint32_t count, void* contextID) override;
-    bool VendorRequest(uint8_t type, uint8_t req, uint16_t val, uint16_t idx, void* data, uint16_t len) override;
-    bool StartTimer(uint32_t intervalUs) override;
-    void StopTimer() override;
-    void Sleep(uint32_t ms) override;
-    uint64_t GetTime() override;   // QueryPerformanceCounter ticks
-    void Log(const char* fmt, ...) override;
-    void SetEngine(OzzyEngine* engine) override { mEngine = engine; }
+    bool SubmitUSBPacket(uint8_t pipeID, void* buffer, uint32_t size, void* contextID);
+    bool VendorRequest(uint8_t type, uint8_t req, uint16_t val, uint16_t idx, void* data, uint16_t len);
+    bool StartTimer(uint32_t intervalUs);
+    void StopTimer();
+    void Sleep(uint32_t ms);
+    uint64_t GetTime();   // QueryPerformanceCounter ticks
+    void Log(const char* fmt, ...);
+    void SetEngine(struct ozzy_engine* engine) { mEngine = engine; }
 
 private:
     struct Transfer {
@@ -74,7 +74,9 @@ private:
     uint8_t mPipeAddr[kPipeSlots] = {};
     USB_DEVICE_DESCRIPTOR mDeviceDesc = {};
 
-    OzzyEngine* mEngine = nullptr;
+    struct ozzy_engine* mEngine = nullptr;
+    struct ozzy_bus mOzzyBus;
+    static const struct ozzy_bus_ops sOps;
     std::thread mCompletion;
     std::atomic<int> mPending{0};
     std::atomic<uint32_t> mOutDone{0}, mInDone{0}, mErrors{0};

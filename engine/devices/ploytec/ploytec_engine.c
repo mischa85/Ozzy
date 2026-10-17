@@ -1,0 +1,383 @@
+/* SPDX-License-Identifier: MIT */
+/*
+ * Ploytec junction devices with bulk or interrupt PCM out (ploytec_engine.h).
+ *
+ * Copyright (C) 2024 Marcel Bierling <marcel@hackerman.art>
+ */
+
+#include "ploytec_engine.h"
+#include "ploytec_io.h"
+#include "../../../common/devices/ploytec/ploytec_handshake.h"
+#include "../../shared/ozzy_log.h"
+#include <string.h>
+
+/* Endpoints (direction bit OR'd with the base address from ploytec_defs.h) */
+#define EP_PCM_OUT   PLOYTEC_EP_PCM_OUT
+#define EP_PCM_IN    (PLOYTEC_EP_PCM_IN | 0x80)
+#define EP_MIDI_IN   (PLOYTEC_EP_MIDI_IN | 0x80)
+
+/* --- Host services for the shared handshake (common/devices/ploytec/ploytec_handshake.c) --- */
+
+static int host_control(void *ctx, uint8_t type, uint8_t req, uint16_t val, uint16_t idx, void *data, uint16_t len)
+{
+	const struct ozzy_bus *bus = (const struct ozzy_bus *)ctx;
+
+	return bus->ops->control(bus->ctx, type, req, val, idx, data, len) ? len : -EIO;
+}
+
+static void host_sleep(void *ctx, unsigned int ms)
+{
+	const struct ozzy_bus *bus = (const struct ozzy_bus *)ctx;
+
+	bus->ops->sleep_ms(bus->ctx, ms);
+}
+
+static void host_log(void *ctx, bool error, const char *fmt, va_list args)
+{
+	char line[256];
+
+	ozzy_vsnprintf(line, sizeof(line), fmt, args);
+	ploytec_log("%s", line);
+}
+
+/* No clear_halt: the official macOS driver never clears the PCM endpoint halt (only the
+ * Windows driver does, see ploytec_handshake.c). Shared with ploytec_isoc_engine. */
+const struct ploytec_host_ops ploytec_bus_host_ops = { host_control, NULL, host_sleep, host_log };
+
+static struct ploytec_engine *to_ploytec(struct ozzy_engine *e)
+{
+	return (struct ploytec_engine *)e;
+}
+
+/*
+ * The output packet layout follows the endpoint's wMaxPacketSize, not its transfer type, like
+ * the official driver (AudioBulkIRP::useOut): <= 512 uses the bulk layout, larger (964) the
+ * interrupt layout. DB2 fw 1.2.0 is an interrupt endpoint with wMaxPacketSize 512.
+ */
+static void ploytec_set_endpoint(struct ozzy_engine *e, enum ozzy_pipe_role role, uint8_t address,
+				 uint8_t transfer_type, uint16_t max_packet_size, uint8_t interval)
+{
+	struct ploytec_engine *pe = to_ploytec(e);
+
+	if (role == OZZY_PIPE_PCM_OUT) {
+		pe->out_layout = ploytec_out_layout_for_maxpacket(max_packet_size);
+		pe->packet_size_out = ploytec_out_packet_size(pe->out_layout);
+		ploytec_log("transport: %s, wMaxPacketSize %u (%s layout, out packet: %u bytes)",
+			    transfer_type == 2 ? "bulk" : "interrupt", max_packet_size,
+			    pe->out_layout == PLOYTEC_OUT_LAYOUT_BULK ? "bulk" : "interrupt", pe->packet_size_out);
+	} else if (role == OZZY_PIPE_PCM_IN) {
+		/* Selects the MIDI IN frame above 48 kHz (ploytec_midi.h) */
+		pe->pcm_in_int1024 = transfer_type == 3 && max_packet_size == 1024;
+	}
+}
+
+static void submit_pcm_out(struct ploytec_engine *pe, uint32_t idx)
+{
+	volatile struct ozzy_shared_memory *shm = pe->base.shm;
+	uint8_t *buffer = (uint8_t *)shm->audio.output_buffer + (idx % OZZY_NUM_PACKETS) * OZZY_MAX_PACKET_SIZE;
+
+	if (!ozzy_bus_submit(pe->base.bus, EP_PCM_OUT, buffer, pe->packet_size_out, (void *)(uintptr_t)idx))
+		ploytec_log("output submission failed (idx: %u)", idx);
+}
+
+static void submit_midi_in(struct ploytec_engine *pe, uint32_t idx)
+{
+	volatile struct ozzy_shared_memory *shm = pe->base.shm;
+
+	if (!ozzy_bus_submit(pe->base.bus, EP_MIDI_IN, (void *)shm->midi_in_usb_buffer,
+			     sizeof(shm->midi_in_usb_buffer), (void *)(uintptr_t)idx))
+		ploytec_log("MIDI input submission failed (idx: %u)", idx);
+}
+
+static bool ploytec_start(struct ozzy_engine *e)
+{
+	struct ploytec_engine *pe = to_ploytec(e);
+	volatile struct ozzy_shared_memory *shm = e->shm;
+	const struct ozzy_device *model = e->model;
+	struct ploytec_handshake_info hs;
+	bool bulk = pe->out_layout == PLOYTEC_OUT_LAYOUT_BULK;
+	uint32_t i;
+
+	if (!shm)
+		return false;
+
+	/* 1. The format, as the HAL reads it (the platform has set the device names) */
+	shm->audio.device_flags = (bulk ? OZZY_DEVICE_FLAG_PLOYTEC_BULK : 0) |
+				  (bulk && (model->quirks & OZZY_QUIRK_SPDIF_MIRROR) ? OZZY_DEVICE_FLAG_SPDIF_MIRROR : 0);
+	shm->audio.frames_per_packet = PLOYTEC_FRAMES_PER_PKT;
+	shm->audio.samples_per_packet = PLOYTEC_FRAMES_PER_OUT_SUBPKT;
+	shm->audio.output_bytes_per_frame = PLOYTEC_OUT_FRAME_SIZE;
+	shm->audio.input_bytes_per_frame = PLOYTEC_IN_FRAME_SIZE;
+	shm->audio.input_channels = model->in_channels;
+	shm->audio.output_channels = model->out_channels;
+	ploytec_log("model: %s, %u in / %u out", model->name, model->in_channels, model->out_channels);
+
+	/* 2. The handshake, with the settings; locked to S/PDIF it sets the lock rate */
+	memset(&hs, 0, sizeof(hs));
+	if (ploytec_handshake(&ploytec_bus_host_ops, (void *)e->bus, pe->default_rate, model->quirks,
+			      &e->settings, &hs) < 0)
+		return false;
+	if (!ozzy_device_has_rate(model, hs.rate)) {
+		/* Locked to an S/PDIF rate the device doesn't list (Linux: ploytec_adopt_rate) */
+		ploytec_log("device runs at %u Hz, which it doesn't list", hs.rate);
+		return false;
+	}
+	pe->sample_rate = hs.rate;
+	shm->audio.sample_rate = pe->sample_rate;
+	ozzy_engine_publish_settings(e, &hs.clock);
+	ploytec_midi_init(&pe->midi, pe->sample_rate, pe->pcm_in_int1024);
+	pe->encode = ploytec_frame_encoder(model->out_channels);
+	pe->decode = ploytec_frame_decoder(model->in_channels);
+	pe->mirror = bulk && (model->quirks & OZZY_QUIRK_SPDIF_MIRROR) && model->out_channels == 8;
+
+	/* The device answers (release: the format fields above first) */
+	ozzy_store_release_bool(&shm->audio.hardware_present, true);
+
+	/* 3. The clock from 0 */
+	pe->hw_sample_time = 0;
+	shm->audio.timestamp.sample_time = 0;
+
+	/* 4. Every logical packet: silence and idle MIDI bytes */
+	for (i = 0; i < OZZY_NUM_PACKETS; i++)
+		ploytec_out_init_packet(pe->out_layout, (uint8_t *)shm->audio.output_buffer + i * OZZY_MAX_PACKET_SIZE);
+
+	/* 5. Two transfers in flight per pipe */
+	pe->running = true;
+	for (i = 0; i < 2; i++) {
+		if (!ploytec_submit_pcm_in(e->bus, shm, EP_PCM_IN, i))
+			ploytec_log("input submission failed (idx: %u)", i);
+		submit_pcm_out(pe, i);
+		submit_midi_in(pe, i);
+	}
+
+	ozzy_store_release_bool(&shm->audio.driver_ready, true);
+	return true;
+}
+
+static void ploytec_suspend(struct ozzy_engine *e)
+{
+	to_ploytec(e)->running = false;
+	ploytec_log("engine suspended");
+}
+
+static void ploytec_stop(struct ozzy_engine *e)
+{
+	volatile struct ozzy_shared_memory *shm = e->shm;
+
+	to_ploytec(e)->running = false;
+	if (!shm)
+		return;
+	/* The HAL drops the device */
+	shm->audio.driver_ready = false;
+	shm->audio.hardware_present = false;
+	ploytec_log("engine stopped");
+}
+
+/*
+ * midi_out - As many bytes from the midi_out ring as the MIDI out pace allows in packet @idx;
+ * slots without data stay idle.
+ */
+static void midi_out(struct ploytec_engine *pe, uint32_t idx)
+{
+	volatile struct ozzy_shared_memory *shm = pe->base.shm;
+	uint8_t bytes[PLOYTEC_OUT_SUBPKTS];
+	uint32_t mask;
+	uint32_t count = ploytec_midi_out_slots(&pe->midi, &mask);
+	uint8_t *packet = (uint8_t *)shm->audio.output_buffer + (idx % OZZY_NUM_PACKETS) * OZZY_MAX_PACKET_SIZE;
+
+	memset(bytes, PLOYTEC_MIDI_IDLE_BYTE, sizeof(bytes));
+	ozzy_midi_ring_pop(&shm->midi_out, bytes, count);
+	ploytec_midi_out_place(pe->out_layout, packet, mask, bytes);
+}
+
+/*
+ * take_pcm_ring - The ring attached for @dir, picked up here in the completion path: a new
+ * ring starts at its own start position. NULL if none (or its channels don't match the model).
+ */
+static const struct ozzy_pcm_ring *take_pcm_ring(struct ploytec_engine *pe, enum ozzy_pcm_dir dir)
+{
+	const struct ozzy_pcm_ring *ring = (const struct ozzy_pcm_ring *)
+		ozzy_load_acquire_ptr((const void *const volatile *)&pe->base.pcm_ring_set[dir]);
+	uint32_t channels = dir == OZZY_PCM_OUT ? pe->base.model->out_channels : pe->base.model->in_channels;
+
+	if (ring != pe->pcm_ring[dir]) {
+		pe->pcm_ring[dir] = ring;
+		if (ring)
+			pe->pcm_pos[dir] = ring->start;
+	}
+	return ring && ring->frames && ring->channels == channels ? ring : NULL;
+}
+
+/*
+ * encode_pcm_out - PCM out from the attached ring: packet @idx's 80 frames, encoded straight
+ * from the ring into the packet about to be sent (the MIDI and sync bytes are already in place).
+ */
+static void encode_pcm_out(struct ploytec_engine *pe, uint32_t idx)
+{
+	const struct ozzy_pcm_ring *ring = take_pcm_ring(pe, OZZY_PCM_OUT);
+	uint8_t *packet;
+	uint32_t frame_bytes, r, f;
+
+	if (!ring || !pe->encode)
+		return;
+	packet = (uint8_t *)pe->base.shm->audio.output_buffer + (idx % OZZY_NUM_PACKETS) * OZZY_MAX_PACKET_SIZE;
+	frame_bytes = ring->channels * 3;
+	r = (uint32_t)(pe->pcm_pos[OZZY_PCM_OUT] % ring->frames);
+	for (f = 0; f < PLOYTEC_FRAMES_PER_PKT; f++) {
+		pe->encode(packet + ploytec_out_frame_offset(pe->out_layout, f), ring->base + r * frame_bytes);
+		if (++r == ring->frames)
+			r = 0;
+	}
+
+	/* The ESU1808's S/PDIF mirror takes lane 9 from the frame before; for frame 0 that is the
+	 * last frame of the packet before, already encoded */
+	if (pe->mirror) {
+		unsigned int pair = pe->base.settings.value[OZZY_SETTING_SPDIF_MIRROR];
+		const uint8_t *prev = (uint8_t *)pe->base.shm->audio.output_buffer +
+				      ((idx + OZZY_NUM_PACKETS - 1) % OZZY_NUM_PACKETS) * OZZY_MAX_PACKET_SIZE +
+				      ploytec_out_frame_offset(pe->out_layout, PLOYTEC_FRAMES_PER_PKT - 1);
+
+		for (f = 0; f < PLOYTEC_FRAMES_PER_PKT; f++) {
+			uint8_t *dst = packet + ploytec_out_frame_offset(pe->out_layout, f);
+
+			ploytec_spdif_mirror(dst, prev + PLOYTEC_OUT_FRAME_SIZE / 2, pair);
+			prev = dst;
+		}
+	}
+
+	pe->pcm_pos[OZZY_PCM_OUT] += PLOYTEC_FRAMES_PER_PKT;
+	ozzy_bus_pcm_progress(pe->base.bus, OZZY_PCM_OUT, pe->pcm_pos[OZZY_PCM_OUT]);
+}
+
+/*
+ * decode_pcm_in - PCM in into the attached ring: the frames of a completed IN transfer,
+ * decoded straight from the shared memory into the ring. A short (or failed, @bytes 0)
+ * transfer leaves silence, so the ring keeps the device's clock.
+ */
+static void decode_pcm_in(struct ploytec_engine *pe, uint32_t idx, uint32_t bytes)
+{
+	const struct ozzy_pcm_ring *ring = take_pcm_ring(pe, OZZY_PCM_IN);
+	const uint8_t *packet;
+	uint32_t frame_bytes, got, r, f;
+
+	if (!ring || !pe->decode)
+		return;
+	packet = (const uint8_t *)pe->base.shm->audio.input_buffer + (idx % OZZY_NUM_PACKETS) * OZZY_MAX_PACKET_SIZE;
+	frame_bytes = ring->channels * 3;
+	got = bytes / PLOYTEC_IN_FRAME_SIZE;
+	r = (uint32_t)(pe->pcm_pos[OZZY_PCM_IN] % ring->frames);
+	for (f = 0; f < PLOYTEC_FRAMES_PER_PKT; f++) {
+		if (f < got)
+			pe->decode(ring->base + r * frame_bytes, packet + f * PLOYTEC_IN_FRAME_SIZE);
+		else
+			memset(ring->base + r * frame_bytes, 0, frame_bytes);
+		if (++r == ring->frames)
+			r = 0;
+	}
+
+	pe->pcm_pos[OZZY_PCM_IN] += PLOYTEC_FRAMES_PER_PKT;
+	ozzy_bus_pcm_progress(pe->base.bus, OZZY_PCM_IN, pe->pcm_pos[OZZY_PCM_IN]);
+}
+
+/*
+ * update_timestamp - The device's clock: 80 more frames played. Every OZZY_TIMESTAMP_PACKETS
+ * an anchor (seqlock, reader: OzzyHAL::GetZeroTimeStamp); the fences keep the odd sequence
+ * visible before the new values, and the new values before the even sequence.
+ */
+static void update_timestamp(struct ploytec_engine *pe)
+{
+	volatile struct ozzy_shared_memory *shm = pe->base.shm;
+	volatile struct ozzy_timestamp *ts = &shm->audio.timestamp;
+	uint32_t seq;
+
+	if (!shm->audio.driver_ready)
+		return;
+	pe->hw_sample_time += PLOYTEC_FRAMES_PER_PKT;
+	if (pe->hw_sample_time % (PLOYTEC_FRAMES_PER_PKT * OZZY_TIMESTAMP_PACKETS))
+		return;
+
+	seq = ts->sequence;
+	ozzy_store_relaxed_u32(&ts->sequence, seq + 1);
+	ozzy_fence_release();
+	ozzy_store_relaxed_u64(&ts->sample_time, pe->hw_sample_time);
+	ozzy_store_relaxed_u64(&ts->host_time, ozzy_bus_time(pe->base.bus));
+	ozzy_store_release_u32(&ts->sequence, seq + 2);
+}
+
+static void ploytec_complete(struct ozzy_engine *e, uint8_t pipe, void *xfer, int status, uint32_t bytes)
+{
+	struct ploytec_engine *pe = to_ploytec(e);
+	volatile struct ozzy_shared_memory *shm = e->shm;
+	uint32_t finished = (uint32_t)(uintptr_t)xfer;
+	uint32_t next = finished + 2;
+
+	/* Aborted (suspend/stop): no resubmit, a synchronous abort would accept it */
+	if (!e->bus || !pe->running || status == OZZY_STATUS_ABORTED)
+		return;
+
+	if (pipe == EP_PCM_OUT) {
+		update_timestamp(pe);
+		midi_out(pe, next);
+		encode_pcm_out(pe, next);
+		submit_pcm_out(pe, next);
+	} else if (pipe == EP_PCM_IN) {
+		decode_pcm_in(pe, finished, status == 0 ? bytes : 0);
+		if (!ploytec_submit_pcm_in(e->bus, shm, EP_PCM_IN, next))
+			ploytec_log("input submission failed (idx: %u)", next);
+	} else if (pipe == EP_MIDI_IN) {
+		/* Only the MIDI bytes of the frame (ploytec_midi.h) */
+		if (bytes)
+			ploytec_midi_in_to_ring(&pe->midi, shm, (const uint8_t *)shm->midi_in_usb_buffer,
+						bytes < sizeof(shm->midi_in_usb_buffer) ? bytes : sizeof(shm->midi_in_usb_buffer));
+		submit_midi_in(pe, next);
+	}
+}
+
+/* The ESU1808's mirror only on the bulk layout (official dmaEncode08_Int964 on interrupt) */
+static uint32_t ploytec_setting_quirks(const struct ozzy_engine *e)
+{
+	const struct ploytec_engine *pe = (const struct ploytec_engine *)e;
+
+	return pe->out_layout == PLOYTEC_OUT_LAYOUT_BULK ? e->model->quirks
+							 : (e->model->quirks & ~(uint32_t)OZZY_QUIRK_SPDIF_MIRROR);
+}
+
+static const struct ozzy_engine_ops ploytec_engine_ops = {
+	ploytec_set_endpoint,
+	ploytec_start,
+	ploytec_stop,
+	ploytec_suspend,
+	ploytec_complete,
+	NULL,                   /* isoc_complete */
+	NULL,                   /* midi_out_pending: MIDI goes out with every PCM packet */
+	NULL,                   /* timer */
+	ploytec_setting_quirks,
+};
+
+/*
+ * The Xones present two interfaces: 0 has the control requests, PCM out (EP 0x05) and MIDI in
+ * (EP 0x83); 1 has PCM in (EP 0x86). Run at the highest rate the device lists (the DB2 is
+ * 48 kHz only).
+ */
+void ploytec_engine_init(struct ploytec_engine *pe, const struct ozzy_device *model)
+{
+	struct ozzy_device_profile *p = &pe->base.profile;
+	uint32_t rates[OZZY_MAX_RATES];
+
+	pe->base.ops = &ploytec_engine_ops;
+	pe->base.model = model;
+	pe->default_rate = rates[ozzy_device_rates(model, rates) - 1];
+	pe->sample_rate = pe->default_rate;
+	pe->out_layout = PLOYTEC_OUT_LAYOUT_INT;
+
+	p->interface_count = PLOYTEC_NUM_INTERFACES;
+	p->interfaces[0] = 0;
+	p->interfaces[1] = 1;
+	p->alt_setting = PLOYTEC_ALT_SETTING;
+	p->pipes[OZZY_PIPE_PCM_OUT].address = EP_PCM_OUT;
+	p->pipes[OZZY_PIPE_PCM_OUT].intf = 0;
+	p->pipes[OZZY_PIPE_PCM_IN].address = EP_PCM_IN;
+	p->pipes[OZZY_PIPE_PCM_IN].intf = 1;
+	p->pipes[OZZY_PIPE_MIDI_IN].address = EP_MIDI_IN;
+	p->pipes[OZZY_PIPE_MIDI_IN].intf = 0;
+}

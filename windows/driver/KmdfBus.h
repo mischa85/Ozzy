@@ -1,16 +1,16 @@
 #ifndef KmdfBus_h
 #define KmdfBus_h
 
-// IOzzyBus for the Windows ACX driver: the engine's transfers as KMDF USB requests on the
-// shared memory, completed at DISPATCH_LEVEL. The engine encodes PCM out and decodes PCM in
-// right there (OzzyEngine::SetPcmRing), and the ACX streams hear about it through
-// IOzzyPcmClient, so the real-time work happens in the completion path.
+// The engine's bus (engine/core/ozzy_bus.h) for the Windows ACX driver: the engine's transfers
+// as KMDF USB requests on the shared memory, completed at DISPATCH_LEVEL. The engine encodes
+// PCM out and decodes PCM in right there (ozzy_engine_set_pcm_ring), and the ACX streams hear
+// about it through IOzzyPcmClient, so the real-time work happens in the completion path.
 
 #include <ntddk.h>
 #include <wdf.h>
 #include <usb.h>
 #include <wdfusb.h>
-#include "../../engine/core/OzzyEngine.h"
+#include "../../engine/core/ozzy_engine.h"
 
 // The ACX stream of one direction: told after every packet the engine moved through its ring
 class IOzzyPcmClient {
@@ -19,15 +19,19 @@ public:
     virtual void OnPcmProgress(uint64_t frames, uint64_t qpc) = 0;
 };
 
-class KmdfBus : public IOzzyBus {
+class KmdfBus {
 public:
+    KmdfBus();
     ~KmdfBus();
+
+    // What the engine runs on (ozzy_engine_attach)
+    const struct ozzy_bus* Bus() const { return &mOzzyBus; }
 
     // The USB target and its configuration (EvtDevicePrepareHardware)
     NTSTATUS Create(WDFDEVICE device);
     // Claim the profile's interfaces with its alternate setting, find each pipe, report it
-    // with OzzyEngine::SetEndpoint and create its requests on @shm (the transfers' memory)
-    NTSTATUS Configure(OzzyEngine* engine, void* shm, size_t shmSize);
+    // with ozzy_engine_set_endpoint and create its requests on @shm (the transfers' memory)
+    NTSTATUS Configure(struct ozzy_engine* engine, void* shm, size_t shmSize);
 
     // Cancel every request in flight and wait for them (the engine has stopped resubmitting);
     // StartIo makes the pipes usable again
@@ -35,22 +39,19 @@ public:
     void StartIo();
 
     // The stream that hears about @dir's progress (nullptr: none)
-    void SetPcmClient(OzzyPcmDir dir, IOzzyPcmClient* client);
+    void SetPcmClient(enum ozzy_pcm_dir dir, IOzzyPcmClient* client);
     // Wait until no completion is in progress: after detaching a ring or client, before freeing it
     void WaitCompletions();
 
-    // --- IOzzyBus ---
-    bool SubmitUSBPacket(uint8_t pipeID, void* buffer, uint32_t size, void* contextID) override;
-    bool SubmitIsoc(uint8_t pipeID, void* buffer, uint32_t bufferSize,
-                    OzzyIsocPacket* packets, uint32_t count, void* contextID) override;
-    bool VendorRequest(uint8_t type, uint8_t req, uint16_t val, uint16_t idx, void* data, uint16_t len) override;
-    bool StartTimer(uint32_t intervalUs) override;
-    void StopTimer() override;
-    void PcmProgress(int dir, uint64_t frames) override;
-    void Sleep(uint32_t ms) override;
-    uint64_t GetTime() override;   // KeQueryPerformanceCounter
-    void Log(const char* fmt, ...) override;
-    void SetEngine(OzzyEngine* engine) override { mEngine = engine; }
+    bool SubmitUSBPacket(uint8_t pipeID, void* buffer, uint32_t size, void* contextID);
+    bool VendorRequest(uint8_t type, uint8_t req, uint16_t val, uint16_t idx, void* data, uint16_t len);
+    bool StartTimer(uint32_t intervalUs);
+    void StopTimer();
+    void PcmProgress(enum ozzy_pcm_dir dir, uint64_t frames);
+    void Sleep(uint32_t ms);
+    uint64_t GetTime();   // KeQueryPerformanceCounter
+    void Log(const char* fmt, ...);
+    void SetEngine(struct ozzy_engine* engine) { mEngine = engine; }
 
 private:
     static constexpr int kMaxPipes = 8;
@@ -84,8 +85,10 @@ private:
     Pipe mPipes[kMaxPipes] = {};
     int mPipeCount = 0;
 
-    OzzyEngine* mEngine = nullptr;
-    IOzzyPcmClient* volatile mClient[kOzzyPcmDirs] = {};
+    struct ozzy_engine* mEngine = nullptr;
+    IOzzyPcmClient* volatile mClient[OZZY_PCM_DIRS] = {};
+    struct ozzy_bus mOzzyBus;
+    static const struct ozzy_bus_ops sOps;
     volatile LONG mInCompletion = 0;
 
     PEX_TIMER mTimer = nullptr;

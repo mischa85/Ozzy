@@ -1,5 +1,5 @@
 #include "OzzyHAL.h"
-#include "../../engine/devices/ploytec/PloytecProtocol.h"
+#include "../../common/devices/ploytec/ploytec_protocol.h"
 #include "../Shared/OzzyLog.h"
 #include "../Shared/OzzyKextClient.h"
 #include "../../common/ozzy_version.h"

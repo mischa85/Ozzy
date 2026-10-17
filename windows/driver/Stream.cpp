@@ -85,7 +85,7 @@ NTSTATUS OzzyStream::Run() {
     InterlockedExchange64(&mCompleted, (LONG64)(pos / mPacketFrames));
 
     mDev->bus->SetPcmClient(Dir(), this);
-    mDev->engine->SetPcmRing(Dir(), &mRing);
+    ozzy_engine_set_pcm_ring(mDev->engine, Dir(), &mRing);
     mAttached = true;
     return STATUS_SUCCESS;
 }
@@ -99,7 +99,7 @@ NTSTATUS OzzyStream::Pause() {
 /* Take the ring back from the engine and wait out completions that may still use it */
 void OzzyStream::Detach() {
     if (!mAttached) return;
-    if (mDev->engine) mDev->engine->SetPcmRing(Dir(), nullptr);
+    if (mDev->engine) ozzy_engine_set_pcm_ring(mDev->engine, Dir(), nullptr);
     if (mDev->bus) {
         mDev->bus->SetPcmClient(Dir(), nullptr);
         mDev->bus->WaitCompletions();

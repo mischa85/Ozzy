@@ -71,43 +71,6 @@ int ozzy_chip_restart(struct ozzy_chip *chip)
 	return 0;
 }
 
-static void ozzy_chip_log_endpoints(struct ozzy_chip *chip, struct usb_interface *intf)
-{
-	static const char * const types[] = { "control", "isoc", "bulk", "interrupt" };
-	const struct usb_host_interface *alt = intf->cur_altsetting;
-	unsigned int i;
-
-	chip_log(chip, "  interface %u alt %u: class 0x%02x, %u endpoints", alt->desc.bInterfaceNumber,
-		  alt->desc.bAlternateSetting, alt->desc.bInterfaceClass, alt->desc.bNumEndpoints);
-	for (i = 0; i < alt->desc.bNumEndpoints; i++) {
-		const struct usb_endpoint_descriptor *epd = &alt->endpoint[i].desc;
-
-		chip_log(chip, "    EP 0x%02x %-3s %-9s wMaxPacketSize %u x%u bInterval %u", epd->bEndpointAddress,
-			  usb_endpoint_dir_in(epd) ? "IN" : "OUT", types[usb_endpoint_type(epd)], usb_endpoint_maxp(epd),
-			  usb_endpoint_maxp_mult(epd), epd->bInterval);
-	}
-}
-
-/* The endpoint @spec describes (common/ozzy_ep.h) on its interface's current setting, or NULL */
-static const struct usb_endpoint_descriptor *ozzy_chip_find_ep(struct ozzy_chip *chip, const struct ozzy_ep *spec)
-{
-	struct usb_interface *intf = usb_ifnum_to_if(chip->dev, spec->intf);
-	const struct usb_host_interface *alt;
-	unsigned int i;
-
-	if (!intf)
-		return NULL;
-	alt = intf->cur_altsetting;
-	for (i = 0; i < alt->desc.bNumEndpoints; i++) {
-		const struct usb_endpoint_descriptor *epd = &alt->endpoint[i].desc;
-
-		if (spec->address ? epd->bEndpointAddress == spec->address :
-				    ozzy_ep_matches(spec, epd->bEndpointAddress, epd->bmAttributes))
-			return epd;
-	}
-	return NULL;
-}
-
 /* Claim the profile's interfaces (the probed one is interface 0) and select its alternate setting */
 static int ozzy_chip_claim(struct ozzy_chip *chip, struct usb_interface *probed)
 {
@@ -137,34 +100,39 @@ static int ozzy_chip_claim(struct ozzy_chip *chip, struct usb_interface *probed)
 				return ret;
 			}
 		}
-		ozzy_chip_log_endpoints(chip, intf);
 	}
 	return 0;
 }
 
-/* Each pipe the engine asks for: to the bus, and its actual endpoint to the engine */
+/* Every endpoint of the claimed interfaces to the engine, which picks its pipes; their URBs */
 static int ozzy_chip_pipes(struct ozzy_chip *chip)
 {
-	unsigned int role;
+	struct ozzy_usb_endpoint eps[32];
+	const struct ozzy_usb_endpoint *bound[OZZY_PIPE_ROLES];
+	unsigned int n = 0, i, k;
 	int ret;
 
-	for (role = 0; role < OZZY_PIPE_ROLES; role++) {
-		const struct ozzy_ep *spec = &chip->engine->profile.pipes[role];
-		const struct usb_endpoint_descriptor *epd;
+	for (i = 0; i < chip->num_intf; i++) {
+		const struct usb_host_interface *alt = chip->intf[i]->cur_altsetting;
 
-		if (!spec->address && !spec->types)
-			continue;
-		epd = ozzy_chip_find_ep(chip, spec);
-		if (!epd) {
-			chip_log(chip, "  no endpoint for pipe role %u on interface %u", role, spec->intf);
-			continue;
+		for (k = 0; k < alt->desc.bNumEndpoints && n < ARRAY_SIZE(eps); k++) {
+			struct usb_endpoint_descriptor *epd = &alt->endpoint[k].desc;
+
+			eps[n].intf = alt->desc.bInterfaceNumber;
+			eps[n].address = epd->bEndpointAddress;
+			eps[n].attributes = epd->bmAttributes;
+			eps[n].interval = epd->bInterval;
+			eps[n].max_packet = le16_to_cpu(epd->wMaxPacketSize);
+			eps[n++].handle = epd;
 		}
-		ret = ozzy_urb_add_pipe(&chip->bus, epd);
+	}
+	ozzy_engine_bind_endpoints(chip->engine, eps, n, bound);
+	for (i = 0; i < OZZY_PIPE_ROLES; i++) {
+		if (!bound[i])
+			continue;
+		ret = ozzy_urb_add_pipe(&chip->bus, bound[i]->handle);
 		if (ret < 0)
 			return ret;
-		ozzy_engine_set_endpoint(chip->engine, (enum ozzy_pipe_role)role, epd->bEndpointAddress,
-					 usb_endpoint_type(epd),
-					 (uint16_t)(usb_endpoint_maxp(epd) * usb_endpoint_maxp_mult(epd)), epd->bInterval);
 	}
 	return 0;
 }

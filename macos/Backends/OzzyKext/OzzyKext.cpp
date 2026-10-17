@@ -397,38 +397,6 @@ void OzzyKext::UnmapSharedMemory() {
     mSHM = nullptr; 
 }
 
-/* Every endpoint of an interface's current alt setting, so a debug log doubles as the
- * descriptor dump for devices nobody captured yet */
-static void LogEndpoints(IOUSBHostInterface* iface) {
-    const StandardUSB::ConfigurationDescriptor* cfg = iface->getConfigurationDescriptor();
-    const StandardUSB::InterfaceDescriptor* intf = iface->getInterfaceDescriptor();
-    static const char* const types[] = { "control", "isoc", "bulk", "interrupt" };
-    if (!cfg || !intf) return;
-    ozzy_log("  interface %u alt %u: class 0x%02x, %u endpoints", intf->bInterfaceNumber,
-                intf->bAlternateSetting, intf->bInterfaceClass, intf->bNumEndpoints);
-    const StandardUSB::EndpointDescriptor* ep = nullptr;
-    while ((ep = StandardUSB::getNextEndpointDescriptor(cfg, intf, ep))) {
-        uint16_t w = USBToHost16(ep->wMaxPacketSize);
-        ozzy_log("    EP 0x%02x %s %s wMaxPacketSize %u x%u bInterval %u", ep->bEndpointAddress,
-                    (ep->bEndpointAddress & 0x80) ? "IN" : "OUT", types[ep->bmAttributes & 3],
-                    w & 0x7FF, ((w >> 11) & 3) + 1, ep->bInterval);
-    }
-}
-
-/* The first endpoint on @iface's current alt setting that @spec searches for
- * (ozzy_ep_matches, shared with Linux), or 0 */
-static uint8_t FindEndpoint(IOUSBHostInterface* iface, const struct ozzy_ep* spec) {
-    const StandardUSB::ConfigurationDescriptor* cfg = iface->getConfigurationDescriptor();
-    const StandardUSB::InterfaceDescriptor* intf = iface->getInterfaceDescriptor();
-    if (!cfg || !intf) return 0;
-    const StandardUSB::EndpointDescriptor* ep = nullptr;
-    while ((ep = StandardUSB::getNextEndpointDescriptor(cfg, intf, ep))) {
-        if (ozzy_ep_matches(spec, ep->bEndpointAddress, ep->bmAttributes))
-            return ep->bEndpointAddress;
-    }
-    return 0;
-}
-
 bool OzzyKext::ConfigureHardware() {
     // 1. Get WorkLoop
     IOWorkLoop* wl = getWorkLoop();
@@ -469,49 +437,37 @@ bool OzzyKext::ConfigureHardware() {
     }
 
     if (foundCount != profile.interface_count) return false;
-    for (int i = 0; i < profile.interface_count; i++) LogEndpoints(mInterfaces[i]);
 
-    int pipeCounter = 0;
+    // Every endpoint of the claimed interfaces to the engine, which picks its pipes
+    struct ozzy_usb_endpoint eps[32];
+    unsigned int n = 0;
+    for (int i = 0; i < profile.interface_count; i++) {
+        const StandardUSB::ConfigurationDescriptor* cfg = mInterfaces[i]->getConfigurationDescriptor();
+        const StandardUSB::InterfaceDescriptor* intf = mInterfaces[i]->getInterfaceDescriptor();
+        if (!cfg || !intf) continue;
+        const StandardUSB::EndpointDescriptor* ep = nullptr;
+        while (n < 32 && (ep = StandardUSB::getNextEndpointDescriptor(cfg, intf, ep))) {
+            eps[n].intf = intf->bInterfaceNumber;
+            eps[n].address = ep->bEndpointAddress;
+            eps[n].attributes = ep->bmAttributes;
+            eps[n].interval = ep->bInterval;
+            eps[n].max_packet = USBToHost16(ep->wMaxPacketSize);
+            eps[n++].handle = mInterfaces[i];
+        }
+    }
+    const struct ozzy_usb_endpoint* bound[OZZY_PIPE_ROLES];
+    ozzy_engine_bind_endpoints(mEngine, eps, n, bound);
+
+    int pipeCount = 0;
     for (int k = 0; k < OZZY_PIPE_ROLES; k++) {
-        const struct ozzy_ep* cfg = &profile.pipes[k];
-        if (cfg->address == 0 && cfg->types == 0) continue;
-
-        IOUSBHostInterface* targetIntf = nullptr;
-        for(int i=0; i < profile.interface_count; i++) {
-            if (profile.interfaces[i] == cfg->intf) {
-                targetIntf = mInterfaces[i];
-                break;
-            }
+        if (!bound[k]) continue;
+        IOUSBHostPipe* p = pipeCount < kMaxPipes
+            ? ((IOUSBHostInterface*)bound[k]->handle)->copyPipe(bound[k]->address) : nullptr;
+        if (!p) {
+            ozzy_log("  failed to open pipe 0x%02x", bound[k]->address);
+            return false;
         }
-
-        uint8_t address = cfg->address;
-        if (targetIntf && !address) {
-            address = FindEndpoint(targetIntf, cfg);
-            if (!address) {
-                ozzy_log("  no endpoint of the wanted type on interface %u (pipe role %d)", cfg->intf, k);
-                continue;
-            }
-        }
-
-        if (targetIntf) {
-            IOUSBHostPipe* p = targetIntf->copyPipe(address);
-            if (p) {
-                if (pipeCounter < kMaxPipes) {
-                    mPipes[pipeCounter++] = p;
-                    const StandardUSB::EndpointDescriptor* d = p->getEndpointDescriptor();
-                    // Bytes per service interval: wMaxPacketSize times the High Speed high-bandwidth multiplier
-                    uint16_t w = d ? USBToHost16(d->wMaxPacketSize) : 0;
-                    uint16_t maxPacketSize = (w & 0x07FF) * (((w >> 11) & 3) + 1);
-                    ozzy_log("  pipe 0x%02x opened (wMaxPacketSize %u)", address, maxPacketSize);
-                    if (d) ozzy_engine_set_endpoint(mEngine, (enum ozzy_pipe_role)k, address, d->bmAttributes & 0x03,
-                                                maxPacketSize, d->bInterval);
-                } else p->release();
-            } else {
-                ozzy_log("  failed to open pipe 0x%02x", address);
-            }
-        } else {
-            ozzy_log("  no interface found for pipe 0x%02x", address);
-        }
+        mPipes[pipeCount++] = p;
     }
     return true;
 }

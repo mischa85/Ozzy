@@ -2,12 +2,13 @@
 /*
  * The engine: a device family's protocol on top of a struct ozzy_bus, moving audio and MIDI
  * between USB transfers and the shared memory (engine/shared/ozzy_shared_data.h). One per
- * device. The same code runs in the macOS kext, the Windows driver and the WinUSB harness.
+ * device. The same code runs in the Linux module, the macOS kext, the Windows driver and the
+ * WinUSB harness.
  *
  * A platform:
  *   1. allocates ozzy_engine_size(model) bytes and calls ozzy_engine_init() on them
- *   2. claims the interfaces and endpoints of engine->profile, reporting each pipe it found
- *      with ozzy_engine_set_endpoint()
+ *   2. claims the interfaces of engine->profile at its alternate setting, lists their
+ *      endpoints for ozzy_engine_bind_endpoints() and opens the pipes it picks
  *   3. calls ozzy_engine_attach() with its bus and the shared memory, then ozzy_engine_start()
  *   4. hands every completion to ozzy_engine_complete() / ozzy_engine_isoc_complete()
  *   5. calls ozzy_engine_stop(), aborts its pipes, and frees the memory (no destructor)
@@ -100,6 +101,37 @@ struct ozzy_engine_memory {
 	uint8_t *midi_out;
 };
 
+/*
+ * struct ozzy_usb_endpoint - An endpoint of a claimed interface at its current setting, as its
+ * descriptor has it (ozzy_engine_bind_endpoints).
+ * @intf:       bInterfaceNumber
+ * @max_packet: wMaxPacketSize: bits 0-10 the packet size, bits 11-12 the extra transactions
+ *              per microframe (High Speed high bandwidth)
+ * @handle:     the platform's own (a descriptor, a pipe), for the endpoints it gets back
+ */
+struct ozzy_usb_endpoint {
+	uint8_t intf;
+	uint8_t address;
+	uint8_t attributes;
+	uint8_t interval;
+	uint16_t max_packet;
+	void *handle;
+};
+
+/* Bytes per service interval: the packet size times the transactions per microframe */
+static inline uint16_t ozzy_usb_endpoint_bytes(const struct ozzy_usb_endpoint *ep)
+{
+	return (uint16_t)((ep->max_packet & 0x07FF) * (((ep->max_packet >> 11) & 3) + 1));
+}
+
+/* A pipe the engine runs: bmAttributes & 3, and bytes per service interval */
+struct ozzy_engine_pipe {
+	uint8_t address;
+	uint8_t transfer_type;
+	uint8_t interval;
+	uint16_t max_packet_size;
+};
+
 struct ozzy_engine;
 
 /*
@@ -132,6 +164,7 @@ struct ozzy_engine_ops {
  * @pcm_ring/@pcm_pos: the rings as the completion path has them, and the ring position of
  *                each one's next frame (ozzy_engine_take_pcm_ring; completion path only)
  * @mem:          where the transfers go (struct ozzy_engine_memory)
+ * @pipe:         each role's endpoint as ozzy_engine_set_endpoint() gave it (address 0: none)
  */
 struct ozzy_engine {
 	const struct ozzy_engine_ops *ops;
@@ -147,6 +180,7 @@ struct ozzy_engine {
 	const struct ozzy_pcm_ring *pcm_ring[OZZY_PCM_DIRS];
 	uint64_t pcm_pos[OZZY_PCM_DIRS];
 	struct ozzy_engine_memory mem;
+	struct ozzy_engine_pipe pipe[OZZY_PIPE_ROLES];
 };
 
 /* Bytes to allocate for @model's engine (0 if Ozzy has none for its family) */
@@ -178,9 +212,27 @@ static inline uint8_t *ozzy_engine_pcm_in_slot(const struct ozzy_engine *e, uint
 	return e->mem.pcm_in[idx % e->mem.pcm_in_slots];
 }
 
+/*
+ * ozzy_engine_bind_endpoints - Pick the pipes the profile asks for from @eps (@count endpoints:
+ * every one of the claimed interfaces at their current setting) and tell the engine about
+ * them. A role takes its fixed address, or the first endpoint on its interface that
+ * ozzy_ep_matches(). Every endpoint is logged, so a log doubles as the descriptor dump of a
+ * device nobody captured yet. @bound[role]: the endpoint the platform opens for that role,
+ * NULL if the profile doesn't use the role or the device has no such endpoint.
+ */
+void ozzy_engine_bind_endpoints(struct ozzy_engine *e, const struct ozzy_usb_endpoint *eps, unsigned int count,
+				const struct ozzy_usb_endpoint *bound[OZZY_PIPE_ROLES]);
+
+/* One pipe directly (ozzy_engine_bind_endpoints does this for each it picks); tests use it */
 static inline void ozzy_engine_set_endpoint(struct ozzy_engine *e, enum ozzy_pipe_role role, uint8_t address,
 					    uint8_t transfer_type, uint16_t max_packet_size, uint8_t interval)
 {
+	struct ozzy_engine_pipe *p = &e->pipe[role];
+
+	p->address = address;
+	p->transfer_type = transfer_type;
+	p->interval = interval;
+	p->max_packet_size = max_packet_size;
 	e->ops->set_endpoint(e, role, address, transfer_type, max_packet_size, interval);
 }
 

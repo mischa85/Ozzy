@@ -1,5 +1,4 @@
 #include "winusb_bus.h"
-#include "../../common/ozzy_ep.h"
 #include <avrt.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -285,44 +284,32 @@ bool wbus_configure(struct winusb_bus* wb) {
         }
     }
 
-    for (int role = 0; role < OZZY_PIPE_ROLES; role++) {
-        const struct ozzy_ep* cfg = &profile->pipes[role];
-        if (cfg->address == 0 && cfg->types == 0) continue;
-
-        WINUSB_INTERFACE_HANDLE h = NULL;
-        for (int i = 0; i < profile->interface_count; i++) {
-            if (profile->interfaces[i] == cfg->intf) h = by_index[i];
-        }
-        if (!h) {
-            wbus_log("[WinUsbBus] no interface %u for pipe role %d", cfg->intf, role);
-            continue;
-        }
-
-        /* The current setting's endpoints: a fixed address, or the first of the wanted type */
+    /* Every endpoint of the claimed interfaces to the engine, which picks its pipes */
+    struct ozzy_usb_endpoint eps[32];
+    unsigned int n = 0;
+    for (int i = 0; i < profile->interface_count; i++) {
         UCHAR alt = 0;
         USB_INTERFACE_DESCRIPTOR d;
-        WinUsb_GetCurrentAlternateSetting(h, &alt);
-        if (!WinUsb_QueryInterfaceSettings(h, alt, &d)) continue;
-        bool found = false;
-        for (UCHAR e = 0; e < d.bNumEndpoints && !found; e++) {
+        WinUsb_GetCurrentAlternateSetting(by_index[i], &alt);
+        if (!WinUsb_QueryInterfaceSettings(by_index[i], alt, &d)) continue;
+        for (UCHAR e = 0; e < d.bNumEndpoints && n < 32; e++) {
             WINUSB_PIPE_INFORMATION_EX pipe;
-            if (!WinUsb_QueryPipeEx(h, alt, e, &pipe)) continue;
-            uint8_t type = (uint8_t)pipe.PipeType;   /* USBD_PIPE_TYPE is bmAttributes & 3 */
-            if (cfg->address ? pipe.PipeId != cfg->address : !ozzy_ep_matches(cfg, pipe.PipeId, type)) continue;
-            found = true;
-
-            int slot = wbus_pipe_slot(pipe.PipeId);
-            wb->pipe_intf[slot] = h;
-            wb->pipe_addr[slot] = pipe.PipeId;
-            /* Bytes per service interval: wMaxPacketSize times the High Speed high-bandwidth multiplier */
-            uint16_t w = pipe.MaximumPacketSize;
-            uint16_t max_packet_size = (uint16_t)((w & 0x07FF) * (((w >> 11) & 3) + 1));
-            wbus_log("[WinUsbBus]   pipe 0x%02x opened (%s, wMaxPacketSize %u, bInterval %u)", pipe.PipeId,
-                     type == 1 ? "isochronous" : type == 2 ? "bulk" : "interrupt", max_packet_size, pipe.Interval);
-            ozzy_engine_set_endpoint(wb->engine, (enum ozzy_pipe_role)role, pipe.PipeId, type, max_packet_size,
-                                     pipe.Interval);
+            if (!WinUsb_QueryPipeEx(by_index[i], alt, e, &pipe)) continue;
+            eps[n].intf = profile->interfaces[i];
+            eps[n].address = pipe.PipeId;
+            eps[n].attributes = (uint8_t)pipe.PipeType;   /* USBD_PIPE_TYPE is bmAttributes & 3 */
+            eps[n].interval = pipe.Interval;
+            eps[n].max_packet = pipe.MaximumPacketSize;
+            eps[n++].handle = by_index[i];
         }
-        if (!found) wbus_log("[WinUsbBus]   no endpoint for pipe role %d on interface %u", role, cfg->intf);
+    }
+    const struct ozzy_usb_endpoint* bound[OZZY_PIPE_ROLES];
+    ozzy_engine_bind_endpoints(wb->engine, eps, n, bound);
+    for (int role = 0; role < OZZY_PIPE_ROLES; role++) {
+        if (!bound[role]) continue;
+        int slot = wbus_pipe_slot(bound[role]->address);
+        wb->pipe_intf[slot] = bound[role]->handle;
+        wb->pipe_addr[slot] = bound[role]->address;
     }
     return true;
 }

@@ -1,6 +1,5 @@
 #include "kmdf_bus.h"
 #include "stream.h"
-#include "../../common/ozzy_ep.h"
 #include <ntstrsafe.h>
 #include <stdarg.h>
 
@@ -294,42 +293,33 @@ NTSTATUS kbus_configure(struct kmdf_bus* kb, void* shm, size_t shm_size) {
         }
     }
 
-    /* Each role: a fixed address, or the first endpoint of the wanted type (as OzzyKext) */
-    for (int role = 0; role < OZZY_PIPE_ROLES; role++) {
-        const struct ozzy_ep* cfg = &profile->pipes[role];
-        if (cfg->address == 0 && cfg->types == 0) continue;
-
-        WDFUSBINTERFACE intf = NULL;
-        for (int i = 0; i < profile->interface_count; i++) {
-            if (profile->interfaces[i] == cfg->intf) intf = by_index[i];
-        }
-        if (!intf) continue;
-        uint8_t alt = WdfUsbInterfaceGetConfiguredSettingIndex(intf);
-
-        bool found = false;
-        BYTE pipes = WdfUsbInterfaceGetNumConfiguredPipes(intf);
-        for (BYTE j = 0; j < pipes && !found; j++) {
+    /* Every endpoint of the claimed interfaces to the engine, which picks its pipes */
+    struct ozzy_usb_endpoint eps[32];
+    unsigned int n = 0;
+    for (int i = 0; i < profile->interface_count; i++) {
+        uint8_t alt = WdfUsbInterfaceGetConfiguredSettingIndex(by_index[i]);
+        BYTE pipes = WdfUsbInterfaceGetNumConfiguredPipes(by_index[i]);
+        for (BYTE j = 0; j < pipes && n < 32; j++) {
             WDF_USB_PIPE_INFORMATION info;
             WDF_USB_PIPE_INFORMATION_INIT(&info);
-            WDFUSBPIPE pipe = WdfUsbInterfaceGetConfiguredPipe(intf, j, &info);
-            const USB_ENDPOINT_DESCRIPTOR* e = kbus_find_endpoint(kb, cfg->intf, alt, info.EndpointAddress);
+            WDFUSBPIPE pipe = WdfUsbInterfaceGetConfiguredPipe(by_index[i], j, &info);
+            const USB_ENDPOINT_DESCRIPTOR* e =
+                kbus_find_endpoint(kb, profile->interfaces[i], alt, info.EndpointAddress);
             if (!pipe || !e) continue;
-            uint8_t type = e->bmAttributes & 3;
-            if (cfg->address ? e->bEndpointAddress != cfg->address
-                             : !ozzy_ep_matches(cfg, e->bEndpointAddress, e->bmAttributes)) continue;
-            found = true;
-
-            status = kbus_add_pipe(kb, pipe, e->bEndpointAddress);
-            if (!NT_SUCCESS(status)) return status;
-            /* Bytes per service interval: wMaxPacketSize times the High Speed high-bandwidth multiplier */
-            uint16_t w = e->wMaxPacketSize;
-            uint16_t max_packet_size = (uint16_t)((w & 0x07FF) * (((w >> 11) & 3) + 1));
-            kbus_log("[Ozzy]   pipe 0x%02x (%s, wMaxPacketSize %u, bInterval %u)", e->bEndpointAddress,
-                     type == 1 ? "isochronous" : type == 2 ? "bulk" : "interrupt", max_packet_size, e->bInterval);
-            ozzy_engine_set_endpoint(kb->engine, (enum ozzy_pipe_role)role, e->bEndpointAddress, type,
-                                     max_packet_size, e->bInterval);
+            eps[n].intf = profile->interfaces[i];
+            eps[n].address = e->bEndpointAddress;
+            eps[n].attributes = e->bmAttributes;
+            eps[n].interval = e->bInterval;
+            eps[n].max_packet = e->wMaxPacketSize;
+            eps[n++].handle = pipe;
         }
-        if (!found) kbus_log("[Ozzy]   no endpoint for pipe role %d on interface %u", role, cfg->intf);
+    }
+    const struct ozzy_usb_endpoint* bound[OZZY_PIPE_ROLES];
+    ozzy_engine_bind_endpoints(kb->engine, eps, n, bound);
+    for (int role = 0; role < OZZY_PIPE_ROLES; role++) {
+        if (!bound[role]) continue;
+        status = kbus_add_pipe(kb, (WDFUSBPIPE)bound[role]->handle, bound[role]->address);
+        if (!NT_SUCCESS(status)) return status;
     }
     return STATUS_SUCCESS;
 }

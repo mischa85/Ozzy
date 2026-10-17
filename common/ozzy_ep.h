@@ -2,11 +2,11 @@
 /*
  * Endpoint Specs
  *
- * How a device description names one of its endpoints, the same on both
- * platforms: a fixed address, or "the first endpoint on interface N with one of
- * these transfer types, in this direction", the way the official Ploytec driver
- * finds its pipes. Each platform walks its own descriptors and uses
- * ozzy_ep_matches() for the rule.
+ * How a device description names one of its endpoints, on every platform: a
+ * fixed address, or "the first endpoint on interface N with one of these
+ * transfer types, in this direction", the way the official Ploytec driver finds
+ * its pipes. ozzy_engine_bind_endpoints() applies it to the endpoints a platform
+ * lists.
  *
  * Pure C with no platform dependencies -- usable in both kernel space
  * and userspace on any platform.

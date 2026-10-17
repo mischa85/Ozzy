@@ -6,6 +6,7 @@
  */
 
 #include "ozzy_engine.h"
+#include "../shared/ozzy_log.h"
 #include "../devices/ploytec/ploytec_engine.h"
 #include "../devices/ploytec/ploytec_isoc_engine.h"
 #include "../devices/usbmidi/usb_midi_engine.h"
@@ -134,4 +135,39 @@ const struct ozzy_pcm_ring *ozzy_engine_take_pcm_ring(struct ozzy_engine *e, enu
 			e->pcm_pos[dir] = ring->start;
 	}
 	return ring && ring->frames && ring->channels == channels ? ring : NULL;
+}
+
+void ozzy_engine_bind_endpoints(struct ozzy_engine *e, const struct ozzy_usb_endpoint *eps, unsigned int count,
+				const struct ozzy_usb_endpoint *bound[OZZY_PIPE_ROLES])
+{
+	static const char *const types[] = { "control", "isoc", "bulk", "interrupt" };
+	unsigned int role, i;
+
+	for (i = 0; i < count; i++)
+		ozzy_log("  interface %u: EP 0x%02x %-3s %-9s wMaxPacketSize %u x%u bInterval %u", eps[i].intf,
+			 eps[i].address, (eps[i].address & 0x80) ? "IN" : "OUT", types[eps[i].attributes & 3],
+			 eps[i].max_packet & 0x07FF, ((eps[i].max_packet >> 11) & 3) + 1, eps[i].interval);
+
+	for (role = 0; role < OZZY_PIPE_ROLES; role++) {
+		const struct ozzy_ep *spec = &e->profile.pipes[role];
+		const struct ozzy_usb_endpoint *ep = NULL;
+
+		bound[role] = NULL;
+		if (!spec->address && !spec->types)
+			continue;
+		for (i = 0; i < count && !ep; i++) {
+			if (eps[i].intf != spec->intf)
+				continue;
+			if (spec->address ? eps[i].address == spec->address :
+					    ozzy_ep_matches(spec, eps[i].address, eps[i].attributes))
+				ep = &eps[i];
+		}
+		if (!ep) {
+			ozzy_log("  no endpoint for pipe role %u on interface %u", role, spec->intf);
+			continue;
+		}
+		bound[role] = ep;
+		ozzy_engine_set_endpoint(e, (enum ozzy_pipe_role)role, ep->address, ep->attributes & 3,
+					 ozzy_usb_endpoint_bytes(ep), ep->interval);
+	}
 }

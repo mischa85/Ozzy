@@ -9,7 +9,6 @@
 #include "ploytec_io.h"
 #include "../../../common/devices/ploytec/ploytec_handshake.h"
 #include "../../shared/ozzy_log.h"
-#include <string.h>
 
 #define IN_TRANSFERS   2
 
@@ -61,7 +60,7 @@ static void fill_out(void *owner, uint8_t *dst_ring, uint32_t dst_frames, uint64
 	struct ozzy_engine *e = (struct ozzy_engine *)owner;
 	const struct ozzy_pcm_ring *ring = ozzy_engine_take_pcm_ring(e, OZZY_PCM_OUT);
 	uint32_t frame_bytes = e->model->out_channels * 3;
-	uint32_t d = (uint32_t)(first % dst_frames), r, f;
+	uint32_t d = ozzy_mod_u64(first, dst_frames), r, f;
 
 	if (!ring) {
 		if (ozzy_engine_ring_platform(e))
@@ -69,7 +68,7 @@ static void fill_out(void *owner, uint8_t *dst_ring, uint32_t dst_frames, uint64
 				memset(dst_ring + d * frame_bytes, 0, frame_bytes);
 		return;
 	}
-	r = (uint32_t)(e->pcm_pos[OZZY_PCM_OUT] % ring->frames);
+	r = ozzy_mod_u64(e->pcm_pos[OZZY_PCM_OUT], ring->frames);
 	for (f = 0; f < frames; f++) {
 		if (e->out_route.identity)
 			memcpy(dst_ring + d * frame_bytes, ring->base + r * frame_bytes, frame_bytes);

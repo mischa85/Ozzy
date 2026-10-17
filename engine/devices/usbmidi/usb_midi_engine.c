@@ -7,7 +7,6 @@
 
 #include "usb_midi_engine.h"
 #include "../../shared/ozzy_log.h"
-#include <string.h>
 
 /* Xone:1D (lsusb in #27): interface 1 is MIDIStreaming with one embedded jack per direction */
 #define MIDI_INTERFACE  1

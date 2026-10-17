@@ -1,10 +1,11 @@
 /* SPDX-License-Identifier: MIT */
 /*
  * What the engine needs from the OS and the compiler, so the same sources build into the
- * macOS kext, the Windows ACX driver and the Windows WinUSB harness. C, usable from C++.
+ * Linux module, the macOS kext, the Windows ACX driver, the Windows WinUSB harness and the
+ * host tests. C, usable from C++.
  *
- * OZZY_ENGINE_SIDE: this build runs an engine (the kext, the Windows driver, or the harness,
- * which defines OZZY_USER_ENGINE). The other side of the shared memory (OzzyHAL, OzzyMIDI)
+ * OZZY_ENGINE_SIDE: this build runs an engine (a kernel driver, or the harness and the tests,
+ * which define OZZY_USER_ENGINE). The other side of the shared memory (OzzyHAL, OzzyMIDI)
  * uses std::atomic instead.
  *
  * Copyright (C) 2024 Marcel Bierling <marcel@hackerman.art>
@@ -13,19 +14,41 @@
 #ifndef OZZY_PLATFORM_H
 #define OZZY_PLATFORM_H
 
+#if defined(__KERNEL__) && defined(__linux__)
+#define OZZY_LINUX_KERNEL 1
+#endif
+
+#ifdef OZZY_LINUX_KERNEL
+#include <linux/types.h>
+#include <linux/stddef.h>
+#include <linux/stdarg.h>
+#include <linux/string.h>
+#include <linux/errno.h>
+#include <linux/kernel.h>
+#include <linux/math64.h>
+#include <asm/barrier.h>
+#include <linux/atomic.h>
+#else
 #include <stdint.h>
 #include <stddef.h>
 #include <stdarg.h>
+#include <string.h>
 #ifndef __cplusplus
 #include <stdbool.h>
 #endif
+#endif
 
-#if defined(KERNEL) || defined(_KERNEL_MODE) || defined(OZZY_USER_ENGINE)
+#if defined(KERNEL) || defined(_KERNEL_MODE) || defined(OZZY_LINUX_KERNEL) || defined(OZZY_USER_ENGINE)
 #define OZZY_ENGINE_SIDE 1
 #endif
 
-/* --- Transfer status the bus reports when a transfer was aborted (pipe abort, stop) --- */
-#if defined(__APPLE__)
+/*
+ * --- Transfer status the bus reports when a transfer was aborted (pipe abort, stop) ---
+ * The Linux bus maps a killed or unlinked URB (-ENOENT, -ECONNRESET, -ESHUTDOWN) to this.
+ */
+#if defined(OZZY_LINUX_KERNEL)
+#define OZZY_STATUS_ABORTED (-ENOENT)
+#elif defined(__APPLE__)
 #include <IOKit/IOReturn.h>
 #define OZZY_STATUS_ABORTED ((int)kIOReturnAborted)
 #elif defined(_KERNEL_MODE)
@@ -47,8 +70,15 @@
 #define ENODEV  19
 #elif defined(KERNEL)
 #include <sys/errno.h>
-#else
+#elif !defined(OZZY_LINUX_KERNEL)
 #include <errno.h>
+#endif
+
+/* printf-style format checking where the compiler has it */
+#if defined(__GNUC__) || defined(__clang__)
+#define OZZY_PRINTF_FORMAT(fmt, args) __attribute__((format(printf, fmt, args)))
+#else
+#define OZZY_PRINTF_FORMAT(fmt, args)
 #endif
 
 /* --- Strings: ozzy_vsnprintf (always terminates @dst) and ozzy_strlcpy --- */
@@ -61,10 +91,10 @@ static inline void ozzy_vsnprintf(char *dst, size_t size, const char *fmt, va_li
 #else
 #if defined(KERNEL)
 #include <libkern/libkern.h>
-#else
+#elif !defined(OZZY_LINUX_KERNEL)
 #include <stdio.h>
 #endif
-static inline void ozzy_vsnprintf(char *dst, size_t size, const char *fmt, va_list args)
+static inline OZZY_PRINTF_FORMAT(3, 0) void ozzy_vsnprintf(char *dst, size_t size, const char *fmt, va_list args)
 {
 	vsnprintf(dst, size, fmt, args);
 }
@@ -81,12 +111,40 @@ static inline void ozzy_strlcpy(char *dst, const char *src, size_t size)
 	dst[i] = 0;
 }
 
+/* --- @a % @b for a 64-bit position (32-bit Linux has no 64-bit division in the kernel) --- */
+static inline uint32_t ozzy_mod_u64(uint64_t a, uint32_t b)
+{
+#ifdef OZZY_LINUX_KERNEL
+	uint32_t rem;
+
+	div_u64_rem(a, b, &rem);
+	return rem;
+#else
+	return (uint32_t)(a % b);
+#endif
+}
+
 /*
  * --- Memory ordering on the engine side ---
  * volatile only stops the compiler from reordering; on arm64 the CPU can still make a ring
- * index visible before the data it publishes. Pair these with the other side's std::atomic
- * acquire loads and release stores.
+ * index visible before the data it publishes. Pair these with the other side's acquire loads
+ * and release stores.
  */
+#if defined(OZZY_LINUX_KERNEL)
+/* The kernel's own primitives: __atomic on 64-bit values would need libatomic on 32-bit ARM.
+ * 64-bit values are only written relaxed (the timestamp seqlock covers tearing). */
+#define OZZY_CACHE_ALIGN __attribute__((aligned(64)))
+
+static inline uint32_t ozzy_load_acquire_u32(const volatile uint32_t *p) { return smp_load_acquire(p); }
+static inline const void *ozzy_load_acquire_ptr(const void *const volatile *p) { return smp_load_acquire(p); }
+static inline void ozzy_store_release_u32(volatile uint32_t *p, uint32_t v) { smp_store_release(p, v); }
+static inline void ozzy_store_release_bool(volatile bool *p, bool v) { smp_store_release(p, v); }
+static inline void ozzy_store_release_ptr(const void *volatile *p, const void *v) { smp_store_release(p, v); }
+static inline void ozzy_store_relaxed_u32(volatile uint32_t *p, uint32_t v) { WRITE_ONCE(*p, v); }
+static inline void ozzy_store_relaxed_u64(volatile uint64_t *p, uint64_t v) { WRITE_ONCE(*p, v); }
+static inline void ozzy_fence_release(void) { smp_wmb(); }
+static inline bool ozzy_xchg_acquire_bool(volatile bool *p, bool v) { return xchg_acquire(p, v); }
+#else
 #if defined(_MSC_VER) && !defined(__clang__)
 #include <intrin.h>
 #if defined(_M_ARM64)
@@ -124,13 +182,12 @@ static inline bool ozzy_xchg_acquire_bool(volatile bool *p, bool v)
 #endif
 
 static inline uint32_t ozzy_load_acquire_u32(const volatile uint32_t *p) OZZY_LOAD_ACQUIRE(uint32_t, p)
-static inline uint64_t ozzy_load_acquire_u64(const volatile uint64_t *p) OZZY_LOAD_ACQUIRE(uint64_t, p)
 static inline const void *ozzy_load_acquire_ptr(const void *const volatile *p) OZZY_LOAD_ACQUIRE(const void *, p)
 static inline void ozzy_store_release_u32(volatile uint32_t *p, uint32_t v) OZZY_STORE_RELEASE(p, v)
-static inline void ozzy_store_release_u64(volatile uint64_t *p, uint64_t v) OZZY_STORE_RELEASE(p, v)
 static inline void ozzy_store_release_bool(volatile bool *p, bool v) OZZY_STORE_RELEASE(p, v)
 static inline void ozzy_store_release_ptr(const void *volatile *p, const void *v) OZZY_STORE_RELEASE(p, v)
 static inline void ozzy_store_relaxed_u32(volatile uint32_t *p, uint32_t v) OZZY_STORE_RELAXED(p, v)
 static inline void ozzy_store_relaxed_u64(volatile uint64_t *p, uint64_t v) OZZY_STORE_RELAXED(p, v)
+#endif
 
 #endif /* OZZY_PLATFORM_H */

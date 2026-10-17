@@ -9,7 +9,6 @@
 #include "ploytec_io.h"
 #include "../../../common/devices/ploytec/ploytec_handshake.h"
 #include "../../shared/ozzy_log.h"
-#include <string.h>
 
 /* PCM transfers in flight per pipe, as Linux runs them (OZZY_PCM_N_URBS): margin under load */
 #define PCM_XFERS    4
@@ -48,10 +47,7 @@ static void host_sleep(void *ctx, unsigned int ms)
 
 static void host_log(void *ctx, bool error, const char *fmt, va_list args)
 {
-	char line[256];
-
-	ozzy_vsnprintf(line, sizeof(line), fmt, args);
-	ploytec_log("%s", line);
+	ploytec_vlog(fmt, args);
 }
 
 /* The Xones clear the PCM endpoint halts before streaming, as the official Windows driver does
@@ -227,7 +223,7 @@ static void encode_pcm_out(struct ploytec_engine *pe, uint32_t idx)
 		return;
 	}
 	frame_bytes = ring->channels * 3;
-	r = (uint32_t)(pe->base.pcm_pos[OZZY_PCM_OUT] % ring->frames);
+	r = ozzy_mod_u64(pe->base.pcm_pos[OZZY_PCM_OUT], ring->frames);
 	for (f = 0; f < PLOYTEC_FRAMES_PER_PKT; f++) {
 		const uint8_t *src = ring->base + r * frame_bytes;
 		uint8_t routed[PLOYTEC_MAX_OUT_CHANNELS * 3];
@@ -275,7 +271,7 @@ static void update_timestamp(struct ploytec_engine *pe)
 	if (!shm->audio.driver_ready)
 		return;
 	pe->hw_sample_time += PLOYTEC_FRAMES_PER_PKT;
-	if (pe->hw_sample_time % (PLOYTEC_FRAMES_PER_PKT * OZZY_TIMESTAMP_PACKETS))
+	if (ozzy_mod_u64(pe->hw_sample_time, PLOYTEC_FRAMES_PER_PKT * OZZY_TIMESTAMP_PACKETS))
 		return;
 
 	seq = ts->sequence;

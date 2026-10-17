@@ -7,7 +7,6 @@
 
 #include "ozzy_isoc_output.h"
 #include "../shared/ozzy_log.h"
-#include <string.h>
 
 static const struct isoc_fb_config no_feedback = { ISOC_FB_NONE, 0, 0 };
 
@@ -26,7 +25,7 @@ static bool submit_out(struct ozzy_isoc_output *out, uint32_t i)
 	t->count = isoc_fb_packets(out->out_uframes);
 	isoc_fb_layout(&out->fb, t->count, out->out_uframes, out->out_max_frames, t->frames);
 	for (p = 0; p < t->count; p++) {
-		t->packets[p].offset = (uint32_t)(out->out_frame % c->ring_frames) * c->frame_bytes;
+		t->packets[p].offset = ozzy_mod_u64(out->out_frame, c->ring_frames) * c->frame_bytes;
 		t->packets[p].length = t->frames[p] * c->frame_bytes;
 		out->out_frame += t->frames[p];
 	}

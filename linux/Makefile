@@ -23,7 +23,14 @@ $(MODULE_NAME)-y := ozzy_core.o \
                     ozzy_controls.o \
                     devices/ploytec.o \
                     ../common/devices/ploytec/ploytec_codec.o \
-                    ../common/devices/ploytec/ploytec_handshake.o
+                    ../common/devices/ploytec/ploytec_handshake.o \
+                    ../common/usb_midi.o \
+                    ../engine/core/ozzy_engine.o \
+                    ../engine/core/ozzy_isoc_output.o \
+                    ../engine/devices/ploytec/ploytec_engine.o \
+                    ../engine/devices/ploytec/ploytec_io.o \
+                    ../engine/devices/ploytec/ploytec_isoc_engine.o \
+                    ../engine/devices/usbmidi/usb_midi_engine.o
 
 # Devices to leave out (keys from common/ozzy_devices.def), e.g. make OZZY_DISABLE="ReloopDJ2".
 # By default the ones mainline drives: Tascam US-144 (snd-usb-us122l, us144mkii) and US-144MKII

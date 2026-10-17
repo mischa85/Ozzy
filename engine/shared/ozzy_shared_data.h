@@ -11,9 +11,8 @@
 #ifndef OZZY_SHARED_DATA_H
 #define OZZY_SHARED_DATA_H
 
-#include <stdint.h>
-#include "../../common/ozzy_settings.h"
 #include "ozzy_platform.h"
+#include "../../common/ozzy_settings.h"
 
 #ifdef OZZY_ENGINE_SIDE
 typedef volatile uint32_t ozzy_atomic_u32;

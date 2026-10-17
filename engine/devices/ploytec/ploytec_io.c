@@ -6,7 +6,6 @@
  */
 
 #include "ploytec_io.h"
-#include <string.h>
 
 void ploytec_decode_pcm_in(struct ozzy_engine *e, ploytec_frame_fn decode, uint32_t idx, uint32_t bytes)
 {
@@ -19,7 +18,7 @@ void ploytec_decode_pcm_in(struct ozzy_engine *e, ploytec_frame_fn decode, uint3
 	packet = (const uint8_t *)e->shm->audio.input_buffer + (idx % OZZY_NUM_PACKETS) * OZZY_MAX_PACKET_SIZE;
 	frame_bytes = ring->channels * 3;
 	got = bytes / PLOYTEC_IN_FRAME_SIZE;
-	r = (uint32_t)(e->pcm_pos[OZZY_PCM_IN] % ring->frames);
+	r = ozzy_mod_u64(e->pcm_pos[OZZY_PCM_IN], ring->frames);
 	for (f = 0; f < PLOYTEC_FRAMES_PER_PKT; f++) {
 		uint8_t *dst = ring->base + r * frame_bytes;
 		uint8_t decoded[PLOYTEC_MAX_IN_CHANNELS * 3];

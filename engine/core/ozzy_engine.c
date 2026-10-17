@@ -9,7 +9,6 @@
 #include "../devices/ploytec/ploytec_engine.h"
 #include "../devices/ploytec/ploytec_isoc_engine.h"
 #include "../devices/usbmidi/usb_midi_engine.h"
-#include <string.h>
 
 size_t ozzy_engine_size(const struct ozzy_device *model)
 {

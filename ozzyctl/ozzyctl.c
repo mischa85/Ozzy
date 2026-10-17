@@ -91,11 +91,17 @@ static void show(const struct ozzyctl_device *dev)
 	unsigned int id;
 
 	printf("%s\n", dev->name);
-	printf("  %-24s %u Hz, %u in / %u out\n", "running at", dev->sample_rate, dev->in_channels,
-	       dev->out_channels);
+	if (dev->sample_rate)
+		printf("  %-24s %u Hz, %u in / %u out\n", "running at", dev->sample_rate,
+		       dev->in_channels, dev->out_channels);
+	else
+		printf("  %-24s %u in / %u out (rate: not streaming)\n", "channels", dev->in_channels,
+		       dev->out_channels);
 	if (dev->has_clock) {
-		if (dev->clock.locked)
+		if (dev->clock.locked && dev->clock.lock_rate)
 			printf("  %-24s locked to S/PDIF at %u Hz\n", "clock", dev->clock.lock_rate);
+		else if (dev->clock.locked)
+			printf("  %-24s locked to S/PDIF\n", "clock");
 		else
 			printf("  %-24s internal\n", "clock");
 	}
@@ -103,8 +109,9 @@ static void show(const struct ozzyctl_device *dev)
 		printf("  (no settings)\n");
 		return;
 	}
+	/* A setting without values (channel counts unknown) can't be set: left out */
 	for (id = 0; id < OZZY_NUM_SETTINGS; id++)
-		if (dev->available & (1u << id))
+		if (values_of(dev, id))
 			print_value(dev, id);
 }
 
@@ -120,9 +127,13 @@ static void list(const struct ozzyctl_device *devs, int n)
 		unsigned int count = 0;
 
 		for (k = 0; k < OZZY_NUM_SETTINGS; k++)
-			count += !!(devs[i].available & (1u << k));
-		printf("%d  %-32s %6u Hz  %u setting%s\n", i, devs[i].name, devs[i].sample_rate, count,
-		       count == 1 ? "" : "s");
+			count += !!values_of(&devs[i], (unsigned int)k);
+		if (devs[i].sample_rate)
+			printf("%d  %-32s %6u Hz  %u setting%s\n", i, devs[i].name, devs[i].sample_rate,
+			       count, count == 1 ? "" : "s");
+		else
+			printf("%d  %-32s %9s  %u setting%s\n", i, devs[i].name, "-", count,
+			       count == 1 ? "" : "s");
 	}
 }
 

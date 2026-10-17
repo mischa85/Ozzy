@@ -178,8 +178,12 @@ the HAL at once.
 
 **ozzyctl** (`ozzyctl/`): console tool, platform-neutral core (`ozzyctl.c`: list / show / set, names
 as slugs of `ozzy_setting_descs`) plus a backend per platform (`ozzyctl.h`); macOS backend through
-`kOzzyPropertySetting`, installed by `install.command`. Linux has the ALSA controls (amixer); a
-Linux/Windows backend can follow. `set` waits until a device setting reads back changed.
+`kOzzyPropertySetting`, installed by `install.command`; Linux backend (`backend_linux.c`) through
+alsa-lib: snd-usb-ozzy cards (card driver name), the settings' mixer controls by name, the lock
+from "S/PDIF Clock Validity", the channels from the device table via the card's USB IDs in sysfs,
+the rate from /proc/asound while a stream is open. Tested against user-defined controls on another
+card (no Ozzy card on the test VM). Windows backend later. `set` waits until a device setting reads
+back changed (on Linux the control write itself resets the device, so it's there at once).
 
 ## Open
 

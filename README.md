@@ -187,7 +187,12 @@ The installer automatically:
     sudo modprobe snd-usb-ozzy
     ```
 
-**Device settings** are ALSA controls ("Clock Source", "IEC958 Playback Mode", "Output 1-2 Source", ..., for the devices that have them): `amixer -c <card> contents`, `alsamixer`, kept across reboots by `alsactl store`.
+**Device settings** are ALSA controls ("Clock Source", "IEC958 Playback Mode", "Output 1-2 Source", ..., for the devices that have them), kept across reboots by `alsactl store`. Use `alsamixer` / `amixer`, or `ozzyctl`, the same tool as on macOS (needs alsa-lib, e.g. `libasound2-dev`):
+```bash
+make -C ozzyctl && sudo install -m 755 ozzyctl/ozzyctl /usr/local/bin/
+ozzyctl show
+ozzyctl set clock-source internal
+```
 
 **Leaving devices out:** `make OZZY_DISABLE="NumarkNS7 ReloopIQ2MIDI"` builds without those devices (names are the keys in [`common/ozzy_devices.def`](common/ozzy_devices.def)). By default the Linux build leaves out the Tascam US-144 and US-144MKII, which the kernel's own drivers handle; `make OZZY_DISABLE=` builds them in.
 

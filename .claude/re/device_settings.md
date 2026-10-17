@@ -23,11 +23,11 @@ the OS can't show. Order: external clock first (it's what users need, and it bui
 
 | Setting | Linux | macOS | Windows |
 |---|---|---|---|
-| Clock source (internal / S/PDIF) | enum kcontrol "Clock Source" | `kAudioDevicePropertyClockSource` (Audio MIDI Setup menu) | app |
+| Clock source (automatic / internal) (done) | enum kcontrol "Clock Source" | `kAudioDevicePropertyClockSource` (Audio MIDI Setup menu) | app |
 | Follow the locked rate | limit hw_params to the lock rate | offer only the lock rate (the official driver did this) | driver |
 | Lock status | read-only bool kcontrol | no standard UI: app (or clock source item name) | app |
 | S/PDIF mode consumer/pro (done) | enum kcontrol "IEC958 Playback Mode" | no natural fit: kext path ready, needs the app | app |
-| Digital out source (US-16xx, ESU1808 pair) | enum kcontrol | output data source (**verify Audio MIDI Setup shows it** for a 3rd-party HAL) | app |
+| Digital out channels (US-16xx/US-2000: output routing; ESU1808: mirror pair) | part of routing (encoder side) | output data source (**verify Audio MIDI Setup shows it** for a 3rd-party HAL) | app |
 | Input routing (US-144MKII, US-600) | enum per pair | input data source (same check) | app |
 | US-3xx mixer modes | PipeWire profiles | app | app |
 | Reverb / level processors | volume / enum kcontrols | app | app |
@@ -40,13 +40,20 @@ the OS can't show. Order: external clock first (it's what users need, and it bui
   (lock, lock rate). Devices with `OZZY_QUIRK_DIGITAL_IN` have it: MPC Renaissance, Lexicon
   IO42/IO82, Tascam US-144/MKII/600/1641/1800/2000. Not ESI (3-state selector, open mapping), not
   the M-Track Quad (its plist flags weren't decoded for this; it has no S/PDIF jack).
+- **Values** (from Tascam's US-1641/1800/2000 Control Panel 3.22/3.25, `OEM_DRIVERS/Tascam_*`):
+  its Sample Clock Source menu is [Automatic, Internal] (nib `MainMenuUS1641.nib`), and
+  `SampleClockSource(long)` passes the menu index straight to `USBDevice::setClockSource`, i.e.
+  ClockSource (AjExtData[1]) 0 = **Automatic** (the default: the digital input when it carries a
+  valid signal, else internal, per the panel help), 1 = **Internal** (always). With the decompile
+  (0 → bit 1 set): bit 1 set = automatic, clear = internal. The panel saves it as "ForceInternal".
+  (Ozzy first shipped this inferred the other way round, a6f2070; fixed.)
 - **Protocol** (`ploytec_handshake.c`): `hs_selector` sets bit 1 from the clock source with
-  `ploytec_aj_clock_byte()` (Internal = bit 1 set, **inferred**; the one place to flip). With
-  S/PDIF, `hs_follow_lock` re-reads the selector and, when locked, the rate (up to 20 tries while
-  it reads 192000, as the official driver). Locked: the handshake sets and verifies the lock rate
-  instead of the requested one; `info->rate` / `info->clock` say what it did. A device clocked at
-  a rate it can't stream (192k) fails the handshake's rate verify. Defaults send the same requests
-  as before settings existed.
+  `ploytec_aj_clock_byte()`. On `OZZY_QUIRK_DIGITAL_IN` devices with Automatic, `hs_follow_lock`
+  re-reads the selector and, when locked, the rate (up to 20 tries while it reads 192000, as the
+  official driver). Locked: the handshake sets and verifies the lock rate instead of the requested
+  one; `info->rate` / `info->clock` say what it did. A device clocked at a rate it can't stream
+  (192k) fails the handshake's rate verify. So at the defaults these devices now follow an S/PDIF
+  lock, like the official driver; devices without digital in send the same requests as before.
 - **Linux**: `chip->settings` / `chip->clock` (kept across resets), `linux/ozzy_controls.c`: enum
   control "Clock Source" and read-only "S/PDIF Clock Validity". Names as snd-usb-audio builds
   them (`sound/usb/mixer.c` v6.18, copy in the investigation folder's `linux_ref/sound_usb/`):
@@ -68,9 +75,9 @@ the OS can't show. Order: external clock first (it's what users need, and it bui
   the device doesn't list fails the start on both platforms (`ozzy_device_has_rate`). The engine
   publishes the result in `audio.settings` (SHM version 6); the HAL re-reads format and rate,
   stores the value with `WriteToStorage` (key "<device UID> Clock Source") and notifies. On attach
-  the HAL sends a stored value the kext doesn't have before publishing the device. The S/PDIF item
-  name says "(locked, N Hz)" / "(no lock)".
-- **Still to check on hardware**: the bit mapping; that the lock bit and GET_CUR behave as the
+  the HAL sends a stored value the kext doesn't have before publishing the device. The selected
+  Automatic item's name says "(S/PDIF, N Hz)" / "(internal, no S/PDIF signal)".
+- **Still to check on hardware**: that the lock bit and GET_CUR behave as the
   decompile says; that Audio MIDI Setup shows the Clock Source menu for this plug-in; that a lock
   gained or lost while streaming is picked up only at the next change (selecting the same source
   again re-reads it on macOS; on Linux any reset does).
@@ -94,9 +101,8 @@ the OS can't show. Order: external clock first (it's what users need, and it bui
 
 **Clock source = bit 1 of 'I' wIndex 0** (generic `updateAjInputSelector`): setting AjExtData[1] = 0
 → write `b | 0x02`, else `b & ~0x02`; read back as `AjExtData[1] = !(b >> 1 & 1)`. Ozzy's
-`hs_selector` writes the default (bit 1 set). Which value is "internal" vs "S/PDIF" is **inferred**
-(0 = default = internal). `setClockSource` (user client): suspend streaming, `updateAjInputSelector`,
-resume. ESI U-series: `updateAjInputSelector_Esu186` states 2/1/0 → 0x32/0xB0/0xB2 plus 'A' bit 0
+`hs_selector` writes it from the setting: 0 = Automatic (default), 1 = Internal (Tascam panel, see
+above). `setClockSource` (user client): suspend streaming, `updateAjInputSelector`, resume. ESI U-series: `updateAjInputSelector_Esu186` states 2/1/0 → 0x32/0xB0/0xB2 plus 'A' bit 0
 (`ploytec_vendor_request_I.md`); which state is which source is open.
 
 **Digital lock** = bit 2 of 'I' wIndex 0 (`ploytec_protocol.h`: `(b & 0x05) == 0x04`). In
@@ -118,8 +124,14 @@ only reported to user space (dispatch 0x0E); never sent to the device; wiped by
 
 **S/PDIF out** ('A' 0x0D..0x11, `writeDigitalOutMode`): mode 0 implemented (`hs_spdif_out`); mode 1
 values in `ploytec_vendor_requests.md`. **Digital out selector** ('I' wIndex 2 = AjExtData[4], 0..1):
-implemented at 0. **ESU1808 mirror pair**: AjExtData+0x10 selects `dmaEncode10_12/34/56/78`; Ozzy
-has pair 1/2 (`ploytec_spdif_mirror_12`).
+implemented at 0. It is *not* the Tascams' "Digital Output Channels" (1&2 / 3&4) choice: the
+US-1641 Control Panel 3.22 does that with `setRouting(false, 1, pair)` (output routing,
+AjExtData[5..9]), and calls `USBDevice::setDigitalOutSelector` only from `Usb11Mode(long)`, next
+to an "analog / digital" menu (`doUsb1ModeInputSelection`); the help says USB 1.1 is unsupported
+on these devices. So no setting for it. `setDigitalOutSelector` also accepts 0..1 on ESI
+2573:0012/0013, but they have no flag 0x7ac, so nothing is written. **ESU1808 mirror pair**: the
+same AjExtData[4] (0..3) picks `dmaEncode10_12/34/56/78` in `chooseDMAEncoder` (encoder side, no
+request); Ozzy has pair 1/2 (`ploytec_spdif_mirror_12`).
 
 **Routing**: US-144MKII `_postprocessUS144_00/10/11` and US-600 `_postprocessUS600_<idx>` (out pair k
 = in pair r_k), output `pcmTo24LSB_US144_*` (AjExtData[5..9], user client dispatch 0x28); details in
@@ -127,8 +139,6 @@ the Tascam section of `device_inventory.md`.
 
 ## Open
 
-- Confirm the clock source bit mapping on a device with digital in (capture of the official driver
-  switching source, or a tester).
 - Lock changes while streaming: the official driver only reads lock in `updateAjInputSelector`;
   polling would need a test that an 'I' read during streaming is safe.
 - ESI U-series clock source (states A/B/C), 192k lock handling (alt setting), and the remaining

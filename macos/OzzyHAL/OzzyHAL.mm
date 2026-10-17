@@ -245,7 +245,7 @@ void OzzyHALDevice::ApplyDeviceConfig() {
         LogOzzyHAL("device %{public}u: clock source %{public}s%{public}s", mSlot,
                    ozzy_clock_source_names[mSettings.value[OZZY_SETTING_CLOCK_SOURCE]],
                    mSettings.value[OZZY_SETTING_CLOCK_SOURCE] == OZZY_CLOCK_INTERNAL ? "" :
-                   mClockLocked ? " (locked)" : " (no lock)");
+                   mClockLocked ? " (locked to S/PDIF)" : " (no S/PDIF lock: internal)");
 }
 
 /* kOzzyMethodApplySetting: the kext restarts its engine with the setting, which takes up to
@@ -287,14 +287,14 @@ void OzzyHALDevice::RestoreSettings(AudioServerPlugInHostRef host) {
     if (changed) ApplyDeviceConfig();
 }
 
-/* The name of a clock source item; S/PDIF says whether the device locked to it. Returns a
- * new string. */
+/* The name of a clock source item; the selected Automatic item says which clock the device
+ * runs on. Returns a new string. */
 CFStringRef OzzyHALDevice::CopyClockSourceName(UInt32 item) const {
-    if (item != OZZY_CLOCK_SPDIF || mSettings.value[OZZY_SETTING_CLOCK_SOURCE] != OZZY_CLOCK_SPDIF)
+    if (item != OZZY_CLOCK_AUTOMATIC || mSettings.value[OZZY_SETTING_CLOCK_SOURCE] != OZZY_CLOCK_AUTOMATIC)
         return CFStringCreateWithCString(NULL, ozzy_clock_source_names[item], kCFStringEncodingUTF8);
     if (mClockLocked)
-        return CFStringCreateWithFormat(NULL, NULL, CFSTR("%s (locked, %u Hz)"), ozzy_clock_source_names[item], mLockRate);
-    return CFStringCreateWithFormat(NULL, NULL, CFSTR("%s (no lock)"), ozzy_clock_source_names[item]);
+        return CFStringCreateWithFormat(NULL, NULL, CFSTR("%s (S/PDIF, %u Hz)"), ozzy_clock_source_names[item], mLockRate);
+    return CFStringCreateWithFormat(NULL, NULL, CFSTR("%s (internal, no S/PDIF signal)"), ozzy_clock_source_names[item]);
 }
 
 /* A client set a setting. Changing it restarts the device's streaming (and may change the

@@ -160,8 +160,8 @@ static int hs_read_selector(const struct ploytec_host_ops *ops, void *ctx, uint8
 }
 
 /*
- * hs_follow_lock - With the S/PDIF clock source: read the selector again and, if the
- * device reports lock, the rate it locked to. The official updateAjInputSelector tries
+ * hs_follow_lock - With the Automatic clock source: read the selector again and, if the
+ * device reports lock to its S/PDIF input, the rate it locked to. The official updateAjInputSelector tries
  * up to 20 times while the rate reads 192000: it takes 192k only on a device with a
  * 192k alt setting, which no DIGITAL_IN device has, so a lasting 192000 counts as no
  * lock here. @clock is cleared first.
@@ -180,7 +180,7 @@ static int hs_follow_lock(const struct ploytec_host_ops *ops, void *ctx,
 	if (ret < 0)
 		return ret;
 	if (!ploytec_aj_locked(buf[0])) {
-		hs_log(ops, ctx, false, "clock source S/PDIF: no lock (selector 0x%02X)", buf[0]);
+		hs_log(ops, ctx, false, "clock source automatic: no S/PDIF lock, internal (selector 0x%02X)", buf[0]);
 		return 0;
 	}
 
@@ -193,13 +193,13 @@ static int hs_follow_lock(const struct ploytec_host_ops *ops, void *ctx,
 		ops->sleep_ms(ctx, 10);
 	}
 	if (rate == 192000 || rate == 0) {
-		hs_log(ops, ctx, true, "clock source S/PDIF: locked, but the rate reads %u Hz", rate);
+		hs_log(ops, ctx, true, "clock source automatic: S/PDIF lock, but the rate reads %u Hz", rate);
 		return 0;
 	}
 
 	clock->locked = true;
 	clock->lock_rate = rate;
-	hs_log(ops, ctx, false, "clock source S/PDIF: locked at %u Hz", rate);
+	hs_log(ops, ctx, false, "clock source automatic: locked to S/PDIF at %u Hz", rate);
 	return 0;
 }
 
@@ -208,7 +208,9 @@ static int hs_follow_lock(const struct ploytec_host_ops *ops, void *ctx,
  * bit 1 from the clock source (ploytec_aj_clock_byte), bit 0 cleared on OZZY_QUIRK_AJ_BIT0
  * devices, and the byte written back only if it changed, then wait 40 ms and read the
  * rate (the device may re-clock). The Xones report bit 1 set at power-up, so at the
- * default (Internal) they get no write. With S/PDIF, @clock gets the lock state and rate.
+ * default (Automatic) they get no write. On devices with digital in (OZZY_QUIRK_DIGITAL_IN;
+ * the official driver forces lock off for the rest) with Automatic, @clock gets the lock
+ * state and rate.
  */
 static int hs_selector(const struct ploytec_host_ops *ops, void *ctx, uint32_t quirks,
 		       uint8_t clock_source, struct ozzy_clock_status *clock)
@@ -233,12 +235,10 @@ static int hs_selector(const struct ploytec_host_ops *ops, void *ctx, uint32_t q
 			return ret;
 		ops->sleep_ms(ctx, 40);
 		hs_log(ops, ctx, false, "selector: read 0x%02X, wrote 0x%02X", buf[0], want);
-		if (clock_source == OZZY_CLOCK_INTERNAL)
-			return hs_read_rate(ops, ctx, &rate);
 	}
-	if (clock_source != OZZY_CLOCK_INTERNAL)
+	if ((quirks & OZZY_QUIRK_DIGITAL_IN) && clock_source == OZZY_CLOCK_AUTOMATIC)
 		return hs_follow_lock(ops, ctx, clock);
-	return 0;
+	return want != buf[0] ? hs_read_rate(ops, ctx, &rate) : 0;
 }
 
 /*
@@ -443,7 +443,7 @@ int ploytec_handshake_eps(const struct ploytec_host_ops *ops, void *ctx, uint32_
 			  struct ploytec_handshake_info *info)
 {
 	struct ploytec_handshake_info local;
-	uint8_t clock_source = OZZY_CLOCK_INTERNAL;
+	uint8_t clock_source = OZZY_CLOCK_AUTOMATIC;
 	uint8_t spdif_mode = OZZY_SPDIF_OUT_CONSUMER;
 	uint32_t verify_rate = 0;
 	int step = 0;

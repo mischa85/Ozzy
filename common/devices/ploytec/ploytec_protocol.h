@@ -56,7 +56,7 @@ enum ploytec_ctrl_reg {
  * use read-modify-write -- never blindly overwrite.
  *
  * Confirmed bits:
- *   0x02 - clock source select (ploytec_aj_clock_byte; which value is which is inferred)
+ *   0x02 - clock source: set = automatic (S/PDIF in when valid), clear = internal
  *   0x04 - digital signal lock (detected via (byte & 0x05) == 0x04)
  *
  * Partially understood bits (device-dependent mode/config):
@@ -65,7 +65,7 @@ enum ploytec_ctrl_reg {
  */
 enum ploytec_aj_input_flags {
 	PLOYTEC_AJ_MODE0_BIT        = 0x01,  /* mode/config, device-dependent */
-	PLOYTEC_AJ_INPUT_SELECT_BIT = 0x02,  /* clock source select (ploytec_aj_clock_byte) */
+	PLOYTEC_AJ_INPUT_SELECT_BIT = 0x02,  /* clock source: set = automatic (ploytec_aj_clock_byte) */
 	PLOYTEC_AJ_DIGITAL_LOCK_BIT = 0x04,  /* digital signal lock */
 	PLOYTEC_AJ_MODE3_BIT        = 0x08,  /* mode/config, device-dependent */
 	PLOYTEC_AJ_MODE4_BIT        = 0x10,  /* mode/config, device-dependent */
@@ -79,11 +79,10 @@ enum ploytec_aj_input_flags {
 #define PLOYTEC_AJ_DIGITAL_LOCK_VALUE  0x04
 
 /*
- * ploytec_aj_clock_byte - The selector byte @b with bit 1 set for clock source @clock
+ * ploytec_aj_clock_byte - The selector byte @b with bit 1 for clock source @clock
  * (enum ozzy_clock_source). The official updateAjInputSelector sets bit 1 for
- * AjExtData[1] = 0 and clears it otherwise; that 0 (the default, bit 1 set) is
- * Internal and anything else S/PDIF is INFERRED, not confirmed on a device with
- * digital in. If a tester finds it the other way round, this is the one place to change.
+ * ClockSource (AjExtData[1]) 0 and clears it otherwise; Tascam's Control Panel calls 0
+ * "Automatic" (the default) and 1 "Internal". Not yet seen on a device.
  */
 static inline uint8_t ploytec_aj_clock_byte(uint8_t b, uint8_t clock)
 {

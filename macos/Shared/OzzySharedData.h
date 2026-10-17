@@ -92,7 +92,7 @@ struct OzzyAudioBuffer {
     struct {
         uint32_t available;                   // bit (1 << enum ozzy_setting) per setting the device has
         uint8_t  value[OZZY_NUM_SETTINGS];
-        uint8_t  clockLocked;                 // locked to S/PDIF (clock source S/PDIF only)
+        uint8_t  clockLocked;                 // locked to S/PDIF (clock source Automatic only)
         uint32_t lockRate;                    // Hz while clockLocked
     } settings;
 

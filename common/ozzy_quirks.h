@@ -72,7 +72,8 @@ enum ozzy_quirk {
 	/*
 	 * Write the digital output selector, 'I' wIndex 2 = 0, before the rate is set
 	 * (writeDigitalOutSelector, plist flag PGDevice+0x7ac). Tascam US-1641, US-1800,
-	 * US-2000.
+	 * US-2000. Despite the name not their digital output channels choice (that is output
+	 * routing); Tascam's panel sets it only from its USB 1.1 mode code (device_settings.md).
 	 */
 	OZZY_QUIRK_DIGITAL_OUT_SEL = 1u << 8,
 

@@ -36,7 +36,9 @@ bit 0x04 → digital lock (confirmed via (byte & 0x04) != 0; triggers re-read af
 ### Behavior
 
 - `0x04` indicates digital signal lock
-- `0x02` = clock source selection (internal vs external), not generic "input select"
+- `0x02` = clock source selection, not generic "input select": set = automatic (the digital input
+  when it has a valid signal, else internal), clear = internal. From Tascam's Control Panel:
+  menu [Automatic, Internal] → setClockSource(index) → AjExtData[1] 0/1 (`device_settings.md`)
 - `0x01` = USB1 mode flag, only set on certain devices (those with `this[0x7a8]` set,
   or product 0x644 sub-IDs 0x8048/0x8041)
 - Driver masks with `0xFD` and recomputes bit 1 from current clock source setting
@@ -90,7 +92,9 @@ byte +0x08 [2]  → USB1 mode (PTE_USB1Mode enum, controls bit 0 of status byte)
                    Dispatch: read=0x02/0x19, write=0x1A (setUSB1Mode)
 byte +0x0C [3]  → digital out mode
                    Dispatch: read=0x1B, write=0x1C (setDigitalOutMode)
-byte +0x10 [4]  → digital output selector value (written to index 2 by writeDigitalOutSelector)
+byte +0x10 [4]  → digital output selector value (written to index 2 by writeDigitalOutSelector;
+                   Tascam's panel sets it only from its USB 1.1 mode code; ESU1808: S/PDIF mirror
+                   pair 0..3 for chooseDMAEncoder, no request)
                    Dispatch: write=0x03 (setDigitalOutSelector)
 byte +0x14      → input postprocessor setting [sub=0]
 byte +0x18      → input postprocessor setting [sub=1]

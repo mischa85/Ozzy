@@ -39,10 +39,15 @@ enum ozzy_setting {
 	OZZY_NUM_SETTINGS
 };
 
-/* OZZY_SETTING_CLOCK_SOURCE values */
+/*
+ * OZZY_SETTING_CLOCK_SOURCE values, the official driver's ClockSource (AjExtData[1]). Tascam's
+ * US-1641/1800/2000 Control Panel offers "Automatic" (index 0, the default: the digital input
+ * when it has a valid signal, else internal) and "Internal" (index 1: always internal), and
+ * passes the index to setClockSource.
+ */
 enum ozzy_clock_source {
-	OZZY_CLOCK_INTERNAL = 0,
-	OZZY_CLOCK_SPDIF    = 1,
+	OZZY_CLOCK_AUTOMATIC = 0,
+	OZZY_CLOCK_INTERNAL  = 1,
 	OZZY_NUM_CLOCK_SOURCES
 };
 
@@ -74,12 +79,12 @@ struct ozzy_setting_desc {
 	uint32_t quirk;
 };
 
-static const char *const ozzy_clock_source_names[OZZY_NUM_CLOCK_SOURCES] = { "Internal", "S/PDIF" };
+static const char *const ozzy_clock_source_names[OZZY_NUM_CLOCK_SOURCES] = { "Automatic", "Internal" };
 static const char *const ozzy_spdif_out_mode_names[OZZY_NUM_SPDIF_OUT_MODES] = { "Consumer", "Professional" };
 
 static const struct ozzy_setting_desc ozzy_setting_descs[OZZY_NUM_SETTINGS] = {
 	/* Positional: the macOS kext compiles this as C++11 */
-	{ "Clock Source", ozzy_clock_source_names, OZZY_NUM_CLOCK_SOURCES, OZZY_CLOCK_INTERNAL,
+	{ "Clock Source", ozzy_clock_source_names, OZZY_NUM_CLOCK_SOURCES, OZZY_CLOCK_AUTOMATIC,
 	  OZZY_QUIRK_DIGITAL_IN },
 	/* ALSA names S/PDIF "IEC958" (Documentation/sound/designs/control-names.rst) */
 	{ "IEC958 Playback Mode", ozzy_spdif_out_mode_names, OZZY_NUM_SPDIF_OUT_MODES,
@@ -97,7 +102,7 @@ struct ozzy_settings {
 /*
  * struct ozzy_clock_status - What the device reported about its digital input clock,
  * at the last handshake (the official driver only reads it there too).
- * @locked:    S/PDIF is the clock source and the device is locked to it
+ * @locked:    clock source Automatic and the device is locked to its S/PDIF input
  * @lock_rate: the rate it locked to (Hz), 0 when not locked
  */
 struct ozzy_clock_status {

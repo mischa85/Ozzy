@@ -1,0 +1,36 @@
+/* SPDX-License-Identifier: MIT */
+/* MIDI running status expansion (common/midi_running_status.h) on known streams */
+
+#include "common/midi_running_status.h"
+#include "check.h"
+#include <string.h>
+
+static unsigned int expand(const uint8_t *in, unsigned int n, uint8_t *out)
+{
+	struct midi_running_status rs = { 0, 0 };
+	unsigned int i, len = 0;
+
+	for (i = 0; i < n; i++)
+		len += midi_running_status_expand(&rs, in[i], out + len);
+	return len;
+}
+
+#define CASE(name, in, want) do { \
+	static const uint8_t i_[] = in, w_[] = want; uint8_t o_[64]; unsigned int n_ = expand(i_, sizeof(i_), o_); \
+	CHECK(n_ == sizeof(w_) && !memcmp(o_, w_, n_), "%s", name); } while (0)
+#define B(...) { __VA_ARGS__ }
+
+int main(void)
+{
+	CASE("complete messages pass", B(0x90, 0x40, 0x7F, 0x80, 0x40, 0x00), B(0x90, 0x40, 0x7F, 0x80, 0x40, 0x00));
+	CASE("note on running status", B(0x90, 0x40, 0x7F, 0x41, 0x7F, 0x42, 0x00),
+	     B(0x90, 0x40, 0x7F, 0x90, 0x41, 0x7F, 0x90, 0x42, 0x00));
+	CASE("program change, one data byte", B(0xC0, 0x05, 0x06, 0x07), B(0xC0, 0x05, 0xC0, 0x06, 0xC0, 0x07));
+	CASE("channel pressure, one data byte", B(0xD3, 0x10, 0x20), B(0xD3, 0x10, 0xD3, 0x20));
+	CASE("real-time inside a message", B(0x90, 0x40, 0xF8, 0x7F, 0x41, 0x7F),
+	     B(0x90, 0x40, 0xF8, 0x7F, 0x90, 0x41, 0x7F));
+	CASE("SysEx cancels running status", B(0x90, 0x40, 0x7F, 0xF0, 0x01, 0x02, 0xF7, 0x41, 0x7F),
+	     B(0x90, 0x40, 0x7F, 0xF0, 0x01, 0x02, 0xF7, 0x41, 0x7F));
+	CASE("data before any status passes", B(0x41, 0x7F), B(0x41, 0x7F));
+	return CHECK_DONE("running status");
+}

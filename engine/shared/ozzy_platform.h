@@ -33,6 +33,8 @@
 #define OZZY_STATUS_ABORTED ((int)STATUS_CANCELLED)
 #elif defined(_WIN32)
 #define OZZY_STATUS_ABORTED 995   /* ERROR_OPERATION_ABORTED, without pulling in windows.h */
+#else
+#define OZZY_STATUS_ABORTED (-125)  /* -ECANCELED: host builds (tests); a bus maps its own */
 #endif
 
 /*

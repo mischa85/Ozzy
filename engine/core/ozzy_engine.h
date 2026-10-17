@@ -24,6 +24,7 @@
 #include "../../common/ozzy_settings.h"
 #include "../../common/ozzy_devices.h"
 #include "../../common/ozzy_route.h"
+#include "../../common/isoc_feedback.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -67,6 +68,38 @@ struct ozzy_pcm_ring {
 	uint64_t start;
 };
 
+/*
+ * struct ozzy_engine_memory - Where the engine's transfers go: every buffer it hands to
+ * ozzy_bus_ops.submit / submit_isoc is in here. ozzy_engine_attach() points it into the
+ * shared memory (macOS: the HAL reads and writes the PCM slots there; Windows, the harness and
+ * the tests use it as it is). A platform whose transfers need memory of their own (Linux:
+ * DMA-capable, a cache line per buffer) gives its own with ozzy_engine_set_memory().
+ * @pcm_out/@pcm_in:  slots of at least OZZY_PCM_SLOT_MIN bytes; transfer idx uses slot
+ *                    idx % slots (at least the transfers in flight, 4)
+ * @isoc_out:         NULL: isochronous OUT packets point into the shared memory's frame ring,
+ *                    which the HAL writes; else one buffer per OUT transfer
+ *                    (ISOC_OUT_TRANSFERS, @isoc_out_size bytes each), filled at submit
+ * @isoc_in:          the feedback transfers (@isoc_in_size bytes)
+ * @midi_in:          MIDI IN transfers, OZZY_MIDI_IN_SIZE bytes
+ * @midi_out:         one MIDI OUT transfer, OZZY_MIDI_OUT_SIZE bytes
+ */
+#define OZZY_PCM_SLOT_MIN   5120   /* the largest PCM transfer (Ploytec PCM in) */
+#define OZZY_MIDI_IN_SIZE   256
+#define OZZY_MIDI_OUT_SIZE  64
+
+struct ozzy_engine_memory {
+	uint8_t *pcm_out[OZZY_NUM_PACKETS];
+	uint32_t pcm_out_slots;
+	uint8_t *pcm_in[OZZY_NUM_PACKETS];
+	uint32_t pcm_in_slots;
+	uint8_t *isoc_out[ISOC_OUT_TRANSFERS];
+	uint32_t isoc_out_size;
+	uint8_t *isoc_in;
+	uint32_t isoc_in_size;
+	uint8_t *midi_in;
+	uint8_t *midi_out;
+};
+
 struct ozzy_engine;
 
 /*
@@ -98,6 +131,7 @@ struct ozzy_engine_ops {
  * @pcm_ring_set: ozzy_engine_set_pcm_ring(); the completion path picks it up
  * @pcm_ring/@pcm_pos: the rings as the completion path has them, and the ring position of
  *                each one's next frame (ozzy_engine_take_pcm_ring; completion path only)
+ * @mem:          where the transfers go (struct ozzy_engine_memory)
  */
 struct ozzy_engine {
 	const struct ozzy_engine_ops *ops;
@@ -112,14 +146,33 @@ struct ozzy_engine {
 	const struct ozzy_pcm_ring *volatile pcm_ring_set[OZZY_PCM_DIRS];
 	const struct ozzy_pcm_ring *pcm_ring[OZZY_PCM_DIRS];
 	uint64_t pcm_pos[OZZY_PCM_DIRS];
+	struct ozzy_engine_memory mem;
 };
 
 /* Bytes to allocate for @model's engine (0 if Ozzy has none for its family) */
 size_t ozzy_engine_size(const struct ozzy_device *model);
 /* The engine for @model in @mem (ozzy_engine_size() bytes, any contents), or NULL */
 struct ozzy_engine *ozzy_engine_init(void *mem, const struct ozzy_device *model);
-/* The bus and shared memory to run on; the settings go back to their defaults */
+/* The bus and shared memory to run on; the settings go back to their defaults and the
+ * transfers to the shared memory (ozzy_engine_set_memory to change that) */
 void ozzy_engine_attach(struct ozzy_engine *e, const struct ozzy_bus *bus, volatile struct ozzy_shared_memory *shm);
+
+/* The platform's own transfer memory (after ozzy_engine_attach, before ozzy_engine_start) */
+static inline void ozzy_engine_set_memory(struct ozzy_engine *e, const struct ozzy_engine_memory *mem)
+{
+	e->mem = *mem;
+}
+
+/* The PCM slot of transfer @idx */
+static inline uint8_t *ozzy_engine_pcm_out_slot(const struct ozzy_engine *e, uint32_t idx)
+{
+	return e->mem.pcm_out[idx % e->mem.pcm_out_slots];
+}
+
+static inline uint8_t *ozzy_engine_pcm_in_slot(const struct ozzy_engine *e, uint32_t idx)
+{
+	return e->mem.pcm_in[idx % e->mem.pcm_in_slots];
+}
 
 static inline void ozzy_engine_set_endpoint(struct ozzy_engine *e, enum ozzy_pipe_role role, uint8_t address,
 					    uint8_t transfer_type, uint16_t max_packet_size, uint8_t interval)

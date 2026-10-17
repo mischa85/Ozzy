@@ -18,22 +18,37 @@ static bool submit_out(struct ozzy_isoc_output *out, uint32_t i)
 {
 	struct ozzy_isoc_output_xfer *t = &out->out[i];
 	const struct ozzy_isoc_output_config *c = &out->config;
-	uint32_t p;
-
 	uint64_t first = out->out_frame;
+	uint32_t p, offset = 0, frames;
+	uint8_t *buf;
+	uint32_t buf_size;
 
 	t->count = isoc_fb_packets(out->out_uframes);
 	isoc_fb_layout(&out->fb, t->count, out->out_uframes, out->out_max_frames, t->frames);
 	for (p = 0; p < t->count; p++) {
-		t->packets[p].offset = ozzy_mod_u64(out->out_frame, c->ring_frames) * c->frame_bytes;
+		/* Into the frame ring, or one after the other in the transfer's own buffer */
+		t->packets[p].offset = c->xfer[0] ? offset : ozzy_mod_u64(out->out_frame, c->ring_frames) * c->frame_bytes;
 		t->packets[p].length = t->frames[p] * c->frame_bytes;
+		offset += t->packets[p].length;
 		out->out_frame += t->frames[p];
 	}
-	if (c->fill)
-		c->fill(c->owner, (uint8_t *)out->shm->audio.output_buffer, c->ring_frames, first,
-			(uint32_t)(out->out_frame - first));
-	if (ozzy_bus_submit_isoc(out->bus, c->out_addr, (void *)out->shm->audio.output_buffer,
-				 c->ring_frames * c->frame_bytes, t->packets, t->count, (void *)(uintptr_t)i))
+	frames = (uint32_t)(out->out_frame - first);
+	if (c->xfer[0]) {
+		buf = c->xfer[i];
+		buf_size = c->xfer_size;
+		if (offset > buf_size) {
+			ozzy_log("isoc: output transfer of %u bytes doesn't fit its %u-byte buffer", offset, buf_size);
+			return false;
+		}
+		if (c->fill && frames)
+			c->fill(c->owner, buf, frames, 0, frames);
+	} else {
+		buf = c->ring;
+		buf_size = c->ring_frames * c->frame_bytes;
+		if (c->fill)
+			c->fill(c->owner, buf, c->ring_frames, first, frames);
+	}
+	if (ozzy_bus_submit_isoc(out->bus, c->out_addr, buf, buf_size, t->packets, t->count, (void *)(uintptr_t)i))
 		return true;
 	ozzy_log("isoc: output submission failed (transfer %u)", i);
 	return false;
@@ -51,8 +66,8 @@ static bool submit_feedback(struct ozzy_isoc_output *out, uint32_t i)
 		t->packets[p].offset = base + p * c->fb_max_packet;
 		t->packets[p].length = c->fb_max_packet;
 	}
-	if (ozzy_bus_submit_isoc(out->bus, c->fb_addr, (void *)out->shm->isoc_in_usb_buffer,
-				 sizeof(out->shm->isoc_in_usb_buffer), t->packets, t->count, (void *)(uintptr_t)i))
+	if (ozzy_bus_submit_isoc(out->bus, c->fb_addr, c->fb_buf, c->fb_size, t->packets, t->count,
+				 (void *)(uintptr_t)i))
 		return true;
 	ozzy_log("isoc: feedback submission failed (transfer %u)", i);
 	return false;
@@ -68,11 +83,11 @@ bool ozzy_isoc_output_start(struct ozzy_isoc_output *out, const struct ozzy_bus 
 	out->bus = bus;
 	out->shm = shm;
 	out->config = *config;
-	if (!bus || !shm || !config->out_addr || ring_bytes > sizeof(shm->audio.output_buffer))
+	if (!bus || !shm || !config->out_addr || (!config->xfer[0] && !config->ring))
 		return false;
 
-	fb_fits = config->fb_addr &&
-		  ISOC_FB_TRANSFERS * ISOC_TRANSFER_UFRAMES * config->fb_max_packet <= sizeof(shm->isoc_in_usb_buffer);
+	fb_fits = config->fb_addr && config->fb_buf &&
+		  ISOC_FB_TRANSFERS * ISOC_TRANSFER_UFRAMES * config->fb_max_packet <= config->fb_size;
 	if (config->fb_addr && !fb_fits)
 		ozzy_log("isoc: feedback wMaxPacketSize %u too large", config->fb_max_packet);
 	if (!isoc_fb_init(&out->fb, config->rate, fb_fits ? &config->feedback : &no_feedback,
@@ -88,7 +103,8 @@ bool ozzy_isoc_output_start(struct ozzy_isoc_output *out, const struct ozzy_bus 
 		 out->out_uframes, out->out_max_frames, out->fb.uframes);
 
 	/* Silence in the ring, clock at 0 */
-	memset((void *)shm->audio.output_buffer, 0, ring_bytes);
+	if (!config->xfer[0])
+		memset(config->ring, 0, ring_bytes);
 	out->out_frame = 0;
 	out->played_frames = 0;
 	out->next_anchor = config->anchor_frames;
@@ -147,7 +163,7 @@ bool ozzy_isoc_output_complete(struct ozzy_isoc_output *out, uint8_t pipe, void 
 		if (!out->running || status == OZZY_STATUS_ABORTED)
 			return true;
 		for (p = 0; p < count; p++) {
-			const uint8_t *pkt = (const uint8_t *)out->shm->isoc_in_usb_buffer + packets[p].offset;
+			const uint8_t *pkt = out->config.fb_buf + packets[p].offset;
 			uint32_t len = packets[p].status == 0 ? packets[p].actual : 0;
 
 			if (!out->fb_logged) {

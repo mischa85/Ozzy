@@ -86,8 +86,7 @@ static void ploytec_set_endpoint(struct ozzy_engine *e, enum ozzy_pipe_role role
 
 static void submit_pcm_out(struct ploytec_engine *pe, uint32_t idx)
 {
-	volatile struct ozzy_shared_memory *shm = pe->base.shm;
-	uint8_t *buffer = (uint8_t *)shm->audio.output_buffer + (idx % OZZY_NUM_PACKETS) * OZZY_MAX_PACKET_SIZE;
+	uint8_t *buffer = ozzy_engine_pcm_out_slot(&pe->base, idx);
 
 	if (!ozzy_bus_submit(pe->base.bus, EP_PCM_OUT, buffer, pe->packet_size_out, (void *)(uintptr_t)idx))
 		ploytec_log("output submission failed (idx: %u)", idx);
@@ -95,7 +94,7 @@ static void submit_pcm_out(struct ploytec_engine *pe, uint32_t idx)
 
 static void submit_midi_in(struct ploytec_engine *pe, uint32_t slot)
 {
-	if (!ploytec_submit_midi_in(pe->base.bus, pe->base.shm, EP_MIDI_IN, &pe->midi, slot))
+	if (!ploytec_submit_midi_in(&pe->base, EP_MIDI_IN, &pe->midi, slot))
 		ploytec_log("MIDI input submission failed (slot %u)", slot);
 }
 
@@ -150,14 +149,14 @@ static bool ploytec_start(struct ozzy_engine *e)
 	pe->hw_sample_time = 0;
 	shm->audio.timestamp.sample_time = 0;
 
-	/* 4. Every logical packet: silence and idle MIDI bytes */
-	for (i = 0; i < OZZY_NUM_PACKETS; i++)
-		ploytec_out_init_packet(pe->out_layout, (uint8_t *)shm->audio.output_buffer + i * OZZY_MAX_PACKET_SIZE);
+	/* 4. Every PCM out slot: silence and idle MIDI bytes */
+	for (i = 0; i < e->mem.pcm_out_slots; i++)
+		ploytec_out_init_packet(pe->out_layout, e->mem.pcm_out[i]);
 
 	/* 5. PCM_XFERS transfers in flight per PCM pipe, PLOYTEC_MIDI_IN_XFERS MIDI IN reads */
 	pe->running = true;
 	for (i = 0; i < PCM_XFERS; i++) {
-		if (!ploytec_submit_pcm_in(e->bus, shm, EP_PCM_IN, i))
+		if (!ploytec_submit_pcm_in(e, EP_PCM_IN, i))
 			ploytec_log("input submission failed (idx: %u)", i);
 		submit_pcm_out(pe, i);
 	}
@@ -197,7 +196,7 @@ static void midi_out(struct ploytec_engine *pe, uint32_t idx)
 	uint8_t bytes[PLOYTEC_OUT_SUBPKTS];
 	uint32_t mask;
 	uint32_t count = ploytec_midi_out_slots(&pe->midi, &mask);
-	uint8_t *packet = (uint8_t *)shm->audio.output_buffer + (idx % OZZY_NUM_PACKETS) * OZZY_MAX_PACKET_SIZE;
+	uint8_t *packet = ozzy_engine_pcm_out_slot(&pe->base, idx);
 
 	memset(bytes, PLOYTEC_MIDI_IDLE_BYTE, sizeof(bytes));
 	ozzy_midi_ring_pop(&shm->midi_out, bytes, count);
@@ -211,7 +210,7 @@ static void midi_out(struct ploytec_engine *pe, uint32_t idx)
 static void encode_pcm_out(struct ploytec_engine *pe, uint32_t idx)
 {
 	const struct ozzy_pcm_ring *ring = ozzy_engine_take_pcm_ring(&pe->base, OZZY_PCM_OUT);
-	uint8_t *packet = (uint8_t *)pe->base.shm->audio.output_buffer + (idx % OZZY_NUM_PACKETS) * OZZY_MAX_PACKET_SIZE;
+	uint8_t *packet = ozzy_engine_pcm_out_slot(&pe->base, idx);
 	uint32_t frame_bytes, r, f;
 
 	if (!ring || !pe->encode) {
@@ -241,8 +240,7 @@ static void encode_pcm_out(struct ploytec_engine *pe, uint32_t idx)
 	 * last frame of the packet before, already encoded */
 	if (pe->mirror) {
 		unsigned int pair = pe->base.settings.value[OZZY_SETTING_SPDIF_MIRROR];
-		const uint8_t *prev = (uint8_t *)pe->base.shm->audio.output_buffer +
-				      ((idx + OZZY_NUM_PACKETS - 1) % OZZY_NUM_PACKETS) * OZZY_MAX_PACKET_SIZE +
+		const uint8_t *prev = ozzy_engine_pcm_out_slot(&pe->base, idx + pe->base.mem.pcm_out_slots - 1) +
 				      ploytec_out_frame_offset(pe->out_layout, PLOYTEC_FRAMES_PER_PKT - 1);
 
 		for (f = 0; f < PLOYTEC_FRAMES_PER_PKT; f++) {
@@ -300,12 +298,12 @@ static void ploytec_complete(struct ozzy_engine *e, uint8_t pipe, void *xfer, in
 		submit_pcm_out(pe, next);
 	} else if (pipe == EP_PCM_IN) {
 		ploytec_decode_pcm_in(e, pe->decode, finished, status == 0 ? bytes : 0);
-		if (!ploytec_submit_pcm_in(e->bus, shm, EP_PCM_IN, next))
+		if (!ploytec_submit_pcm_in(e, EP_PCM_IN, next))
 			ploytec_log("input submission failed (idx: %u)", next);
 	} else if (pipe == EP_MIDI_IN) {
 		/* Only the MIDI bytes of the frame (ploytec_midi.h); the slot is the transfer's */
 		if (bytes)
-			ploytec_midi_in_to_ring(&pe->midi, shm, ploytec_midi_in_slot(shm, finished),
+			ploytec_midi_in_to_ring(&pe->midi, shm, ploytec_midi_in_slot(e, finished),
 						bytes < PLOYTEC_MIDI_IN_SLOT ? bytes : PLOYTEC_MIDI_IN_SLOT);
 		submit_midi_in(pe, finished);
 	}

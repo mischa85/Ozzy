@@ -22,33 +22,31 @@ extern "C" {
  * clear_halt; the context is the engine's struct ozzy_bus */
 extern const struct ploytec_host_ops ploytec_bus_host_ops;
 
-/* One PCM IN transfer: 80 frames into logical packet @idx of input_buffer
- * (OZZY_MAX_PACKET_SIZE stride), where the HAL's reader expects it */
-static inline bool ploytec_submit_pcm_in(const struct ozzy_bus *bus, volatile struct ozzy_shared_memory *shm,
-					 uint8_t address, uint32_t idx)
+/* One PCM IN transfer: 80 frames into PCM in slot @idx (the shared memory's logical packet
+ * idx % 128 on macOS, where the HAL's reader expects it) */
+static inline bool ploytec_submit_pcm_in(const struct ozzy_engine *e, uint8_t address, uint32_t idx)
 {
-	uint8_t *buffer = (uint8_t *)shm->audio.input_buffer + (idx % OZZY_NUM_PACKETS) * OZZY_MAX_PACKET_SIZE;
-
-	return ozzy_bus_submit(bus, address, buffer, PLOYTEC_IN_PKT_SIZE, (void *)(uintptr_t)idx);
+	return ozzy_bus_submit(e->bus, address, ozzy_engine_pcm_in_slot(e, idx), PLOYTEC_IN_PKT_SIZE,
+			       (void *)(uintptr_t)idx);
 }
 
 /*
  * MIDI IN: PLOYTEC_MIDI_IN_XFERS reads of the framing's transfer size (9 bytes on the Xones,
- * as Linux reads them), each into its own slot of midi_in_usb_buffer, so no two transfers
+ * as Linux reads them), each into its own slot of the MIDI IN memory, so no two transfers
  * share memory or a cache line
  */
 #define PLOYTEC_MIDI_IN_XFERS   4
 #define PLOYTEC_MIDI_IN_SLOT    64     /* >= PLOYTEC_MIDI_XFER_MAX, a cache line */
 
-static inline uint8_t *ploytec_midi_in_slot(volatile struct ozzy_shared_memory *shm, uint32_t slot)
+static inline uint8_t *ploytec_midi_in_slot(const struct ozzy_engine *e, uint32_t slot)
 {
-	return (uint8_t *)shm->midi_in_usb_buffer + slot * PLOYTEC_MIDI_IN_SLOT;
+	return e->mem.midi_in + slot * PLOYTEC_MIDI_IN_SLOT;
 }
 
-static inline bool ploytec_submit_midi_in(const struct ozzy_bus *bus, volatile struct ozzy_shared_memory *shm,
-					  uint8_t address, const struct ploytec_midi *midi, uint32_t slot)
+static inline bool ploytec_submit_midi_in(const struct ozzy_engine *e, uint8_t address, const struct ploytec_midi *midi,
+					  uint32_t slot)
 {
-	return ozzy_bus_submit(bus, address, ploytec_midi_in_slot(shm, slot), midi->xfer_size, (void *)(uintptr_t)slot);
+	return ozzy_bus_submit(e->bus, address, ploytec_midi_in_slot(e, slot), midi->xfer_size, (void *)(uintptr_t)slot);
 }
 
 /* The MIDI bytes of one MIDI IN transfer (ploytec_midi.h) into the midi_in ring */

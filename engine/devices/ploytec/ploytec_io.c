@@ -15,7 +15,7 @@ void ploytec_decode_pcm_in(struct ozzy_engine *e, ploytec_frame_fn decode, uint3
 
 	if (!ring || !decode)
 		return;
-	packet = (const uint8_t *)e->shm->audio.input_buffer + (idx % OZZY_NUM_PACKETS) * OZZY_MAX_PACKET_SIZE;
+	packet = ozzy_engine_pcm_in_slot(e, idx);
 	frame_bytes = ring->channels * 3;
 	got = bytes / PLOYTEC_IN_FRAME_SIZE;
 	r = ozzy_mod_u64(e->pcm_pos[OZZY_PCM_IN], ring->frames);

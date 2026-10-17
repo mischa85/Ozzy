@@ -47,7 +47,7 @@ static void isoc_set_endpoint(struct ozzy_engine *e, enum ozzy_pipe_role role, u
 /* MIDI IN reads of the framing's transfer size (AJ::configurationDone), one slot each */
 static void submit_midi_in(struct ploytec_isoc_engine *pe, uint32_t slot)
 {
-	if (!ploytec_submit_midi_in(pe->base.bus, pe->base.shm, pe->midi_in_addr, &pe->midi, slot))
+	if (!ploytec_submit_midi_in(&pe->base, pe->midi_in_addr, &pe->midi, slot))
 		ploytec_log("isoc: MIDI input submission failed (slot %u)", slot);
 }
 
@@ -139,7 +139,7 @@ static bool isoc_start(struct ozzy_engine *e)
 
 	/* 3. Transfers: PCM in, PCM out with feedback, MIDI in; MIDI out from the timer */
 	for (i = 0; i < IN_TRANSFERS; i++)
-		if (!ploytec_submit_pcm_in(e->bus, shm, pe->in_addr, i))
+		if (!ploytec_submit_pcm_in(e, pe->in_addr, i))
 			ploytec_log("isoc: input submission failed (idx: %u)", i);
 
 	memset(&out, 0, sizeof(out));
@@ -156,6 +156,17 @@ static bool isoc_start(struct ozzy_engine *e)
 	out.feedback = feedback;
 	out.fill = fill_out;
 	out.owner = e;
+	/* The platform's per-transfer buffers, or the shared memory's frame ring (the HAL's) */
+	if (e->mem.isoc_out[0]) {
+		memcpy(out.xfer, e->mem.isoc_out, sizeof(out.xfer));
+		out.xfer_size = e->mem.isoc_out_size;
+	} else {
+		out.ring = (uint8_t *)shm->audio.output_buffer;
+		if (out.ring_frames * frame_bytes > sizeof(shm->audio.output_buffer))
+			return false;
+	}
+	out.fb_buf = e->mem.isoc_in;
+	out.fb_size = e->mem.isoc_in_size;
 	pe->decode = ploytec_frame_decoder(model->in_channels);
 	if (!ozzy_isoc_output_start(&pe->output, e->bus, shm, &out))
 		return false;
@@ -218,11 +229,11 @@ static void isoc_complete(struct ozzy_engine *e, uint8_t pipe, void *xfer, int s
 
 	if (pipe == pe->in_addr) {
 		ploytec_decode_pcm_in(e, pe->decode, idx, status == 0 ? bytes : 0);
-		if (!ploytec_submit_pcm_in(e->bus, shm, pe->in_addr, idx + IN_TRANSFERS))
+		if (!ploytec_submit_pcm_in(e, pe->in_addr, idx + IN_TRANSFERS))
 			ploytec_log("isoc: input submission failed (idx: %u)", idx + IN_TRANSFERS);
 	} else if (pipe == pe->midi_in_addr) {
 		if (status == 0)
-			ploytec_midi_in_to_ring(&pe->midi, shm, ploytec_midi_in_slot(shm, idx),
+			ploytec_midi_in_to_ring(&pe->midi, shm, ploytec_midi_in_slot(e, idx),
 						bytes < PLOYTEC_MIDI_IN_SLOT ? bytes : PLOYTEC_MIDI_IN_SLOT);
 		submit_midi_in(pe, idx);
 	} else if (pipe == pe->midi_out_addr) {
@@ -249,7 +260,7 @@ static void isoc_timer(struct ozzy_engine *e)
 	if (ozzy_xchg_acquire_bool(&pe->midi_out_busy, true))
 		return;
 
-	buf = (uint8_t *)shm->midi_out_usb_buffer;
+	buf = e->mem.midi_out;
 	n = ploytec_midi_xfer_begin(&pe->midi, buf);
 	ozzy_midi_ring_pop(&shm->midi_out, buf, n);
 

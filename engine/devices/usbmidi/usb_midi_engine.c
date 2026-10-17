@@ -34,8 +34,7 @@ static void midi_set_endpoint(struct ozzy_engine *e, enum ozzy_pipe_role role, u
 
 static void submit_read(struct usb_midi_engine *me, uint32_t slot)
 {
-	volatile struct ozzy_shared_memory *shm = me->base.shm;
-	void *buf = (void *)(shm->midi_in_usb_buffer + slot * READ_SIZE);
+	void *buf = me->base.mem.midi_in + slot * READ_SIZE;
 
 	if (!ozzy_bus_submit(me->base.bus, EP_MIDI_IN, buf, READ_SIZE, (void *)(uintptr_t)slot))
 		usb_midi_log("MIDI input submission failed (slot %u)", slot);
@@ -88,7 +87,7 @@ static void midi_stop(struct ozzy_engine *e)
 static void process_read(struct usb_midi_engine *me, uint32_t slot, uint32_t bytes)
 {
 	volatile struct ozzy_shared_memory *shm = me->base.shm;
-	const uint8_t *packets = (const uint8_t *)(shm->midi_in_usb_buffer + slot * READ_SIZE);
+	const uint8_t *packets = me->base.mem.midi_in + slot * READ_SIZE;
 	uint32_t offset;
 
 	for (offset = 0; offset + USB_MIDI_PACKET_SIZE <= bytes; offset += USB_MIDI_PACKET_SIZE) {
@@ -111,7 +110,7 @@ static void pump_midi_out(struct usb_midi_engine *me)
 	if (!shm)
 		return;
 	for (;;) {
-		uint8_t *packet = (uint8_t *)shm->midi_out_usb_buffer;
+		uint8_t *packet = me->base.mem.midi_out;
 		uint32_t r, w;
 
 		if (ozzy_xchg_acquire_bool(&me->out_busy, true))

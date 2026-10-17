@@ -56,10 +56,26 @@ static void update_routes(struct ozzy_engine *e)
 
 void ozzy_engine_attach(struct ozzy_engine *e, const struct ozzy_bus *bus, volatile struct ozzy_shared_memory *shm)
 {
+	struct ozzy_engine_memory *m = &e->mem;
+	unsigned int i;
+
 	e->bus = bus;
 	e->shm = shm;
 	ozzy_settings_defaults(&e->settings);
 	update_routes(e);
+
+	/* Transfers in the shared memory: the PCM slots are the HAL's logical packets */
+	memset(m, 0, sizeof(*m));
+	for (i = 0; i < OZZY_NUM_PACKETS; i++) {
+		m->pcm_out[i] = (uint8_t *)shm->audio.output_buffer + i * OZZY_MAX_PACKET_SIZE;
+		m->pcm_in[i] = (uint8_t *)shm->audio.input_buffer + i * OZZY_MAX_PACKET_SIZE;
+	}
+	m->pcm_out_slots = OZZY_NUM_PACKETS;
+	m->pcm_in_slots = OZZY_NUM_PACKETS;
+	m->isoc_in = (uint8_t *)shm->isoc_in_usb_buffer;
+	m->isoc_in_size = sizeof(shm->isoc_in_usb_buffer);
+	m->midi_in = (uint8_t *)shm->midi_in_usb_buffer;
+	m->midi_out = (uint8_t *)shm->midi_out_usb_buffer;
 }
 
 uint32_t ozzy_engine_setting_quirks(const struct ozzy_engine *e)

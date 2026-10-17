@@ -231,11 +231,8 @@ static int ozzy_chip_probe(struct usb_interface *intf, const struct usb_device_i
 	ret = !chip->engine || !chip->shm ? -ENOMEM : ozzy_urb_init(&chip->bus, chip);
 	if (ret < 0)
 		goto err_card;
-	chip->shm->magic = OZZY_MAGIC;
-	chip->shm->version = OZZY_SHARED_VERSION;
-	chip->shm->vendor_id = model->vid;
-	chip->shm->product_id = model->pid;
-	ozzy_strlcpy(chip->shm->product_name, dev->product ?: model->name, sizeof(chip->shm->product_name));
+	if (dev->product)
+		ozzy_strlcpy(chip->shm->product_name, dev->product, sizeof(chip->shm->product_name));
 
 	ret = ozzy_chip_claim(chip, intf);
 	if (ret == 0)

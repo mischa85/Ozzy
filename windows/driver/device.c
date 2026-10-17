@@ -108,11 +108,6 @@ static NTSTATUS wdev_evt_prepare_hardware(WDFDEVICE device, WDFCMRESLIST resourc
     if (!ctx->shm) {
         ctx->shm = ExAllocatePool2(POOL_FLAG_NON_PAGED, sizeof(*ctx->shm), OZZY_POOL_TAG);
         if (!ctx->shm) return STATUS_INSUFFICIENT_RESOURCES;
-        ctx->shm->magic = OZZY_MAGIC;
-        ctx->shm->version = OZZY_SHARED_VERSION;
-        ctx->shm->vendor_id = ctx->model->vid;
-        ctx->shm->product_id = ctx->model->pid;
-        ozzy_strlcpy(ctx->shm->product_name, ctx->model->name, sizeof(ctx->shm->product_name));
     }
     if (!ctx->engine) {
         size_t size = ozzy_engine_size(ctx->model);

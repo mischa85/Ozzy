@@ -168,9 +168,6 @@ bool OzzyKext::start(IOService* provider) {
     // Extract device metadata early so HAL can see it immediately
     const StandardUSB::DeviceDescriptor* desc = mHostDevice->getDeviceDescriptor();
     if (desc) {
-        mSHM->vendor_id = desc->idVendor;
-        mSHM->product_id = desc->idProduct;
-        
         // Get device strings from IORegistry
         GetRegistryString(mHostDevice, "USB Vendor Name", mSHM->manufacturer_name, 64);
         GetRegistryString(mHostDevice, "USB Product Name", mSHM->product_name, 64);
@@ -385,9 +382,8 @@ bool OzzyKext::MapSharedMemory() {
     mShmMap = mShmDescriptor->map();
     mSHM = (ozzy_shared_memory*)mShmMap->getVirtualAddress();
     memset(mSHM, 0, sizeof(ozzy_shared_memory));
-    mSHM->magic = OZZY_MAGIC;
-    mSHM->version = OZZY_SHARED_VERSION;
-    
+    // The header (magic, version, USB IDs) comes with ozzy_engine_attach
+
     // Generate random session ID using current time and address
     uint32_t random = (uint32_t)((uintptr_t)mSHM ^ mach_absolute_time());
     mSHM->session_id = random;

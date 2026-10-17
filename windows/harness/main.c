@@ -222,15 +222,11 @@ int main(int argc, char** argv) {
     /* The shared memory the kext would map for the HAL; here both sides are in this process */
     struct ozzy_shared_memory* shm = VirtualAlloc(NULL, sizeof(*shm), MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
     if (!shm) return 1;
-    shm->magic = OZZY_MAGIC;
-    shm->version = OZZY_SHARED_VERSION;
-    shm->vendor_id = bus.device_desc.idVendor;
-    shm->product_id = bus.device_desc.idProduct;
     wbus_get_string(&bus, bus.device_desc.iManufacturer, shm->manufacturer_name, sizeof(shm->manufacturer_name));
     wbus_get_string(&bus, bus.device_desc.iProduct, shm->product_name, sizeof(shm->product_name));
     wbus_get_string(&bus, bus.device_desc.iSerialNumber, shm->serial_number, sizeof(shm->serial_number));
     fprintf(stderr, "device: %s %s (%s), %04x:%04x\n", shm->manufacturer_name, shm->product_name, model->name,
-            shm->vendor_id, shm->product_id);
+            model->vid, model->pid);
 
     if (!wbus_configure(&bus)) return 1;
     ozzy_engine_attach(engine, &bus.bus, shm);

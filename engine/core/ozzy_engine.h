@@ -153,8 +153,12 @@ struct ozzy_engine {
 size_t ozzy_engine_size(const struct ozzy_device *model);
 /* The engine for @model in @mem (ozzy_engine_size() bytes, any contents), or NULL */
 struct ozzy_engine *ozzy_engine_init(void *mem, const struct ozzy_device *model);
-/* The bus and shared memory to run on; the settings go back to their defaults and the
- * transfers to the shared memory (ozzy_engine_set_memory to change that) */
+/*
+ * The bus and shared memory to run on. The settings go back to their defaults and the
+ * transfers to the shared memory (ozzy_engine_set_memory to change that). The shared memory's
+ * header comes from the model: magic, version, USB IDs, and its name as the product name
+ * unless the platform put the device's own string there first.
+ */
 void ozzy_engine_attach(struct ozzy_engine *e, const struct ozzy_bus *bus, volatile struct ozzy_shared_memory *shm);
 
 /* The platform's own transfer memory (after ozzy_engine_attach, before ozzy_engine_start) */

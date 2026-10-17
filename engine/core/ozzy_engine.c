@@ -61,6 +61,12 @@ void ozzy_engine_attach(struct ozzy_engine *e, const struct ozzy_bus *bus, volat
 
 	e->bus = bus;
 	e->shm = shm;
+	shm->magic = OZZY_MAGIC;
+	shm->version = OZZY_SHARED_VERSION;
+	shm->vendor_id = e->model->vid;
+	shm->product_id = e->model->pid;
+	if (!shm->product_name[0])
+		ozzy_strlcpy((char *)shm->product_name, e->model->name, sizeof(shm->product_name));
 	ozzy_settings_defaults(&e->settings);
 	update_routes(e);
 

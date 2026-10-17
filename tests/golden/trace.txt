@@ -1204,7 +1204,7 @@ submit 05 off=1445448 size=3856 xfer=302
 submit 86 off=405064 size=5120 xfer=303
 submit 05 off=1453640 size=3856 xfer=303
 midi_in 296: 40 41 42 43 44 45 46 47 48 49 4a 4b 4c 4d 4e 4f 50 51 52 53 54 55 56 57
-shm 9c159bb9912b61af out_ring faf6a38fd6bec783 in_ring 3d3bcebb0ddb8a83
+shm e9576bab5d7e1196 out_ring faf6a38fd6bec783 in_ring 3d3bcebb0ddb8a83
 == ESI ESU1808
 control c0 56 0000 0000 15
 control c0 49 0000 0000 1
@@ -2412,7 +2412,7 @@ submit 05 off=1445448 size=4096 xfer=302
 submit 86 off=405064 size=5120 xfer=303
 submit 05 off=1453640 size=4096 xfer=303
 midi_in 296: 40 41 42 43 44 45 46 47 48 49 4a 4b 4c 4d 4e 4f 50 51 52 53 54 55 56 57
-shm d0627a1fd4144ea4 out_ring faf6a38fd6bec783 in_ring b4ca0831869394c3
+shm f1b9f427ca95fa1e out_ring faf6a38fd6bec783 in_ring b4ca0831869394c3
 == Akai EIE Pro
 control c0 56 0000 0000 15
 control c0 49 0000 0000 1
@@ -3319,7 +3319,7 @@ isoc 02 off=1068616 size=122880 xfer=0: 57840/1020 58860/1020 59880/1020 60900/1
 isoc 02 off=1068616 size=122880 xfer=1: 61920/1020 62940/1020 63960/1020 64980/1020
 isoc 02 off=1068616 size=122880 xfer=2: 66000/1020 67020/1020 68040/1020 69060/1020
 midi_in 287: 40 41 42 43 44 45 46 47 48 49 4a 4b 4c 4d 4e 4f 50 51 52 53 54 55 56 57
-shm 2bf2a4bf8e970b87 out_ring faf6a38fd6bec783 in_ring 234d05f272597383
+shm 9a1f5c20fe109edb out_ring faf6a38fd6bec783 in_ring 234d05f272597383
 == Xone:1D
 submit 81 off=2816 size=4 xfer=0
 submit 81 off=2944 size=4 xfer=1
@@ -3926,4 +3926,4 @@ submit 81 off=2944 size=4 xfer=1
 submit 01 off=3328 size=4 xfer=0
 submit 81 off=2816 size=4 xfer=0
 midi_in 1023: 30 55 7a c4 58 7d a2 ec 11 36 80 a5 ca 14 a8 cd f2 3c 61 86 d0 f5 1a 64
-shm f442db5673a4c319 out_ring faf6a38fd6bec783 in_ring 234d05f272597383
+shm 721dd0b83d8d59d4 out_ring faf6a38fd6bec783 in_ring 234d05f272597383

@@ -353,6 +353,28 @@ static inline void ozzy_engine_set_rate(struct ozzy_engine *e, uint32_t rate)
 	e->rate = rate;
 }
 
+/* What a setting or rate change from the host comes to (ozzy_engine_change_setting/_rate) */
+enum ozzy_setting_change {
+	OZZY_SETTING_INVALID = -1,   /* the device has no such setting, value or rate (now) */
+	OZZY_SETTING_SAME = 0,       /* the value it already has */
+	OZZY_SETTING_ROUTED = 1,     /* a route: applied, the next packet has it */
+	OZZY_SETTING_RESTART = 2,    /* a device setting or rate: ozzy_engine_restart applies it */
+};
+
+/* The rates the host may pick now: ozzy_device_host_rates with the last handshake's clock status */
+static inline unsigned int ozzy_engine_host_rates(const struct ozzy_engine *e, uint32_t *out)
+{
+	uint32_t lock = e->shm && e->shm->audio.settings.clock_locked ? e->shm->audio.settings.lock_rate : 0;
+
+	return ozzy_device_host_rates(e->model, lock, out);
+}
+
+/*
+ * A rate from the host (ALSA hw_params, the HAL, a WaveRT format): checked against the host
+ * rates and logged. OZZY_SETTING_RESTART: ozzy_engine_restart runs the device at it.
+ */
+enum ozzy_setting_change ozzy_engine_change_rate(struct ozzy_engine *e, uint32_t rate);
+
 /* The rate to ask for: the requested one if the model lists it, else @fallback */
 static inline uint32_t ozzy_engine_start_rate(const struct ozzy_engine *e, uint32_t fallback)
 {
@@ -392,13 +414,6 @@ unsigned int ozzy_engine_setting_values(const struct ozzy_engine *e, unsigned in
 /* A device setting takes effect with the next start (ozzy_engine_restart); a route setting at
  * once. No checks: ozzy_engine_change_setting is the one with them. */
 void ozzy_engine_set_setting(struct ozzy_engine *e, unsigned int id, uint8_t value);
-
-enum ozzy_setting_change {
-	OZZY_SETTING_INVALID = -1,   /* the device has no such setting or value */
-	OZZY_SETTING_SAME = 0,       /* the value it already has */
-	OZZY_SETTING_ROUTED = 1,     /* a route: applied, the next packet has it */
-	OZZY_SETTING_RESTART = 2,    /* a device setting: ozzy_engine_restart sends it */
-};
 
 /* A setting from the user (ALSA control, the HAL, ozzyctl): checked, logged and set */
 enum ozzy_setting_change ozzy_engine_change_setting(struct ozzy_engine *e, unsigned int id, unsigned int value);

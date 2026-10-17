@@ -29,6 +29,7 @@ public:
     IOMemoryDescriptor* GetMemory() { return mShmDescriptor; }
     void MidiOutPending();
     IOReturn ApplySetting(uint32_t id, uint32_t value);
+    IOReturn SetRate(uint32_t rate);
     ozzy_shared_memory* GetSHM() { return mSHM; }
 
 private:
@@ -37,6 +38,7 @@ private:
     bool ConfigureHardware();
     void CloseProviders();
     IOReturn ApplySettingLocked(uint32_t id, uint32_t value);
+    IOReturn RestartLocked();
 
     IOUSBHostDevice* mHostDevice = nullptr;
     KextBus* mBus = nullptr;

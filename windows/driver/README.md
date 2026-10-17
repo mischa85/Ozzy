@@ -27,8 +27,11 @@ Supported so far: the Ploytec bulk/interrupt family (the Xones and their relativ
 - the Ploytec isochronous family (Akai EIE Pro, M-Track Quad): needs isochronous URBs
 - USB MIDI and MIDI in/out: needs a MIDI circuit
 - device settings and ozzyctl
-- rate changes: the endpoints carry the engine's default rate; an S/PDIF lock to another rate
-  is only logged
+
+Sample rates: each endpoint offers a format per rate the device lists (the highest first). A
+stream at another rate restarts the engine at it (`ozzy_engine_change_rate`), unless the other
+direction has a stream open at the current rate, or the device is locked to S/PDIF at another
+rate; then the stream is refused.
 
 ## Build
 

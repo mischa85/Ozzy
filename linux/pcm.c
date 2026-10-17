@@ -25,17 +25,15 @@ static enum ozzy_pcm_dir substream_dir(const struct snd_pcm_substream *substream
 	return substream->stream == SNDRV_PCM_STREAM_PLAYBACK ? OZZY_PCM_OUT : OZZY_PCM_IN;
 }
 
-/* hw_params rule: while the device is locked to S/PDIF, only the lock rate (the official
- * driver offers CoreAudio only the current rate) */
-static int ozzy_pcm_rule_locked_rate(struct snd_pcm_hw_params *params, struct snd_pcm_hw_rule *rule)
+/* hw_params rule: the rates the device takes now (ozzy_engine_host_rates: only the lock rate
+ * while locked to S/PDIF) */
+static int ozzy_pcm_rule_rates(struct snd_pcm_hw_params *params, struct snd_pcm_hw_rule *rule)
 {
 	struct ozzy_chip *chip = rule->private;
-	struct snd_interval lock = { .integer = 1 };
+	uint32_t rates[OZZY_MAX_RATES];
+	unsigned int n = ozzy_engine_host_rates(chip->engine, rates);
 
-	if (!chip->shm->audio.settings.clock_locked)
-		return 0;
-	lock.min = lock.max = chip->shm->audio.settings.lock_rate;
-	return snd_interval_refine(hw_param_interval(params, SNDRV_PCM_HW_PARAM_RATE), &lock);
+	return snd_interval_list(hw_param_interval(params, SNDRV_PCM_HW_PARAM_RATE), n, rates, 0);
 }
 
 static int ozzy_pcm_open(struct snd_pcm_substream *substream)
@@ -71,7 +69,7 @@ static int ozzy_pcm_open(struct snd_pcm_substream *substream)
 	runtime->hw.periods_max = 1024;
 
 	chip->stream[dir].substream = substream;
-	return snd_pcm_hw_rule_add(runtime, 0, SNDRV_PCM_HW_PARAM_RATE, ozzy_pcm_rule_locked_rate, chip,
+	return snd_pcm_hw_rule_add(runtime, 0, SNDRV_PCM_HW_PARAM_RATE, ozzy_pcm_rule_rates, chip,
 				   SNDRV_PCM_HW_PARAM_CHANNELS, -1);
 }
 
@@ -89,6 +87,7 @@ static int ozzy_pcm_prepare(struct snd_pcm_substream *substream)
 	struct ozzy_chip *chip = snd_pcm_substream_chip(substream);
 	struct snd_pcm_runtime *runtime = substream->runtime;
 	struct ozzy_pcm_stream *st = &chip->stream[substream_dir(substream)];
+	enum ozzy_setting_change change;
 	unsigned long flags;
 	int ret = 0;
 
@@ -98,17 +97,12 @@ static int ozzy_pcm_prepare(struct snd_pcm_substream *substream)
 	mutex_lock(&chip->lock);
 	if (!chip->running) {
 		ret = -ENODEV;
-	} else if (chip->shm->audio.sample_rate != runtime->rate) {
-		if (chip->shm->audio.settings.clock_locked && runtime->rate != chip->shm->audio.settings.lock_rate) {
-			chip_err(chip, "%u Hz while locked to S/PDIF at %u Hz", runtime->rate,
-				  (unsigned int)chip->shm->audio.settings.lock_rate);
+	} else {
+		change = ozzy_engine_change_rate(chip->engine, runtime->rate);
+		if (change == OZZY_SETTING_INVALID)
 			ret = -EINVAL;
-		} else {
-			chip_log(chip, "sample rate %u -> %u Hz", (unsigned int)chip->shm->audio.sample_rate,
-				  runtime->rate);
-			ozzy_engine_set_rate(chip->engine, runtime->rate);
+		else if (change == OZZY_SETTING_RESTART)
 			ret = ozzy_chip_restart(chip);
-		}
 	}
 	mutex_unlock(&chip->lock);
 	if (ret)

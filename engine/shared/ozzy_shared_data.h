@@ -39,6 +39,12 @@ typedef std::atomic<bool>     ozzy_atomic_bool;
  */
 #define OZZY_METHOD_APPLY_SETTING       1
 /*
+ * OzzyHAL changes the sample rate. Scalar in: the rate in Hz, one of ozzy_device_host_rates.
+ * Like OZZY_METHOD_APPLY_SETTING: the kext restarts the engine at the rate (unless it runs at
+ * it already) and returns; the result is in audio.sample_rate.
+ */
+#define OZZY_METHOD_SET_RATE            2
+/*
  * OzzyHAL device property for the settings (common/ozzy_settings.h), for ozzyctl or an app. A
  * custom property (declared in kAudioObjectPropertyCustomPropertyInfoList), so its data is a
  * CFPropertyList, no qualifier:

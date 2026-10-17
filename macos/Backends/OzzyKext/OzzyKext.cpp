@@ -45,6 +45,7 @@ public:
 
     // Selector 0 (no arguments): OzzyMIDI queued bytes in the midiOut ring
     // Selector 1 (in: setting id, value): OzzyHAL changes a setting
+    // Selector 2 (in: rate): OzzyHAL changes the sample rate
     virtual IOReturn externalMethod(uint32_t selector, IOExternalMethodArguments* args,
                                     IOExternalMethodDispatch* dispatch, OSObject* target,
                                     void* reference) override {
@@ -56,6 +57,10 @@ public:
             if (!mOwner || args->scalarInputCount != 2) return kIOReturnBadArgument;
             if (args->scalarInput[0] > 0xFFFF || args->scalarInput[1] > 0xFF) return kIOReturnBadArgument;
             return mOwner->ApplySetting((uint32_t)args->scalarInput[0], (uint32_t)args->scalarInput[1]);
+        }
+        if (selector == OZZY_METHOD_SET_RATE) {
+            if (!mOwner || args->scalarInputCount != 1 || args->scalarInput[0] > 0xFFFFFFFF) return kIOReturnBadArgument;
+            return mOwner->SetRate((uint32_t)args->scalarInput[0]);
         }
         return IOUserClient::externalMethod(selector, args, dispatch, target, reference);
     }
@@ -243,12 +248,28 @@ IOReturn OzzyKext::ApplySettingLocked(uint32_t id, uint32_t value) {
     if (id >= OZZY_NUM_SETTINGS || ozzy_setting_descs[id].kind != OZZY_SETTING_DEVICE ||
         ozzy_engine_change_setting(mEngine, id, value) == OZZY_SETTING_INVALID)
         return kIOReturnBadArgument;
-    if (!ozzy_engine_restart(mEngine)) {
-        // The device didn't take it: let the HAL drop it, as on a failed start
-        mRunning = false;
-        return kIOReturnIOError;
+    return RestartLocked();
+}
+
+/* OZZY_METHOD_SET_RATE: restart the engine at @rate, if it doesn't run at it already */
+IOReturn OzzyKext::SetRate(uint32_t rate) {
+    if (!mSettingsLock) return kIOReturnNotReady;
+    IOLockLock(mSettingsLock);
+    IOReturn ret = kIOReturnNotReady;
+    if (mRunning && mEngine) {
+        enum ozzy_setting_change change = ozzy_engine_change_rate(mEngine, rate);
+        ret = change == OZZY_SETTING_INVALID ? kIOReturnBadArgument
+            : change == OZZY_SETTING_RESTART ? RestartLocked() : kIOReturnSuccess;
     }
-    return kIOReturnSuccess;
+    IOLockUnlock(mSettingsLock);
+    return ret;
+}
+
+IOReturn OzzyKext::RestartLocked() {
+    if (ozzy_engine_restart(mEngine)) return kIOReturnSuccess;
+    // The device didn't take it: let the HAL drop it, as on a failed start
+    mRunning = false;
+    return kIOReturnIOError;
 }
 
 IOReturn OzzyKext::message(UInt32 type, IOService* provider, void* argument) {

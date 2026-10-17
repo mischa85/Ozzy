@@ -69,9 +69,8 @@ NTSTATUS wdev_evt_add(WDFDRIVER driver, PWDFDEVICE_INIT init) {
 
     struct wdev* ctx = wdev_get(device);
     ctx->model = model;
-    /* The engine runs at the highest rate the device lists (PloytecEngine's default) */
-    uint32_t rates[OZZY_MAX_RATES];
-    ctx->rate = rates[ozzy_device_rates(model, rates) - 1];
+    status = WdfWaitLockCreate(WDF_NO_OBJECT_ATTRIBUTES, &ctx->rate_lock);
+    if (!NT_SUCCESS(status)) return status;
 
     ACX_DEVICE_CONFIG device_config;
     ACX_DEVICE_CONFIG_INIT(&device_config);
@@ -92,8 +91,8 @@ NTSTATUS wdev_evt_add(WDFDRIVER driver, PWDFDEVICE_INIT init) {
         status = wcircuit_create(device, false, &ctx->capture);
         if (!NT_SUCCESS(status)) return status;
     }
-    DbgPrintEx(DPFLTR_IHVAUDIO_ID, DPFLTR_ERROR_LEVEL, "[Ozzy] %s (build %s), %u in / %u out at %u Hz\n",
-               model->name, OZZY_GIT_VERSION, model->in_channels, model->out_channels, ctx->rate);
+    DbgPrintEx(DPFLTR_IHVAUDIO_ID, DPFLTR_ERROR_LEVEL, "[Ozzy] %s (build %s), %u in / %u out\n",
+               model->name, OZZY_GIT_VERSION, model->in_channels, model->out_channels);
     return STATUS_SUCCESS;
 }
 
@@ -174,9 +173,6 @@ static NTSTATUS wdev_evt_d0_entry(WDFDEVICE device, WDF_POWER_DEVICE_STATE previ
         kbus_stop_io(&ctx->bus);
         return STATUS_DEVICE_NOT_READY;
     }
-    if (ctx->shm->audio.sample_rate != ctx->rate)
-        DbgPrintEx(DPFLTR_IHVAUDIO_ID, DPFLTR_ERROR_LEVEL, "[Ozzy] device runs at %u Hz, the format says %u Hz\n",
-                   (uint32_t)ctx->shm->audio.sample_rate, ctx->rate);
     return STATUS_SUCCESS;
 }
 
@@ -189,4 +185,22 @@ static NTSTATUS wdev_evt_d0_exit(WDFDEVICE device, WDF_POWER_DEVICE_STATE target
     ozzy_engine_stop(ctx->engine);
     kbus_stop_io(&ctx->bus);
     return STATUS_SUCCESS;
+}
+
+NTSTATUS wdev_stream_rate(struct wdev* dev, bool render, uint32_t rate) {
+    PAGED_CODE();
+    NTSTATUS status = STATUS_SUCCESS;
+
+    WdfWaitLockAcquire(dev->rate_lock, NULL);
+    if (!dev->engine || !dev->shm) {
+        status = STATUS_DEVICE_NOT_READY;
+    } else if (dev->shm->audio.sample_rate != rate && dev->streams[render ? OZZY_PCM_IN : OZZY_PCM_OUT]) {
+        status = STATUS_DEVICE_BUSY;
+    } else {
+        enum ozzy_setting_change change = ozzy_engine_change_rate(dev->engine, rate);
+        if (change == OZZY_SETTING_INVALID) status = STATUS_NOT_SUPPORTED;
+        else if (change == OZZY_SETTING_RESTART && !ozzy_engine_restart(dev->engine)) status = STATUS_DEVICE_NOT_READY;
+    }
+    WdfWaitLockRelease(dev->rate_lock);
+    return status;
 }

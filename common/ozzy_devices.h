@@ -124,6 +124,21 @@ static inline bool ozzy_device_has_rate(const struct ozzy_device *dev, uint32_t 
 	return false;
 }
 
+/*
+ * ozzy_device_host_rates - The rates a host may pick now, ascending, into @out (OZZY_MAX_RATES
+ * entries): while the device is locked to S/PDIF at @lock_rate Hz only that one (the official
+ * driver offers CoreAudio only the current rate then), else every rate @dev lists. @lock_rate
+ * 0: not locked. Returns how many.
+ */
+static inline unsigned int ozzy_device_host_rates(const struct ozzy_device *dev, uint32_t lock_rate, uint32_t *out)
+{
+	if (lock_rate) {
+		out[0] = lock_rate;
+		return 1;
+	}
+	return ozzy_device_rates(dev, out);
+}
+
 #ifdef __cplusplus
 }
 #endif

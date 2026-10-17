@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <pthread.h>
 #include "../../engine/shared/ozzy_shared_data.h"
+#include "../../common/ozzy_devices.h"
 #include "PloytecCodec.h"   // the codec function pointer types
 
 // One audio device per OzzyKext instance with audio. Device slot i owns four object IDs:
@@ -47,7 +48,9 @@ public:
     OSStatus ioOperation(UInt32 inOperationID, UInt32 inIOBufferFrameSize, const AudioServerPlugInIOCycleInfo* inIOCycleInfo, void* ioMainBuffer);
 
     Float64 GetNominalSampleRate() const;
-    AudioValueRange GetAvailableSampleRates() const;
+    // The rates CoreAudio may pick (ozzy_device_host_rates), as ranges of one rate each, into
+    // @out (NULL: just count); returns how many
+    UInt32 CopySampleRates(AudioValueRange* out, UInt32 max) const;
     AudioBufferList* GetInputStreamConfiguration() const;
     AudioBufferList* GetOutputStreamConfiguration() const;
     CFStringRef GetDeviceName() const;
@@ -57,7 +60,10 @@ public:
     UInt32 GetTransportType() const;
     UInt32 GetClockDomain() const;
     AudioStreamBasicDescription GetStreamFormat(bool isOutput) const;
-    AudioStreamRangedDescription GetStreamRangedDescription(bool isOutput) const;
+    UInt32 CopyStreamRangedDescriptions(bool isOutput, AudioStreamRangedDescription* out, UInt32 max) const;
+    // A client set the nominal rate or a stream format: one of the host rates asks CoreAudio
+    // to stop IO and call PerformConfigurationChange
+    OSStatus SetSampleRate(AudioServerPlugInHostRef host, Float64 rate);
 
     UInt32 GetLatency() const { return 0; }
     UInt32 GetSafetyOffset() const { return mSafetyOffset; }  // frames the engine reads ahead (ApplyDeviceConfig)
@@ -78,8 +84,9 @@ public:
     // OZZY_PROPERTY_SETTING's data: a new dictionary, and setting from one
     CFDictionaryRef CopySettingsDictionary() const;
     OSStatus SetSettingsDictionary(AudioServerPlugInHostRef host, CFDictionaryRef dict);
-    // CoreAudio stopped IO for the change: send it to the kext, re-read the format, keep it
-    OSStatus PerformSettingChange(AudioServerPlugInHostRef host, UInt64 action);
+    // CoreAudio stopped IO for a setting or rate change: send it to the kext, re-read the
+    // format, keep it
+    OSStatus PerformConfigurationChange(AudioServerPlugInHostRef host, UInt64 action);
 
     AudioChannelLayout* GetPreferredChannelLayout(AudioObjectPropertyScope inScope);
     UInt32 GetPreferredChannelLayoutSize(AudioObjectPropertyScope inScope) const;
@@ -111,7 +118,8 @@ private:
     AudioStreamBasicDescription mCurrentStreamFormat;
     AudioBufferList mInputConfig;
     AudioBufferList mOutputConfig;
-    AudioValueRange mAvailableSampleRates;
+    uint32_t mHostRates[OZZY_MAX_RATES] = { 96000 };   // ApplyDeviceConfig
+    uint32_t mHostRateCount = 1;
 
     // Settings as the kext applied them (ApplyDeviceConfig)
     uint32_t mSettingsAvailable = 0;   // bit (1 << enum ozzy_setting) per setting the device has
@@ -142,6 +150,7 @@ private:
     ozzy_shared_memory* AcquireSHM();
     void ReleaseSHM();
     void ApplyDeviceConfig();
+    kern_return_t CallSetRate(uint32_t rate);
     kern_return_t CallApplySetting(unsigned int id, uint32_t value);
     CFStringRef CopySettingKey(unsigned int id) const;
     void StoreSetting(AudioServerPlugInHostRef host, unsigned int id, uint32_t value);

@@ -74,9 +74,6 @@ void OzzyHALDevice::Init(uint32_t slot) {
     mCurrentStreamFormat.mBitsPerChannel = 32;
     mCurrentStreamFormat.mReserved = 0;
 
-    mAvailableSampleRates.mMinimum = 96000.0;
-    mAvailableSampleRates.mMaximum = 96000.0;
-
     ozzy_settings_defaults(&mSettings);
     UpdateRoutes();
     RebuildStreamConfigs();
@@ -228,9 +225,6 @@ void OzzyHALDevice::ApplyDeviceConfig() {
     uint32_t rate = shm->audio.sample_rate.load();
     if (rate == 0) rate = 96000;
     mCurrentStreamFormat.mSampleRate = rate;
-    mAvailableSampleRates.mMinimum = rate;
-    mAvailableSampleRates.mMaximum = rate;
-    LogOzzyHAL("device %{public}u: sample rate %{public}u Hz", mSlot, rate);
 
     // Device settings as the kext applied them, and the clock status of its last handshake.
     // Routes are the HAL's own (it routes in its codecs); they stay as they are.
@@ -243,6 +237,15 @@ void OzzyHALDevice::ApplyDeviceConfig() {
     UpdateRoutes();
     mClockLocked = shm->audio.settings.clock_locked;
     mLockRate = shm->audio.settings.lock_rate;
+
+    // The rates CoreAudio may pick: the device's, or only the S/PDIF lock rate
+    const struct ozzy_device* model = ozzy_device_lookup(shm->vendor_id, shm->product_id);
+    mHostRateCount = model ? ozzy_device_host_rates(model, mClockLocked ? mLockRate : 0, mHostRates) : 0;
+    if (!mHostRateCount) {
+        mHostRates[0] = rate;
+        mHostRateCount = 1;
+    }
+    LogOzzyHAL("device %{public}u: sample rate %{public}u Hz (%{public}u to pick from)", mSlot, rate, mHostRateCount);
     if (HasSetting(OZZY_SETTING_CLOCK_SOURCE))
         LogOzzyHAL("device %{public}u: clock source %{public}s%{public}s", mSlot,
                    ozzy_clock_source_names[mSettings.value[OZZY_SETTING_CLOCK_SOURCE]],
@@ -386,18 +389,43 @@ OSStatus OzzyHALDevice::SetSetting(AudioServerPlugInHostRef host, unsigned int i
     return kAudioHardwareNoError;
 }
 
-OSStatus OzzyHALDevice::PerformSettingChange(AudioServerPlugInHostRef host, UInt64 action) {
+/* The change action of a rate change; a setting's is (id << 32) | value */
+static const UInt64 kRateChangeAction = 1ULL << 63;
+
+OSStatus OzzyHALDevice::SetSampleRate(AudioServerPlugInHostRef host, Float64 rate) {
+    uint32_t hz = (uint32_t)rate;
+    if (!host) return kAudioHardwareIllegalOperationError;
+    if (hz == (uint32_t)mCurrentStreamFormat.mSampleRate) return kAudioHardwareNoError;
+    for (uint32_t i = 0; i < mHostRateCount; i++) {
+        if (mHostRates[i] == hz)
+            return host->RequestDeviceConfigurationChange(host, GetDeviceID(), kRateChangeAction | hz, nullptr);
+    }
+    return kAudioDeviceUnsupportedFormatError;
+}
+
+/* OZZY_METHOD_SET_RATE: the kext restarts its engine at the rate (about a second, the
+ * handshake). Call with the mapping held. */
+kern_return_t OzzyHALDevice::CallSetRate(uint32_t rate) {
+    uint64_t in[1] = { rate };
+    kern_return_t kr = IOConnectCallScalarMethod(mKextConnect, OZZY_METHOD_SET_RATE, in, 1, nullptr, nullptr);
+    if (kr != KERN_SUCCESS)
+        LogOzzyHALError("device %{public}u: %{public}u Hz failed (0x%{public}x)", mSlot, rate, kr);
+    return kr;   // ApplyDeviceConfig logs the result
+}
+
+OSStatus OzzyHALDevice::PerformConfigurationChange(AudioServerPlugInHostRef host, UInt64 action) {
+    bool rateChange = action & kRateChangeAction;
     unsigned int id = (unsigned int)(action >> 32);
     uint32_t value = (uint32_t)action;
-    if (value >= SettingCount(id) || ozzy_setting_descs[id].kind != OZZY_SETTING_DEVICE)
+    if (!rateChange && (value >= SettingCount(id) || ozzy_setting_descs[id].kind != OZZY_SETTING_DEVICE))
         return kAudioHardwareIllegalOperationError;
 
     ozzy_shared_memory* shm = AcquireSHM();
-    kern_return_t kr = shm ? CallApplySetting(id, value) : kIOReturnNotAttached;
+    kern_return_t kr = !shm ? kIOReturnNotAttached : rateChange ? CallSetRate(value) : CallApplySetting(id, value);
     if (shm) ApplyDeviceConfig();
     ReleaseSHM();
 
-    if (kr == KERN_SUCCESS) StoreSetting(host, id, value);
+    if (kr == KERN_SUCCESS && !rateChange) StoreSetting(host, id, value);
     // The rate may have changed (S/PDIF lock), and the clock source item names say the lock
     if (host) NotifyDeviceChanged(host);
     return kr == KERN_SUCCESS ? kAudioHardwareNoError : kAudioHardwareUnspecifiedError;
@@ -563,7 +591,11 @@ UInt32 OzzyHALDevice::GetTransportType() const { return kAudioDeviceTransportTyp
 // Every device runs on its own clock, so CoreAudio must not treat two as synchronous
 UInt32 OzzyHALDevice::GetClockDomain() const { return 0x504C4F59 + mSlot; }
 Float64 OzzyHALDevice::GetNominalSampleRate() const { return mCurrentStreamFormat.mSampleRate; }
-AudioValueRange OzzyHALDevice::GetAvailableSampleRates() const { return mAvailableSampleRates; }
+UInt32 OzzyHALDevice::CopySampleRates(AudioValueRange* out, UInt32 max) const {
+    UInt32 n = out ? (mHostRateCount < max ? mHostRateCount : max) : mHostRateCount;
+    for (UInt32 i = 0; out && i < n; i++) out[i].mMinimum = out[i].mMaximum = mHostRates[i];
+    return n;
+}
 AudioBufferList* OzzyHALDevice::GetInputStreamConfiguration() const { return const_cast<AudioBufferList*>(&mInputConfig); }
 AudioBufferList* OzzyHALDevice::GetOutputStreamConfiguration() const { return const_cast<AudioBufferList*>(&mOutputConfig); }
 AudioStreamBasicDescription OzzyHALDevice::GetStreamFormat(bool isOutput) const {
@@ -573,10 +605,15 @@ AudioStreamBasicDescription OzzyHALDevice::GetStreamFormat(bool isOutput) const 
     format.mBytesPerPacket = format.mBytesPerFrame;
     return format;
 }
-AudioStreamRangedDescription OzzyHALDevice::GetStreamRangedDescription(bool isOutput) const {
-    AudioStreamRangedDescription outDesc; outDesc.mFormat = GetStreamFormat(isOutput);
-    outDesc.mSampleRateRange = mAvailableSampleRates;
-    return outDesc;
+/* One format per host rate */
+UInt32 OzzyHALDevice::CopyStreamRangedDescriptions(bool isOutput, AudioStreamRangedDescription* out, UInt32 max) const {
+    UInt32 n = out ? (mHostRateCount < max ? mHostRateCount : max) : mHostRateCount;
+    for (UInt32 i = 0; out && i < n; i++) {
+        out[i].mFormat = GetStreamFormat(isOutput);
+        out[i].mFormat.mSampleRate = mHostRates[i];
+        out[i].mSampleRateRange.mMinimum = out[i].mSampleRateRange.mMaximum = mHostRates[i];
+    }
+    return n;
 }
 
 AudioChannelLayout* OzzyHALDevice::GetPreferredChannelLayout(AudioObjectPropertyScope inScope) {
@@ -757,7 +794,7 @@ extern "C" HRESULT OzzyAddDeviceClient(AudioServerPlugInDriverRef, AudioObjectID
 extern "C" HRESULT OzzyRemoveDeviceClient(AudioServerPlugInDriverRef, AudioObjectID, const AudioServerPlugInClientInfo*) { return kAudioHardwareNoError; }
 extern "C" HRESULT OzzyPerformDeviceConfigurationChange(AudioServerPlugInDriverRef, AudioObjectID inDeviceObjectID, UInt64 inChangeAction, void*) {
     OzzyHALDevice* dev = OzzyHAL::Get().DeviceForObject(inDeviceObjectID);
-    return dev ? dev->PerformSettingChange(OzzyHAL::Get().GetHost(), inChangeAction) : kAudioHardwareBadObjectError;
+    return dev ? dev->PerformConfigurationChange(OzzyHAL::Get().GetHost(), inChangeAction) : kAudioHardwareBadObjectError;
 }
 extern "C" HRESULT OzzyAbortDeviceConfigurationChange(AudioServerPlugInDriverRef, AudioObjectID, UInt64, void*) { return kAudioHardwareNoError; }
 
@@ -820,7 +857,12 @@ extern "C" HRESULT OzzyIsPropertySettable(AudioServerPlugInDriverRef, AudioObjec
                               dev->HasSetting(OZZY_SETTING_CLOCK_SOURCE) &&
                               inAddress->mSelector == kAudioSelectorControlPropertyCurrentItem) ||
                              (ObjectKind(inObjectID) == kOzzyObjectDevice &&
-                              inAddress->mSelector == OZZY_PROPERTY_SETTING && dev->HasSettings()));
+                              inAddress->mSelector == OZZY_PROPERTY_SETTING && dev->HasSettings()) ||
+                             (ObjectKind(inObjectID) == kOzzyObjectDevice &&
+                              inAddress->mSelector == kAudioDevicePropertyNominalSampleRate) ||
+                             ((ObjectKind(inObjectID) == kOzzyObjectInputStream || ObjectKind(inObjectID) == kOzzyObjectOutputStream) &&
+                              (inAddress->mSelector == kAudioStreamPropertyVirtualFormat ||
+                               inAddress->mSelector == kAudioStreamPropertyPhysicalFormat)));
     return kAudioHardwareNoError;
 }
 
@@ -869,7 +911,7 @@ extern "C" HRESULT OzzyGetPropertyDataSize(AudioServerPlugInDriverRef, AudioObje
             case kAudioDevicePropertyDeviceIsRunningSomewhere: case kAudioDevicePropertyClockDomain:
                 *outDataSize = sizeof(UInt32); return kAudioHardwareNoError;
             case kAudioDevicePropertyNominalSampleRate: *outDataSize = sizeof(Float64); return kAudioHardwareNoError;
-            case kAudioDevicePropertyAvailableNominalSampleRates: *outDataSize = sizeof(AudioValueRange); return kAudioHardwareNoError;
+            case kAudioDevicePropertyAvailableNominalSampleRates: *outDataSize = dev->CopySampleRates(nullptr, 0) * sizeof(AudioValueRange); return kAudioHardwareNoError;
             case kAudioDevicePropertyStreams:
                 if (inAddress->mScope == kAudioObjectPropertyScopeInput || inAddress->mScope == kAudioObjectPropertyScopeOutput) *outDataSize = sizeof(AudioObjectID);
                 else if (inAddress->mScope == kAudioObjectPropertyScopeGlobal) *outDataSize = 2 * sizeof(AudioObjectID);
@@ -895,7 +937,8 @@ extern "C" HRESULT OzzyGetPropertyDataSize(AudioServerPlugInDriverRef, AudioObje
         case kAudioStreamPropertyDirection: case kAudioStreamPropertyTerminalType: case kAudioStreamPropertyStartingChannel: case kAudioStreamPropertyLatency:
             *outDataSize = sizeof(UInt32); return kAudioHardwareNoError;
         case kAudioStreamPropertyVirtualFormat: case kAudioStreamPropertyPhysicalFormat: *outDataSize = sizeof(AudioStreamBasicDescription); return kAudioHardwareNoError;
-        case kAudioStreamPropertyAvailableVirtualFormats: case kAudioStreamPropertyAvailablePhysicalFormats: *outDataSize = sizeof(AudioStreamRangedDescription); return kAudioHardwareNoError;
+        case kAudioStreamPropertyAvailableVirtualFormats: case kAudioStreamPropertyAvailablePhysicalFormats:
+            *outDataSize = dev->CopyStreamRangedDescriptions(false, nullptr, 0) * sizeof(AudioStreamRangedDescription); return kAudioHardwareNoError;
         default: return kAudioHardwareUnknownPropertyError;
     }
 }
@@ -971,7 +1014,11 @@ extern "C" HRESULT OzzyGetPropertyData(AudioServerPlugInDriverRef, AudioObjectID
             case kAudioDevicePropertyDeviceIsAlive: return WriteUInt32(inMax, outSize, outData, dev->IsConnected() ? 1 : 0);
             case kAudioDevicePropertyDeviceIsRunning: case kAudioDevicePropertyDeviceIsRunningSomewhere: return WriteUInt32(inMax, outSize, outData, dev->IsRunning() ? 1 : 0);
             case kAudioDevicePropertyNominalSampleRate: return WriteFloat64(inMax, outSize, outData, dev->GetNominalSampleRate());
-            case kAudioDevicePropertyAvailableNominalSampleRates: if (outSize) *outSize = sizeof(AudioValueRange); if (outData) { if (inMax < sizeof(AudioValueRange)) return kAudioHardwareBadPropertySizeError; *(AudioValueRange*)outData = dev->GetAvailableSampleRates(); } return kAudioHardwareNoError;
+            case kAudioDevicePropertyAvailableNominalSampleRates: {
+                UInt32 n = dev->CopySampleRates((AudioValueRange*)outData, inMax / sizeof(AudioValueRange));
+                if (outSize) *outSize = n * sizeof(AudioValueRange);
+                return kAudioHardwareNoError;
+            }
             case kAudioDevicePropertyStreams: {
                 UInt32 streamList[] = { dev->GetInputStreamID(), dev->GetOutputStreamID() };
                 if (inAddress->mScope == kAudioObjectPropertyScopeInput) return WriteObjectID(inMax, outSize, outData, dev->GetInputStreamID());
@@ -1037,10 +1084,12 @@ extern "C" HRESULT OzzyGetPropertyData(AudioServerPlugInDriverRef, AudioObjectID
             if (outData && inMax < sizeof(AudioStreamBasicDescription)) return kAudioHardwareBadPropertySizeError;
             if (outData) *(AudioStreamBasicDescription*)outData = dev->GetStreamFormat(isOutput);
             if (outSize) *outSize = sizeof(AudioStreamBasicDescription); return kAudioHardwareNoError;
-        case kAudioStreamPropertyAvailableVirtualFormats: case kAudioStreamPropertyAvailablePhysicalFormats:
-            if (outData && inMax < sizeof(AudioStreamRangedDescription)) return kAudioHardwareBadPropertySizeError;
-            if (outData) *(AudioStreamRangedDescription*)outData = dev->GetStreamRangedDescription(isOutput);
-            if (outSize) *outSize = sizeof(AudioStreamRangedDescription); return kAudioHardwareNoError;
+        case kAudioStreamPropertyAvailableVirtualFormats: case kAudioStreamPropertyAvailablePhysicalFormats: {
+            UInt32 n = dev->CopyStreamRangedDescriptions(isOutput, (AudioStreamRangedDescription*)outData,
+                                                         inMax / sizeof(AudioStreamRangedDescription));
+            if (outSize) *outSize = n * sizeof(AudioStreamRangedDescription);
+            return kAudioHardwareNoError;
+        }
         default: return kAudioHardwareUnknownPropertyError;
     }
 }
@@ -1057,6 +1106,15 @@ extern "C" HRESULT OzzySetPropertyData(AudioServerPlugInDriverRef, AudioObjectID
         dev->HasSettings()) {
         if (inDataSize < sizeof(CFPropertyListRef) || !inData) return kAudioHardwareBadPropertySizeError;
         return dev->SetSettingsDictionary(OzzyHAL::Get().GetHost(), *(const CFDictionaryRef*)inData);
+    }
+    if (ObjectKind(inObjectID) == kOzzyObjectDevice && inAddress->mSelector == kAudioDevicePropertyNominalSampleRate) {
+        if (inDataSize < sizeof(Float64) || !inData) return kAudioHardwareBadPropertySizeError;
+        return dev->SetSampleRate(OzzyHAL::Get().GetHost(), *(const Float64*)inData);
+    }
+    if ((ObjectKind(inObjectID) == kOzzyObjectInputStream || ObjectKind(inObjectID) == kOzzyObjectOutputStream) &&
+        (inAddress->mSelector == kAudioStreamPropertyVirtualFormat || inAddress->mSelector == kAudioStreamPropertyPhysicalFormat)) {
+        if (inDataSize < sizeof(AudioStreamBasicDescription) || !inData) return kAudioHardwareBadPropertySizeError;
+        return dev->SetSampleRate(OzzyHAL::Get().GetHost(), ((const AudioStreamBasicDescription*)inData)->mSampleRate);
     }
     return kAudioHardwareUnsupportedOperationError;
 }

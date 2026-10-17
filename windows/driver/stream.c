@@ -183,7 +183,9 @@ static NTSTATUS wstream_release_hardware(ACXSTREAM stream) {
 }
 
 static VOID wstream_destroy(WDFOBJECT object) {
-    wstream_detach(wstream_get((ACXSTREAM)object));
+    struct wstream* s = wstream_get((ACXSTREAM)object);
+    wstream_detach(s);
+    if (s->dev && s->dev->streams[wstream_dir(s)] == s) s->dev->streams[wstream_dir(s)] = NULL;
 }
 
 NTSTATUS wstream_evt_create(WDFDEVICE device, ACXCIRCUIT circuit, ACXPIN pin, PACXSTREAM_INIT init,
@@ -193,6 +195,11 @@ NTSTATUS wstream_evt_create(WDFDEVICE device, ACXCIRCUIT circuit, ACXPIN pin, PA
     UNREFERENCED_PARAMETER(var_arguments);
     PAGED_CODE();
     bool render = wcircuit_get(circuit)->render;
+    struct wdev* dev = wdev_get(device);
+
+    /* The engine at the format's rate (a restart if it runs at another) */
+    NTSTATUS status = wdev_stream_rate(dev, render, AcxDataFormatGetSampleRate(format));
+    if (!NT_SUCCESS(status)) return status;
 
     ACX_STREAM_CALLBACKS callbacks;
     ACX_STREAM_CALLBACKS_INIT(&callbacks);
@@ -200,7 +207,7 @@ NTSTATUS wstream_evt_create(WDFDEVICE device, ACXCIRCUIT circuit, ACXPIN pin, PA
     callbacks.EvtAcxStreamReleaseHardware = wstream_release_hardware;
     callbacks.EvtAcxStreamRun = wstream_run;
     callbacks.EvtAcxStreamPause = wstream_pause;
-    NTSTATUS status = AcxStreamInitAssignAcxStreamCallbacks(init, &callbacks);
+    status = AcxStreamInitAssignAcxStreamCallbacks(init, &callbacks);
     if (!NT_SUCCESS(status)) return status;
 
     ACX_RT_STREAM_CALLBACKS rt;
@@ -226,8 +233,9 @@ NTSTATUS wstream_evt_create(WDFDEVICE device, ACXCIRCUIT circuit, ACXPIN pin, PA
     /* The context is zeroed */
     struct wstream* s = wstream_get(stream);
     s->stream = stream;
-    s->dev = wdev_get(device);
+    s->dev = dev;
     s->render = render;
     s->block_align = AcxDataFormatGetBlockAlign(format);
+    dev->streams[wstream_dir(s)] = s;
     return STATUS_SUCCESS;
 }

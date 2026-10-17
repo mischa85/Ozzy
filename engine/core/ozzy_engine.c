@@ -112,6 +112,27 @@ enum ozzy_setting_change ozzy_engine_change_setting(struct ozzy_engine *e, unsig
 	return ozzy_setting_descs[id].kind == OZZY_SETTING_DEVICE ? OZZY_SETTING_RESTART : OZZY_SETTING_ROUTED;
 }
 
+enum ozzy_setting_change ozzy_engine_change_rate(struct ozzy_engine *e, uint32_t rate)
+{
+	uint32_t rates[OZZY_MAX_RATES], current = e->shm ? e->shm->audio.sample_rate : 0;
+	unsigned int i, n = ozzy_engine_host_rates(e, rates);
+
+	for (i = 0; i < n && rates[i] != rate; i++)
+		;
+	if (i == n) {
+		if (e->shm && e->shm->audio.settings.clock_locked)
+			ozzy_log("%u Hz: locked to S/PDIF at %u Hz", rate, (unsigned int)e->shm->audio.settings.lock_rate);
+		else
+			ozzy_log("%u Hz: not a rate the device has", rate);
+		return OZZY_SETTING_INVALID;
+	}
+	if (rate == current)
+		return OZZY_SETTING_SAME;
+	ozzy_log("sample rate %u -> %u Hz", current, rate);
+	ozzy_engine_set_rate(e, rate);
+	return OZZY_SETTING_RESTART;
+}
+
 bool ozzy_engine_restart(struct ozzy_engine *e)
 {
 	ozzy_engine_suspend(e);

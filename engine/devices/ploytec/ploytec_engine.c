@@ -247,7 +247,14 @@ static void encode_pcm_out(struct ploytec_engine *pe, uint32_t idx)
 	frame_bytes = ring->channels * 3;
 	r = (uint32_t)(pe->pcm_pos[OZZY_PCM_OUT] % ring->frames);
 	for (f = 0; f < PLOYTEC_FRAMES_PER_PKT; f++) {
-		pe->encode(packet + ploytec_out_frame_offset(pe->out_layout, f), ring->base + r * frame_bytes);
+		const uint8_t *src = ring->base + r * frame_bytes;
+		uint8_t routed[PLOYTEC_MAX_OUT_CHANNELS * 3];
+
+		if (!pe->base.out_route.identity) {
+			ozzy_route_frame(routed, src, &pe->base.out_route, 2 * 3);
+			src = routed;
+		}
+		pe->encode(packet + ploytec_out_frame_offset(pe->out_layout, f), src);
 		if (++r == ring->frames)
 			r = 0;
 	}
@@ -290,10 +297,18 @@ static void decode_pcm_in(struct ploytec_engine *pe, uint32_t idx, uint32_t byte
 	got = bytes / PLOYTEC_IN_FRAME_SIZE;
 	r = (uint32_t)(pe->pcm_pos[OZZY_PCM_IN] % ring->frames);
 	for (f = 0; f < PLOYTEC_FRAMES_PER_PKT; f++) {
-		if (f < got)
-			pe->decode(ring->base + r * frame_bytes, packet + f * PLOYTEC_IN_FRAME_SIZE);
-		else
-			memset(ring->base + r * frame_bytes, 0, frame_bytes);
+		uint8_t *dst = ring->base + r * frame_bytes;
+		uint8_t decoded[PLOYTEC_MAX_IN_CHANNELS * 3];
+
+		if (f >= got) {
+			memset(dst, 0, frame_bytes);
+		} else if (pe->base.in_route.identity) {
+			pe->decode(dst, packet + f * PLOYTEC_IN_FRAME_SIZE);
+		} else {
+			/* Input routing (US-144MKII, US-600): decode, then move the pairs */
+			pe->decode(decoded, packet + f * PLOYTEC_IN_FRAME_SIZE);
+			ozzy_route_frame(dst, decoded, &pe->base.in_route, 2 * 3);
+		}
 		if (++r == ring->frames)
 			r = 0;
 	}

@@ -42,11 +42,25 @@ struct ozzy_engine *ozzy_engine_init(void *mem, const struct ozzy_device *model)
 	return (struct ozzy_engine *)mem;
 }
 
+/* The routing from the route settings (common/ozzy_settings.h) */
+static void update_routes(struct ozzy_engine *e)
+{
+	uint32_t available = 0;
+	unsigned int i;
+
+	for (i = 0; i < OZZY_NUM_SETTINGS; i++)
+		if (ozzy_engine_has_setting(e, i))
+			available |= 1u << i;
+	ozzy_settings_route(&e->in_route, &e->settings, available, true, e->model->in_channels);
+	ozzy_settings_route(&e->out_route, &e->settings, available, false, e->model->out_channels);
+}
+
 void ozzy_engine_attach(struct ozzy_engine *e, const struct ozzy_bus *bus, volatile struct ozzy_shared_memory *shm)
 {
 	e->bus = bus;
 	e->shm = shm;
 	ozzy_settings_defaults(&e->settings);
+	update_routes(e);
 }
 
 uint32_t ozzy_engine_setting_quirks(const struct ozzy_engine *e)
@@ -62,8 +76,11 @@ bool ozzy_engine_has_setting(const struct ozzy_engine *e, unsigned int id)
 
 void ozzy_engine_set_setting(struct ozzy_engine *e, unsigned int id, uint8_t value)
 {
-	if (id < OZZY_NUM_SETTINGS)
-		e->settings.value[id] = value;
+	if (id >= OZZY_NUM_SETTINGS)
+		return;
+	e->settings.value[id] = value;
+	if (ozzy_setting_descs[id].kind != OZZY_SETTING_DEVICE)
+		update_routes(e);
 }
 
 void ozzy_engine_publish_settings(struct ozzy_engine *e, const struct ozzy_clock_status *clock)

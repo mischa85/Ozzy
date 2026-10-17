@@ -23,6 +23,7 @@
 #include "../../common/ozzy_ep.h"
 #include "../../common/ozzy_settings.h"
 #include "../../common/ozzy_devices.h"
+#include "../../common/ozzy_route.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -89,6 +90,9 @@ struct ozzy_engine_ops {
 /*
  * struct ozzy_engine - What every family has, the first member of its own struct.
  * @settings:     what start() sends (ozzy_engine_attach: the defaults)
+ * @in_route/@out_route: the route settings' routing, which the ring path applies (on macOS
+ *                the HAL routes); updated from ozzy_engine_set_setting() without a lock, as
+ *                on Linux: a packet during a change may mix the old and new routing
  * @pcm_ring_set: ozzy_engine_set_pcm_ring(); the completion path picks it up
  */
 struct ozzy_engine {
@@ -98,6 +102,8 @@ struct ozzy_engine {
 	const struct ozzy_device *model;
 	struct ozzy_device_profile profile;
 	struct ozzy_settings settings;
+	struct ozzy_route in_route;
+	struct ozzy_route out_route;
 	const struct ozzy_pcm_ring *volatile pcm_ring_set[OZZY_PCM_DIRS];
 };
 
@@ -177,6 +183,8 @@ static inline void ozzy_engine_set_pcm_ring(struct ozzy_engine *e, enum ozzy_pcm
 /* The model's quirks as far as settings go (a family drops what its transport can't do) */
 uint32_t ozzy_engine_setting_quirks(const struct ozzy_engine *e);
 bool ozzy_engine_has_setting(const struct ozzy_engine *e, unsigned int id);
+/* A device setting takes effect with the next start (ozzy_engine_suspend first); a route
+ * setting at once */
 void ozzy_engine_set_setting(struct ozzy_engine *e, unsigned int id, uint8_t value);
 
 /* For the families: publish @e->settings and the clock status of the handshake start() just ran */

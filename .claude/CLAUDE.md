@@ -19,6 +19,8 @@ This project involves ongoing reverse engineering of the Ploytec USB protocol. R
 When new RE findings come up in conversation, update these files. Treat protocol definitions as evolving — flag anything that looks partially understood.
 
 ## Code Style
+- C where we can, C++ where we must: `common/` and `engine/` are C; C++ only where a platform
+  requires it (IOKit kext, CoreAudio HAL plugin internals)
 - MIT license only (no GPL anywhere)
 - Use `/* */` for method/function documentation
 - Prefer structs and enums over #defines to make protocol code self-documenting

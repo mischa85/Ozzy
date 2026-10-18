@@ -209,6 +209,20 @@ bool OzzyKext::start(IOService* provider) {
 
     ozzy_log("initializing engine...");
     ozzy_engine_attach(mEngine, mBus->Bus(), mSHM);
+    if (mHostDevice) {
+        // The connection and the build, for ozzy_info (the tools show them)
+        switch (mHostDevice->getSpeed()) {
+        case kUSBHostConnectionSpeedLow: ozzy_engine_set_usb_speed(mEngine, OZZY_USB_SPEED_LOW); break;
+        case kUSBHostConnectionSpeedFull: ozzy_engine_set_usb_speed(mEngine, OZZY_USB_SPEED_FULL); break;
+        case kUSBHostConnectionSpeedHigh: ozzy_engine_set_usb_speed(mEngine, OZZY_USB_SPEED_HIGH); break;
+        default:
+            // Super, SuperPlus and SuperPlusBy2 (newer SDKs) come after High
+            if (mHostDevice->getSpeed() > kUSBHostConnectionSpeedHigh)
+                ozzy_engine_set_usb_speed(mEngine, OZZY_USB_SPEED_SUPER);
+            break;
+        }
+    }
+    ozzy_engine_set_driver_version(mEngine, OZZY_GIT_VERSION);
     
     if (!ozzy_engine_start(mEngine)) {
         ozzy_log("engine start failed");

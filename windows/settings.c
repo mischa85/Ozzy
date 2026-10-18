@@ -1,7 +1,7 @@
 #include "device.h"
 #include "ozzy_ksproperty.h"
 
-/* ozzyctl's property set (ozzy_ksproperty.h) on each circuit's filter: the settings as the engine
+/* The control property set (ozzy_ksproperty.h) on each circuit's filter: the settings as the engine
  * has them, and a change, which the engine checks and applies (ozzy_engine_change_setting).
  * KS property requests arrive at PASSIVE_LEVEL. Each change is kept in the device's registry
  * key and applied again when the device comes up (wsettings_restore), the way alsactl and
@@ -96,6 +96,34 @@ static VOID wsettings_evt_status(WDFOBJECT object, WDFREQUEST request) {
     WdfRequestCompleteWithInformation(request, status, size);
 }
 
+/* OZZY_KSPROPERTY_INFO (get): the engine's record as of the last handshake */
+static VOID wsettings_evt_info(WDFOBJECT object, WDFREQUEST request) {
+    PAGED_CODE();
+    WDFDEVICE device = AcxCircuitGetWdfDevice((ACXCIRCUIT)object);
+    struct wdev* dev = wdev_get(device);
+    ACX_REQUEST_PARAMETERS params;
+    ACX_REQUEST_PARAMETERS_INIT(&params);
+    AcxRequestGetParameters(request, &params);
+
+    NTSTATUS status;
+    ULONG_PTR size = sizeof(struct ozzy_info);
+    if (params.Parameters.Property.ValueCb == 0) {
+        status = STATUS_BUFFER_OVERFLOW;   /* the caller asks for the size */
+    } else if (params.Parameters.Property.ValueCb < size || !params.Parameters.Property.Value) {
+        status = STATUS_BUFFER_TOO_SMALL;
+        size = 0;
+    } else {
+        WdfWaitLockAcquire(dev->lock, NULL);
+        if (dev->shm)
+            RtlCopyMemory(params.Parameters.Property.Value, &dev->shm->info, size);
+        else
+            RtlZeroMemory(params.Parameters.Property.Value, size);
+        WdfWaitLockRelease(dev->lock);
+        status = STATUS_SUCCESS;
+    }
+    WdfRequestCompleteWithInformation(request, status, size);
+}
+
 /* OZZY_KSPROPERTY_SETTING (set): checked by the engine; a device setting restarts it */
 static VOID wsettings_evt_setting(WDFOBJECT object, WDFREQUEST request) {
     PAGED_CODE();
@@ -159,7 +187,13 @@ NTSTATUS wsettings_add_event(ACXCIRCUIT circuit) {
     WDF_OBJECT_ATTRIBUTES attributes;
     WDF_OBJECT_ATTRIBUTES_INIT(&attributes);
     attributes.ParentObject = circuit;
-    return AcxEventCreate(circuit, &attributes, &config, &wcircuit_get(circuit)->changed);
+    ACXEVENT event;
+    NTSTATUS status = AcxEventCreate(circuit, &attributes, &config, &event);
+    /* Created, it is not on the circuit yet: added, the circuit's filter answers
+     * IOCTL_KS_ENABLE_EVENT for it */
+    if (NT_SUCCESS(status)) status = AcxCircuitAddEvents(circuit, &event, 1);
+    if (NT_SUCCESS(status)) wcircuit_get(circuit)->changed = event;
+    return status;
 }
 
 void wsettings_changed(struct wdev* dev) {
@@ -176,6 +210,13 @@ NTSTATUS wsettings_assign(PACXCIRCUIT_INIT init) {
             .Flags = ACX_PROPERTY_ITEM_FLAG_GET,
             .EvtAcxObjectProcessRequest = wsettings_evt_status,
             .ValueCb = sizeof(struct ozzy_ksproperty_status),
+        },
+        {
+            .Set = &ozzy_propsetid_settings,
+            .Id = OZZY_KSPROPERTY_INFO,
+            .Flags = ACX_PROPERTY_ITEM_FLAG_GET,
+            .EvtAcxObjectProcessRequest = wsettings_evt_info,
+            .ValueCb = sizeof(struct ozzy_info),
         },
         {
             .Set = &ozzy_propsetid_settings,

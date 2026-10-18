@@ -70,11 +70,13 @@ int main(void)
 		ins += x.pipe == 0x86;
 	}
 
-	/* Packets 4.. were encoded from the ring, from frame 0 on */
-	for (i = 4; i < 4 + outs && i < OZZY_NUM_PACKETS; i++) {
-		const uint8_t *pkt = (const uint8_t *)shm.audio.output_buffer + i * OZZY_MAX_PACKET_SIZE;
+	/* Transfers 4.. (80 frames, 8 sub-packets of 482 bytes, end to end in the ring) were encoded
+	 * from the ring, from frame 0 on; read back from the ring, so none may have come round again */
+	CHECK(4 + outs + 4 <= shm.audio.output_ring_frames / 80, "the out transfers lapped the ring (%u)", outs);
+	for (i = 4; i < 4 + outs && i < shm.audio.output_ring_frames / 80; i++) {
+		const uint8_t *pkt = (const uint8_t *)shm.audio.output_buffer + i * 8 * PLOYTEC_INT_OUT_SUBPKT_SIZE;
 
-		for (f = 0; f < PLOYTEC_FRAMES_PER_PKT; f++) {
+		for (f = 0; f < 80; f++) {
 			uint32_t r = ((i - 4) * 80 + f) % 160;
 			uint8_t routed[24], enc[48];
 
@@ -84,10 +86,11 @@ int main(void)
 			wrong_out += memcmp(enc, pkt + ploytec_out_frame_offset(PLOYTEC_OUT_LAYOUT_INT, f), 48) != 0;
 		}
 	}
-	/* The ring holds the last two IN packets */
+	/* The ring holds the last two IN transfers (80 frames, 5120 bytes, end to end) */
 	for (i = 0; i < 160 && ins >= 2; i++) {
 		unsigned int j = ins - 2 + i / 80;
-		const uint8_t *pkt = (const uint8_t *)shm.audio.input_buffer + (j % OZZY_NUM_PACKETS) * OZZY_MAX_PACKET_SIZE +
+		const uint8_t *pkt = (const uint8_t *)shm.audio.input_buffer +
+				     (j % (shm.audio.input_ring_frames / 80)) * 80 * PLOYTEC_IN_FRAME_SIZE +
 				     (i % 80) * PLOYTEC_IN_FRAME_SIZE;
 		uint8_t dec[24];
 

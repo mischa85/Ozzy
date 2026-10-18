@@ -47,11 +47,15 @@ enum ozzy_setting {
 	OZZY_SETTING_IN_ROUTE_2,
 	OZZY_SETTING_IN_ROUTE_3,
 	OZZY_SETTING_SPDIF_MIRROR,    /* the playback pair the S/PDIF output mirrors (ESU1808) */
+	OZZY_SETTING_PCM_OUT_FRAMES,  /* frames per PCM out transfer (Ploytec bulk / interrupt) */
+	OZZY_SETTING_PCM_IN_FRAMES,   /* frames per PCM in transfer (Ploytec) */
+	OZZY_SETTING_PCM_OUT_QUEUE,   /* PCM out transfers in flight (Ploytec bulk / interrupt) */
+	OZZY_SETTING_PCM_IN_QUEUE,    /* PCM in transfers in flight (Ploytec bulk / interrupt) */
 	OZZY_NUM_SETTINGS
 };
 
 enum ozzy_setting_kind {
-	OZZY_SETTING_DEVICE,          /* sent to the device in the handshake */
+	OZZY_SETTING_DEVICE,          /* taken when the engine starts: the handshake, the transfers */
 	OZZY_SETTING_OUT_ROUTE,       /* value: host playback pair */
 	OZZY_SETTING_IN_ROUTE,        /* value: device input pair */
 	OZZY_SETTING_OUT_PAIR,        /* value: host playback pair, used by the family's encoder */
@@ -79,6 +83,43 @@ enum ozzy_spdif_out_mode {
 	OZZY_SPDIF_OUT_PROFESSIONAL = 1,
 	OZZY_NUM_SPDIF_OUT_MODES
 };
+
+/*
+ * OZZY_SETTING_PCM_OUT_FRAMES / _IN_FRAMES values: how many of the device's sub-packets one PCM
+ * transfer carries, so how many frames (value + 1 sub-packets: 10 frames each out, 8 in), so
+ * how far ahead of the device the driver works (transfers queued x frames: the latency). Any
+ * number works (tested on the DB4 down to one sub-packet, both out layouts,
+ * .claude/re/ploytec_bulk_devices.md); Ozzy offers up to 200 frames, the official driver's
+ * size. The default, 80 frames each way, is what ran before the setting.
+ */
+#define OZZY_NUM_PCM_OUT_FRAMES 20    /* 10 ... 200 */
+#define OZZY_NUM_PCM_IN_FRAMES  25    /* 8 ... 200 */
+
+/*
+ * OZZY_SETTING_PCM_OUT_QUEUE / _IN_QUEUE values: how many PCM transfers the driver keeps in
+ * flight, value + 1 (1-4). With the transfer size it is the latency on USB: queue x frames. The
+ * device paces the stream itself (it refuses OUT packets until it has room), so its own buffer
+ * covers the gap while the next transfer is being submitted; one in flight with 10 / 8-frame
+ * transfers worked on the DB4 under Linux (.claude/re/ploytec_bulk_devices.md). Out, each
+ * transfer queued is latency (a frame waits behind them all); in, the frames are there once
+ * their one transfer completes, and the others queued are margin, buffers the device can fill
+ * while the host is late. The default, 4, is what ran before the setting (the isochronous
+ * family's in queue: 2, its engine's setting_default).
+ */
+#define OZZY_NUM_PCM_QUEUES 4
+
+static inline uint32_t ozzy_pcm_queue(unsigned int value)
+{
+	return value < OZZY_NUM_PCM_QUEUES ? value + 1 : OZZY_NUM_PCM_QUEUES;
+}
+
+/* The frames of value @value of the out (@in false) or in setting; out of range: the default */
+static inline uint32_t ozzy_pcm_frames(bool in, unsigned int value)
+{
+	if (value >= (in ? OZZY_NUM_PCM_IN_FRAMES : OZZY_NUM_PCM_OUT_FRAMES))
+		value = in ? 9 : 7;
+	return (value + 1) * (in ? 8 : 10);
+}
 
 /*
  * struct ozzy_setting_desc - One setting: its name, values and which devices have it.
@@ -110,6 +151,20 @@ static const char *const ozzy_playback_pair_names[OZZY_ROUTE_MAX_PAIRS] = {
 static const char *const ozzy_input_pair_names[OZZY_ROUTE_MAX_PAIRS] = {
 	"Input 1-2", "Input 3-4", "Input 5-6", "Input 7-8",
 	"Input 9-10", "Input 11-12", "Input 13-14", "Input 15-16" };
+static const char *const ozzy_pcm_out_frames_names[OZZY_NUM_PCM_OUT_FRAMES] = {
+	"10 frames", "20 frames", "30 frames", "40 frames", "50 frames", "60 frames",
+	"70 frames", "80 frames", "90 frames", "100 frames", "110 frames", "120 frames",
+	"130 frames", "140 frames", "150 frames", "160 frames", "170 frames", "180 frames",
+	"190 frames", "200 frames" };
+static const char *const ozzy_pcm_in_frames_names[OZZY_NUM_PCM_IN_FRAMES] = {
+	"8 frames", "16 frames", "24 frames", "32 frames", "40 frames", "48 frames",
+	"56 frames", "64 frames", "72 frames", "80 frames", "88 frames", "96 frames",
+	"104 frames", "112 frames", "120 frames", "128 frames", "136 frames", "144 frames",
+	"152 frames", "160 frames", "168 frames", "176 frames", "184 frames", "192 frames",
+	"200 frames" };
+
+static const char *const ozzy_pcm_queue_names[OZZY_NUM_PCM_QUEUES] = {
+	"1 transfer", "2 transfers", "3 transfers", "4 transfers" };
 
 static const struct ozzy_setting_desc ozzy_setting_descs[OZZY_NUM_SETTINGS] = {
 	/* Positional: the macOS kext compiles this as C++11 */
@@ -130,6 +185,14 @@ static const struct ozzy_setting_desc ozzy_setting_descs[OZZY_NUM_SETTINGS] = {
 	  OZZY_QUIRK_IN_ROUTING, OZZY_SETTING_IN_ROUTE, 2 },
 	{ "IEC958 Playback Source", ozzy_playback_pair_names, OZZY_ROUTE_MAX_PAIRS, 0,
 	  OZZY_QUIRK_SPDIF_MIRROR, OZZY_SETTING_OUT_PAIR, 0 },
+	{ "PCM Playback Transfer", ozzy_pcm_out_frames_names, OZZY_NUM_PCM_OUT_FRAMES, 7,
+	  OZZY_QUIRK_PCM_OUT_FRAMES, OZZY_SETTING_DEVICE, 0 },
+	{ "PCM Capture Transfer", ozzy_pcm_in_frames_names, OZZY_NUM_PCM_IN_FRAMES, 9,
+	  OZZY_QUIRK_PCM_IN_FRAMES, OZZY_SETTING_DEVICE, 0 },
+	{ "PCM Playback Queue", ozzy_pcm_queue_names, OZZY_NUM_PCM_QUEUES, OZZY_NUM_PCM_QUEUES - 1,
+	  OZZY_QUIRK_PCM_OUT_QUEUE, OZZY_SETTING_DEVICE, 0 },
+	{ "PCM Capture Queue", ozzy_pcm_queue_names, OZZY_NUM_PCM_QUEUES, OZZY_NUM_PCM_QUEUES - 1,
+	  OZZY_QUIRK_PCM_IN_QUEUE, OZZY_SETTING_DEVICE, 0 },
 };
 
 /*

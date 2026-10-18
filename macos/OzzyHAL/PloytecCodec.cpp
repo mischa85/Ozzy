@@ -8,17 +8,19 @@
 // convert and bit-interleave in one call. The channel count and frame codec are template
 // parameters, so the codec call is direct and the I/O path never branches on the channel count.
 
-// Ring buffer mirrors the USB packet structure for zero-copy: logical packets of 80 frames at
-// OZZY_MAX_PACKET_SIZE stride. Frame offsets inside a packet come from the shared layout helpers.
-template <enum ploytec_out_layout Layout, uint32_t Channels, ploytec_frame_f32_enc_fn Encode>
-static void WriteOutput(uint8_t* ringBuffer, const float* srcFrames, uint64_t sampleTime, uint32_t frameCount, uint32_t ringSize) {
-    for (uint32_t i = 0; i < frameCount; i++) {
-        uint32_t sampleOffset = (uint32_t)((sampleTime + i) % ringSize);
-        uint32_t logicalPacket = sampleOffset / PLOYTEC_FRAMES_PER_PKT;
-        uint32_t frameInLogicalPacket = sampleOffset % PLOYTEC_FRAMES_PER_PKT;
+// The ring is the transfers as they go out, zero-copy: sub-packets of 10 frames end to end in the
+// device's layout. Frame offsets inside a sub-packet come from the shared layout helpers.
+template <enum ploytec_out_layout Layout>
+static inline uint32_t OutFrameOffset(uint32_t ringFrame) {
+    return (ringFrame / PLOYTEC_FRAMES_PER_OUT_SUBPKT) * ploytec_out_subpkt_size(Layout)
+         + ploytec_out_frame_offset(Layout, ringFrame % PLOYTEC_FRAMES_PER_OUT_SUBPKT);
+}
 
-        uint32_t byteOffset = (logicalPacket * OZZY_MAX_PACKET_SIZE) + ploytec_out_frame_offset(Layout, frameInLogicalPacket);
-        Encode(ringBuffer + byteOffset, srcFrames + (i * Channels));
+template <enum ploytec_out_layout Layout, uint32_t Channels, ploytec_frame_f32_enc_fn Encode>
+static void WriteOutput(uint8_t* ringBuffer, const float* srcFrames, uint64_t sampleTime, uint32_t frameCount, uint32_t ringFrames) {
+    for (uint32_t i = 0; i < frameCount; i++) {
+        uint32_t f = (uint32_t)((sampleTime + i) % ringFrames);
+        Encode(ringBuffer + OutFrameOffset<Layout>(f), srcFrames + (i * Channels));
     }
 }
 
@@ -26,44 +28,36 @@ static void WriteOutput(uint8_t* ringBuffer, const float* srcFrames, uint64_t sa
 // whose lane 9 is the pair's second channel of the frame before. That frame is in the ring
 // already (written just before, or by the previous I/O cycle), so the mirror takes it from there.
 template <unsigned int Pair>
-static void WriteOutputSpdif(uint8_t* ringBuffer, const float* srcFrames, uint64_t sampleTime, uint32_t frameCount, uint32_t ringSize) {
+static void WriteOutputSpdif(uint8_t* ringBuffer, const float* srcFrames, uint64_t sampleTime, uint32_t frameCount, uint32_t ringFrames) {
     for (uint32_t i = 0; i < frameCount; i++) {
-        uint32_t sampleOffset = (uint32_t)((sampleTime + i) % ringSize);
-        uint32_t prevOffset = (sampleOffset ? sampleOffset : ringSize) - 1;
-        uint8_t* dst = ringBuffer + (sampleOffset / PLOYTEC_FRAMES_PER_PKT) * OZZY_MAX_PACKET_SIZE
-                     + ploytec_out_frame_offset(PLOYTEC_OUT_LAYOUT_BULK, sampleOffset % PLOYTEC_FRAMES_PER_PKT);
-        const uint8_t* prev = ringBuffer + (prevOffset / PLOYTEC_FRAMES_PER_PKT) * OZZY_MAX_PACKET_SIZE
-                            + ploytec_out_frame_offset(PLOYTEC_OUT_LAYOUT_BULK, prevOffset % PLOYTEC_FRAMES_PER_PKT);
+        uint32_t f = (uint32_t)((sampleTime + i) % ringFrames);
+        uint32_t prevFrame = (f ? f : ringFrames) - 1;
+        uint8_t* dst = ringBuffer + OutFrameOffset<PLOYTEC_OUT_LAYOUT_BULK>(f);
+        const uint8_t* prev = ringBuffer + OutFrameOffset<PLOYTEC_OUT_LAYOUT_BULK>(prevFrame);
         ploytec_encode_frame_8ch_f32(dst, srcFrames + (i * 8));
         ploytec_spdif_mirror(dst, prev + PLOYTEC_OUT_FRAME_SIZE / 2, Pair);
     }
 }
 
-// Read input samples from ring buffer
-// Ring buffer layout: logical packets at OZZY_MAX_PACKET_SIZE stride, no MIDI in input
+// Read input from the ring: 512-byte sub-packets of 8 frames end to end, no MIDI in them, so
+// frame f is simply at f * 64
 template <uint32_t Channels, ploytec_frame_f32_dec_fn Decode>
-static void ReadInput(float* dstFrames, const uint8_t* ringBuffer, uint64_t sampleTime, uint32_t frameCount, uint32_t ringSize) {
+static void ReadInput(float* dstFrames, const uint8_t* ringBuffer, uint64_t sampleTime, uint32_t frameCount, uint32_t ringFrames) {
     for (uint32_t i = 0; i < frameCount; i++) {
-        uint32_t sampleOffset = (uint32_t)((sampleTime + i) % ringSize);
-
-        // Input is simpler - no MIDI interleaving, just linear samples within logical packets
-        uint32_t logicalPacket = sampleOffset / PLOYTEC_FRAMES_PER_PKT;
-        uint32_t frameInLogicalPacket = sampleOffset % PLOYTEC_FRAMES_PER_PKT;
-
-        uint32_t byteOffset = (logicalPacket * OZZY_MAX_PACKET_SIZE) + (frameInLogicalPacket * PLOYTEC_IN_FRAME_SIZE);
-        Decode(dstFrames + (i * Channels), ringBuffer + byteOffset);
+        uint32_t f = (uint32_t)((sampleTime + i) % ringFrames);
+        Decode(dstFrames + (i * Channels), ringBuffer + f * PLOYTEC_IN_FRAME_SIZE);
     }
 }
 
 // Plain output: a ring of @ringSize interleaved S24_3LE frames, frame f at f * Channels * 3,
 // which the kext's isochronous transfers read directly
 template <uint32_t Channels, ploytec_frame_f32_enc_fn Convert>
-static void WriteOutputPlain(uint8_t* ringBuffer, const float* srcFrames, uint64_t sampleTime, uint32_t frameCount, uint32_t ringSize) {
-    uint32_t f = (uint32_t)(sampleTime % ringSize);
+static void WriteOutputPlain(uint8_t* ringBuffer, const float* srcFrames, uint64_t sampleTime, uint32_t frameCount, uint32_t ringFrames) {
+    uint32_t f = (uint32_t)(sampleTime % ringFrames);
     for (uint32_t i = 0; i < frameCount; i++) {
         Convert(ringBuffer + f * (Channels * 3), srcFrames + i * Channels);
         f++;
-        f -= (f == ringSize) * ringSize;
+        f -= (f == ringFrames) * ringFrames;
     }
 }
 
@@ -115,25 +109,22 @@ ReadInputFunc PloytecInputReader(uint32_t channels) {
     }
 }
 
-// Clear output buffer: zero all PCM frames, leave the MIDI and sync bytes untouched
-static void PloytecClearOutput(enum ploytec_out_layout layout, uint8_t* outputBuffer) {
-    for (uint32_t logicalPacket = 0; logicalPacket < OZZY_NUM_PACKETS; logicalPacket++) {
-        uint8_t* packet = outputBuffer + logicalPacket * OZZY_MAX_PACKET_SIZE;
-        for (uint32_t frame = 0; frame < PLOYTEC_FRAMES_PER_PKT; frame++) {
-            memset(packet + ploytec_out_frame_offset(layout, frame), 0, PLOYTEC_OUT_FRAME_SIZE);
-        }
-    }
+// Clear the output ring: zero all PCM frames, leave the MIDI and control bytes untouched
+template <enum ploytec_out_layout Layout>
+static void PloytecClearOutput(uint8_t* outputBuffer, uint32_t ringFrames) {
+    for (uint32_t f = 0; f < ringFrames; f++)
+        memset(outputBuffer + OutFrameOffset<Layout>(f), 0, PLOYTEC_OUT_FRAME_SIZE);
 }
 
-void PloytecClearOutputBulk(uint8_t* outputBuffer, uint32_t bufferSize) {
-    PloytecClearOutput(PLOYTEC_OUT_LAYOUT_BULK, outputBuffer);
+void PloytecClearOutputBulk(uint8_t* outputBuffer, uint32_t ringFrames) {
+    PloytecClearOutput<PLOYTEC_OUT_LAYOUT_BULK>(outputBuffer, ringFrames);
 }
 
-void PloytecClearOutputInterrupt(uint8_t* outputBuffer, uint32_t bufferSize) {
-    PloytecClearOutput(PLOYTEC_OUT_LAYOUT_INT, outputBuffer);
+void PloytecClearOutputInterrupt(uint8_t* outputBuffer, uint32_t ringFrames) {
+    PloytecClearOutput<PLOYTEC_OUT_LAYOUT_INT>(outputBuffer, ringFrames);
 }
 
 // Silence: plain frames have no framing bytes to keep
-void PloytecClearOutputPlain(uint8_t* outputBuffer, uint32_t bufferSize) {
-    memset(outputBuffer, 0, bufferSize);
+void PloytecClearOutputPlain(uint8_t* outputBuffer, uint32_t ringFrames) {
+    memset(outputBuffer, 0, OZZY_PCM_RING_BYTES);
 }

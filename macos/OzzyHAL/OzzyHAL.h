@@ -1,6 +1,7 @@
 #ifndef OzzyHAL_h
 #define OzzyHAL_h
 
+#include <mutex>
 #include <CoreAudio/AudioServerPlugIn.h>
 #include <CoreAudioTypes/CoreAudioBaseTypes.h>
 #include <CoreFoundation/CoreFoundation.h>
@@ -66,8 +67,11 @@ public:
     OSStatus SetSampleRate(AudioServerPlugInHostRef host, Float64 rate);
 
     UInt32 GetLatency() const { return 0; }
-    UInt32 GetSafetyOffset() const { return mSafetyOffset; }  // frames the engine reads ahead (ApplyDeviceConfig)
-    UInt32 GetZeroTimestampPeriod() const { return OZZY_TIMESTAMP_PACKETS * mFramesPerPacket; }  // spacing of the kext's timestamp anchors
+    // Output: frames the engine reads ahead; input: frames behind the clock it is complete (ApplyDeviceConfig)
+    UInt32 GetSafetyOffset(AudioObjectPropertyScope scope) const {
+        return scope == kAudioObjectPropertyScopeInput ? mInputSafetyOffset : mSafetyOffset;
+    }
+    UInt32 GetZeroTimestampPeriod() const { return mTimestampFrames; }  // spacing of the kext's timestamp anchors
 
     // Device settings (common/ozzy_settings.h). The clock source is a clock source selector
     // control (kAudioClockSourceControlClassID), from which CoreAudio derives the device's
@@ -83,6 +87,10 @@ public:
     OSStatus SetSetting(AudioServerPlugInHostRef host, unsigned int id, UInt32 value);
     // OZZY_PROPERTY_SETTING's data: a new dictionary, and setting from one
     CFDictionaryRef CopySettingsDictionary() const;
+    // OZZY_PROPERTY_INFO's data: a new CFData of the kext's struct ozzy_info
+    CFDataRef CopyInfoData() const;
+    // The custom properties the device has (kAudioObjectPropertyCustomPropertyInfoList)
+    UInt32 CustomPropertyCount() const { return HasSettings() ? 2 : 1; }
     OSStatus SetSettingsDictionary(AudioServerPlugInHostRef host, CFDictionaryRef dict);
     // CoreAudio stopped IO for a setting or rate change: send it to the kext, re-read the
     // format, keep it
@@ -104,9 +112,11 @@ private:
     CFStringRef mManufacturerUID = nullptr;
 
     // Cached frame format for real-time I/O (updated on connect)
-    uint32_t mFramesPerPacket = 80;
-    uint32_t mRingSize = 10240; // OZZY_NUM_PACKETS * mFramesPerPacket
+    uint32_t mOutRingFrames = 1;   // frames in the shared memory's output ring (the engine's layout)
+    uint32_t mInRingFrames = 1;
+    uint32_t mTimestampFrames = OZZY_TIMESTAMP_FRAMES;   // between the engine's clock anchors
     uint32_t mSafetyOffset = 160; // frames the engine reads output ahead of the clock
+    uint32_t mInputSafetyOffset = 160;   // frames behind the clock input is complete
     uint32_t mInputChannels = 8;    // published by the kext per model (16 for the WZ4)
     uint32_t mOutputChannels = 8;   // (2 for the WZ4)
 
@@ -126,6 +136,8 @@ private:
     struct ozzy_settings mSettings = {};
     bool mClockLocked = false;
     uint32_t mLockRate = 0;
+    struct ozzy_info mInfo = {};        // the kext's, as of its last handshake (ApplyDeviceConfig)
+    mutable std::mutex mInfoLock;       // ApplyDeviceConfig writes mInfo while a client may read it
     struct ozzy_route mInRoute = {};    // capture routing, applied after mReadInput
     struct ozzy_route mOutRoute = {};   // playback routing, applied before mWriteOutput
     bool mSpdifMirror = false;          // mWriteOutput is the ESU1808 mirror writer (UpdateRoutes)

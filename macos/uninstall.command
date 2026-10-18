@@ -71,11 +71,11 @@ if [ -d "/Library/Audio/Plug-Ins/HAL/OzzyHAL.driver" ]; then
     echo "✅ HAL Driver removed"
 fi
 
-# Remove ozzyctl
-if [ -f "/usr/local/bin/ozzyctl" ]; then
-    echo "🗑️  Removing ozzyctl..."
-    sudo rm -f /usr/local/bin/ozzyctl
-    echo "✅ ozzyctl removed"
+# Remove ozzy-cli (and ozzyctl, its old name)
+if [ -f "/usr/local/bin/ozzy-cli" ] || [ -f "/usr/local/bin/ozzyctl" ]; then
+    echo "🗑️  Removing ozzy-cli..."
+    sudo rm -f /usr/local/bin/ozzy-cli /usr/local/bin/ozzyctl
+    echo "✅ ozzy-cli removed"
 fi
 
 # Remove MIDI Driver

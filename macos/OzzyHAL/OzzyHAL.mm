@@ -96,7 +96,7 @@ void OzzyHALDevice::ReleaseSHM() {
 
 void OzzyHALDevice::ClearOutputBuffer() {
     ozzy_shared_memory* shm = AcquireSHM();
-    if (shm && mClearOutput) mClearOutput(shm->audio.output_buffer, OZZY_MAX_PACKET_SIZE * OZZY_NUM_PACKETS);
+    if (shm && mClearOutput) mClearOutput(shm->audio.output_buffer, mOutRingFrames);
     ReleaseSHM();
 }
 
@@ -189,12 +189,20 @@ void OzzyHALDevice::ApplyDeviceConfig() {
     ozzy_shared_memory* shm = mSHM.load(std::memory_order_relaxed);
     if (!shm) return;
 
-    // Cache frame format for real-time I/O performance
-    mFramesPerPacket = shm->audio.frames_per_packet;  // e.g., 80 frames per logical packet
-    // Ring buffer size in FRAMES: 128 logical packets * 80 frames = 10,240 frames
-    mRingSize = OZZY_NUM_PACKETS * mFramesPerPacket;
-    // The engine reads output this far ahead (its OUT transfers in flight)
+    // The rings as the engine laid them out for its transfers this run, and its clock spacing
+    mOutRingFrames = shm->audio.output_ring_frames;
+    mInRingFrames = shm->audio.input_ring_frames;
+    mTimestampFrames = shm->audio.timestamp_frames;
+    if (!mOutRingFrames || !mInRingFrames || !mTimestampFrames) {
+        LogOzzyHALError("device %{public}u: the driver published no ring layout (an older kext?)", mSlot);
+        mOutRingFrames = mOutRingFrames ? mOutRingFrames : 1;
+        mInRingFrames = mInRingFrames ? mInRingFrames : 1;
+        mTimestampFrames = mTimestampFrames ? mTimestampFrames : OZZY_TIMESTAMP_FRAMES;
+    }
+    // The engine reads output this far ahead (its OUT transfers in flight); input is complete
+    // this far behind the clock (its IN transfers)
     mSafetyOffset = shm->audio.safety_offset_frames;
+    mInputSafetyOffset = shm->audio.input_safety_offset_frames ? shm->audio.input_safety_offset_frames : mSafetyOffset;
 
     // Channel counts per direction, as published by the engine for this model
     mInputChannels = shm->audio.input_channels;
@@ -237,6 +245,10 @@ void OzzyHALDevice::ApplyDeviceConfig() {
     UpdateRoutes();
     mClockLocked = shm->audio.settings.clock_locked;
     mLockRate = shm->audio.settings.lock_rate;
+    {
+        std::lock_guard<std::mutex> lock(mInfoLock);
+        memcpy(&mInfo, (const void*)&shm->info, sizeof(mInfo));
+    }
 
     // The rates CoreAudio may pick: the device's, or only the S/PDIF lock rate
     const struct ozzy_device* model = ozzy_device_lookup(shm->vendor_id, shm->product_id);
@@ -340,6 +352,12 @@ CFDictionaryRef OzzyHALDevice::CopySettingsDictionary() const {
         if (number) { CFDictionarySetValue(dict, CFSTR("Lock Rate"), number); CFRelease(number); }
     }
     return dict;
+}
+
+/* OZZY_PROPERTY_INFO: the kext's record as it is (ozzy-cli and the ozzy app decode it) */
+CFDataRef OzzyHALDevice::CopyInfoData() const {
+    std::lock_guard<std::mutex> lock(mInfoLock);
+    return CFDataCreate(NULL, (const UInt8*)&mInfo, sizeof(mInfo));
 }
 
 /* OZZY_PROPERTY_SETTING set: each name -> value in @dict. Returns the first error, after trying all. */
@@ -465,11 +483,19 @@ void OzzyHALDevice::NotifyDeviceChanged(AudioServerPlugInHostRef host) {
             { kAudioDevicePropertyStreamConfiguration, kAudioObjectPropertyScopeInput, kAudioObjectPropertyElementMain },
             { kAudioDevicePropertyStreamConfiguration, kAudioObjectPropertyScopeOutput, kAudioObjectPropertyElementMain } };
         host->PropertiesChanged(host, dev, 2, cfgAddr);
+        // The transfer sizes (device settings) set the safety offsets and the clock spacing
+        AudioObjectPropertyAddress timingAddr[3] = {
+            { kAudioDevicePropertySafetyOffset, kAudioObjectPropertyScopeOutput, kAudioObjectPropertyElementMain },
+            { kAudioDevicePropertySafetyOffset, kAudioObjectPropertyScopeInput, kAudioObjectPropertyElementMain },
+            { kAudioDevicePropertyZeroTimeStampPeriod, kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMain } };
+        host->PropertiesChanged(host, dev, 3, timingAddr);
         AudioObjectPropertyAddress fmtAddr[2] = {
             { kAudioStreamPropertyVirtualFormat, kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMain },
             { kAudioStreamPropertyPhysicalFormat, kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMain } };
         host->PropertiesChanged(host, GetInputStreamID(), 2, fmtAddr);
         host->PropertiesChanged(host, GetOutputStreamID(), 2, fmtAddr);
+        AudioObjectPropertyAddress infoAddr = { OZZY_PROPERTY_INFO, kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMain };
+        host->PropertiesChanged(host, dev, 1, &infoAddr);
         if (mSettingsAvailable) {
             AudioObjectPropertyAddress setAddr = { OZZY_PROPERTY_SETTING, kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMain };
             host->PropertiesChanged(host, dev, 1, &setAddr);
@@ -568,14 +594,14 @@ OSStatus OzzyHALDevice::ioOperation(UInt32 inOperationID, UInt32 inIOBufferFrame
             uint64_t sampleTime = (uint64_t)inIOCycleInfo->mOutputTime.mSampleTime;
             // Output routing in place: the mix buffer isn't used after this (in-place IO)
             ozzy_route_frames((uint8_t*)ioMainBuffer, inIOBufferFrameSize, &mOutRoute, 2 * sizeof(float));
-            mWriteOutput(shm->audio.output_buffer, (const float*)ioMainBuffer, sampleTime, inIOBufferFrameSize, mRingSize);
+            mWriteOutput(shm->audio.output_buffer, (const float*)ioMainBuffer, sampleTime, inIOBufferFrameSize, mOutRingFrames);
             shm->audio.hal_write_position.store(sampleTime + inIOBufferFrameSize, std::memory_order_release);
         }
     }
     else if (inOperationID == kAudioServerPlugInIOOperationReadInput) {
         if (mReadInput) {
             uint64_t sampleTime = (uint64_t)inIOCycleInfo->mInputTime.mSampleTime;
-            mReadInput((float*)ioMainBuffer, shm->audio.input_buffer, sampleTime, inIOBufferFrameSize, mRingSize);
+            mReadInput((float*)ioMainBuffer, shm->audio.input_buffer, sampleTime, inIOBufferFrameSize, mInRingFrames);
             ozzy_route_frames((uint8_t*)ioMainBuffer, inIOBufferFrameSize, &mInRoute, 2 * sizeof(float));
         }
     }
@@ -836,7 +862,8 @@ extern "C" Boolean OzzyHasProperty(AudioServerPlugInDriverRef, AudioObjectID inO
             case kAudioDevicePropertyStreamConfiguration: case kAudioDevicePropertyLatency:
             case kAudioDevicePropertySafetyOffset: case kAudioDevicePropertyPreferredChannelLayout:
             case kAudioDevicePropertyZeroTimeStampPeriod: case kAudioDevicePropertyClockDomain: return true;
-            case OZZY_PROPERTY_SETTING: case kAudioObjectPropertyCustomPropertyInfoList: return dev->HasSettings();
+            case OZZY_PROPERTY_SETTING: return dev->HasSettings();
+            case OZZY_PROPERTY_INFO: case kAudioObjectPropertyCustomPropertyInfoList: return true;
         }
         return false;
     }
@@ -924,8 +951,9 @@ extern "C" HRESULT OzzyGetPropertyDataSize(AudioServerPlugInDriverRef, AudioObje
             case OZZY_PROPERTY_SETTING:
                 if (!dev->HasSettings()) return kAudioHardwareUnknownPropertyError;
                 *outDataSize = sizeof(CFPropertyListRef); return kAudioHardwareNoError;
+            case OZZY_PROPERTY_INFO: *outDataSize = sizeof(CFPropertyListRef); return kAudioHardwareNoError;
             case kAudioObjectPropertyCustomPropertyInfoList:
-                *outDataSize = dev->HasSettings() ? sizeof(AudioServerPlugInCustomPropertyInfo) : 0;
+                *outDataSize = dev->CustomPropertyCount() * sizeof(AudioServerPlugInCustomPropertyInfo);
                 return kAudioHardwareNoError;
             default: return kAudioHardwareUnknownPropertyError;
         }
@@ -1039,7 +1067,7 @@ extern "C" HRESULT OzzyGetPropertyData(AudioServerPlugInDriverRef, AudioObjectID
             }
             case kAudioDevicePropertyClockDomain: return WriteUInt32(inMax, outSize, outData, dev->GetClockDomain());
             case kAudioDevicePropertyLatency: return WriteUInt32(inMax, outSize, outData, dev->GetLatency());
-            case kAudioDevicePropertySafetyOffset: return WriteUInt32(inMax, outSize, outData, dev->GetSafetyOffset());
+            case kAudioDevicePropertySafetyOffset: return WriteUInt32(inMax, outSize, outData, dev->GetSafetyOffset(inAddress->mScope));
             case kAudioDevicePropertyZeroTimeStampPeriod: return WriteUInt32(inMax, outSize, outData, dev->GetZeroTimestampPeriod());
             case kAudioDevicePropertyPreferredChannelLayout: {
                 UInt32 size = dev->GetPreferredChannelLayoutSize(inAddress->mScope);
@@ -1054,15 +1082,25 @@ extern "C" HRESULT OzzyGetPropertyData(AudioServerPlugInDriverRef, AudioObjectID
                 if (outSize) *outSize = sizeof(CFPropertyListRef);
                 return kAudioHardwareNoError;
             }
+            case OZZY_PROPERTY_INFO: {
+                if (outData && inMax < sizeof(CFPropertyListRef)) return kAudioHardwareBadPropertySizeError;
+                if (outData) *(CFPropertyListRef*)outData = dev->CopyInfoData();   // the caller releases it
+                if (outSize) *outSize = sizeof(CFPropertyListRef);
+                return kAudioHardwareNoError;
+            }
             case kAudioObjectPropertyCustomPropertyInfoList: {
-                // OZZY_PROPERTY_SETTING: property list data, no qualifier
-                UInt32 size = dev->HasSettings() ? sizeof(AudioServerPlugInCustomPropertyInfo) : 0;
+                // OZZY_PROPERTY_INFO, and OZZY_PROPERTY_SETTING with settings: property list
+                // data (CFData is one), no qualifier
+                UInt32 count = dev->CustomPropertyCount();
+                UInt32 size = count * sizeof(AudioServerPlugInCustomPropertyInfo);
                 if (outData && inMax < size) return kAudioHardwareBadPropertySizeError;
-                if (outData && size) {
+                if (outData) {
                     AudioServerPlugInCustomPropertyInfo* info = (AudioServerPlugInCustomPropertyInfo*)outData;
-                    info->mSelector = OZZY_PROPERTY_SETTING;
-                    info->mPropertyDataType = kAudioServerPlugInCustomPropertyDataTypeCFPropertyList;
-                    info->mQualifierDataType = kAudioServerPlugInCustomPropertyDataTypeNone;
+                    for (UInt32 i = 0; i < count; i++) {
+                        info[i].mSelector = i == 0 ? OZZY_PROPERTY_INFO : OZZY_PROPERTY_SETTING;
+                        info[i].mPropertyDataType = kAudioServerPlugInCustomPropertyDataTypeCFPropertyList;
+                        info[i].mQualifierDataType = kAudioServerPlugInCustomPropertyDataTypeNone;
+                    }
                 }
                 if (outSize) *outSize = size;
                 return kAudioHardwareNoError;

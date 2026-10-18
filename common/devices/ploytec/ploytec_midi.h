@@ -78,7 +78,6 @@ enum ploytec_midi_xfer_framing {
 	PLOYTEC_MIDI_XFER_M4_C1,
 	PLOYTEC_MIDI_XFER_NS7,
 };
-#define PLOYTEC_OUT_SUBPKTS             (PLOYTEC_FRAMES_PER_PKT / PLOYTEC_FRAMES_PER_OUT_SUBPKT)
 
 /*
  * struct ploytec_midi - MIDI framing for one stream at one sample rate.
@@ -131,16 +130,17 @@ static inline void ploytec_midi_init(struct ploytec_midi *m, uint32_t rate, bool
 }
 
 /*
- * ploytec_midi_out_slots - Pace the next output packet.
+ * ploytec_midi_out_slots - Pace the next output transfer, @subpkts sub-packets (at most
+ * PLOYTEC_MAX_OUT_SUBPKTS).
  * Sets bit k of *@mask if sub-packet k may carry a MIDI byte and returns how
  * many may. Advances the pace whether or not there is data, so unused slots
  * don't add up to a burst later.
  */
-static inline uint32_t ploytec_midi_out_slots(struct ploytec_midi *m, uint32_t *mask)
+static inline uint32_t ploytec_midi_out_slots(struct ploytec_midi *m, uint32_t subpkts, uint32_t *mask)
 {
 	uint32_t bits = 0, count = 0, k, open;
 
-	for (k = 0; k < PLOYTEC_OUT_SUBPKTS; k++) {
+	for (k = 0; k < subpkts && k < PLOYTEC_MAX_OUT_SUBPKTS; k++) {
 		m->out_acc += m->out_step;
 		open = m->out_acc >= m->out_rate;
 		m->out_acc -= open * m->out_rate;
@@ -152,21 +152,21 @@ static inline uint32_t ploytec_midi_out_slots(struct ploytec_midi *m, uint32_t *
 }
 
 /*
- * ploytec_midi_out_place - Write an output packet's MIDI slots.
+ * ploytec_midi_out_place - Write the MIDI slots of an output transfer of @subpkts sub-packets
+ * starting at @pkt (a sub-packet boundary).
  * @bytes holds one byte per bit set in @mask (PLOYTEC_MIDI_IDLE_BYTE where
  * there was no data); they go into those sub-packets in order. All other
  * slots get PLOYTEC_MIDI_IDLE_BYTE. The control bytes stay as
  * ploytec_out_init_packet() wrote them.
  */
-static inline void ploytec_midi_out_place(enum ploytec_out_layout layout, uint8_t *pkt,
-					  uint32_t mask, const uint8_t bytes[PLOYTEC_OUT_SUBPKTS])
+static inline void ploytec_midi_out_place(enum ploytec_out_layout layout, uint8_t *pkt, uint32_t subpkts,
+					  uint32_t mask, const uint8_t bytes[PLOYTEC_MAX_OUT_SUBPKTS])
 {
 	uint32_t k, i = 0, open;
 
-	for (k = 0; k < PLOYTEC_OUT_SUBPKTS; k++) {
+	for (k = 0; k < subpkts && k < PLOYTEC_MAX_OUT_SUBPKTS; k++) {
 		open = (mask >> k) & 1;
-		pkt[ploytec_out_midi_offset(layout, k)] = open ? bytes[i & (PLOYTEC_OUT_SUBPKTS - 1)]
-							       : PLOYTEC_MIDI_IDLE_BYTE;
+		pkt[ploytec_out_midi_offset(layout, k)] = open ? bytes[i] : PLOYTEC_MIDI_IDLE_BYTE;
 		i += open;
 	}
 }

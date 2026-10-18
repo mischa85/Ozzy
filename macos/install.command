@@ -324,14 +324,14 @@ MIDI_PATH="$DIR/Build/Release/OzzyMIDI.plugin"
 codesign --sign "$CODE_SIGN_IDENTITY" --force --options runtime "$MIDI_PATH"
 echo "✅ MIDI Driver compiled and signed"
 
-# Compile ozzyctl (settings from the command line)
+# Compile ozzy-cli (settings from the command line)
 echo ""
-echo "🔨 [4/4] Compiling ozzyctl..."
-if ! make -s -C "$DIR/../ozzyctl" > /dev/null; then
-    echo "❌ Error: building ozzyctl failed"
+echo "🔨 [4/4] Compiling ozzy-cli..."
+if ! make -s -C "$DIR/../apps/cli" > /dev/null; then
+    echo "❌ Error: building ozzy-cli failed"
     exit 1
 fi
-echo "✅ ozzyctl compiled"
+echo "✅ ozzy-cli compiled"
 
 echo ""
 echo "======================================================"
@@ -405,10 +405,11 @@ sudo chown -R root:wheel "/Library/Audio/MIDI Drivers/OzzyMIDI.plugin"
 sudo chmod -R 755 "/Library/Audio/MIDI Drivers/OzzyMIDI.plugin"
 sudo touch "/Library/Audio/MIDI Drivers"
 
-# Install ozzyctl
+# Install ozzy-cli (and drop ozzyctl, its old name)
 sudo mkdir -p /usr/local/bin
-sudo install -m 755 "$DIR/../ozzyctl/ozzyctl" /usr/local/bin/ozzyctl
-echo "✅ ozzyctl installed to /usr/local/bin"
+sudo install -m 755 "$DIR/../apps/cli/ozzy-cli" /usr/local/bin/ozzy-cli
+sudo rm -f /usr/local/bin/ozzyctl
+echo "✅ ozzy-cli installed to /usr/local/bin"
 echo "✅ MIDI Driver installed"
 
 echo ""

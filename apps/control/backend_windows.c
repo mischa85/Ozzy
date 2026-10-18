@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 /*
- * ozzyctl backend for Windows: the Ozzy ACX driver's property set (windows/ozzy_ksproperty.h)
- * through IOCTL_KS_PROPERTY. Each device has a KSCATEGORY_AUDIO interface per endpoint; the
+ * The control backend for Windows: the Ozzy ACX driver's property set (windows/ozzy_ksproperty.h)
+ * through IOCTL_KS_PROPERTY (the status and settings, and the driver's record struct ozzy_info).
+ * Each device has a KSCATEGORY_AUDIO interface per endpoint; the
  * first one that answers the property stands for the device (the driver serves it on both).
  * Devices with another driver (the official one) don't answer, and aren't listed. Changes come
  * from the driver's KS event on that filter (OZZY_KSEVENT_CHANGED) and CM notifications for the
@@ -18,17 +19,21 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "ozzyctl.h"
-#include "../common/ozzy_devices.h"
-#include "../windows/ozzy_ksproperty.h"
+#include "ozzy_control.h"
+#include "../../common/ozzy_devices.h"
+#include "../../windows/ozzy_ksproperty.h"
 
 /* KSCATEGORY_AUDIO, here so no GUID library is needed */
 static const GUID ksaudio = { 0x6994ad04, 0x93ef, 0x11d0, { 0xa3, 0xcc, 0x00, 0xa0, 0xc9, 0x22, 0x31, 0x96 } };
 static const GUID ozzy_propsetid_settings = OZZY_PROPSETID_SETTINGS_INIT;
 static const GUID ozzy_eventsetid_settings = OZZY_EVENTSETID_SETTINGS_INIT;
 
-/* Interface paths of the listed devices, by ozzyctl_device.handle */
-static wchar_t paths[OZZYCTL_MAX_DEVICES][512];
+/* Interface paths of the listed devices with their ids (a set finds its device by id: the list
+ * may have changed since the caller's); a front end may list on one thread and set on another */
+static wchar_t paths[OZZY_CONTROL_MAX_DEVICES][512];
+static char path_ids[OZZY_CONTROL_MAX_DEVICES][160];
+static int npaths;
+static SRWLOCK paths_lock = SRWLOCK_INIT;
 
 /* One property call on the filter at @path: get into @value, or set from it */
 static bool ks_property(const wchar_t *path, ULONG id, ULONG flags, void *value, DWORD size, DWORD *returned)
@@ -58,7 +63,7 @@ static void to_utf8(const wchar_t *w, char *out, int size)
 }
 
 /* Our devices into @devs, each one's interface path into @found */
-static int find_devices(struct ozzyctl_device *devs, int max, wchar_t (*found)[512])
+static int find_devices(struct ozzy_control_device *devs, int max, wchar_t (*found)[512])
 {
 	SP_DEVICE_INTERFACE_DATA ifd = { sizeof(ifd) };
 	HDEVINFO set;
@@ -70,10 +75,10 @@ static int find_devices(struct ozzyctl_device *devs, int max, wchar_t (*found)[5
 		fprintf(stderr, "can't list audio devices (error %lu)\n", GetLastError());
 		return -1;
 	}
-	for (i = 0; n < max && n < OZZYCTL_MAX_DEVICES && SetupDiEnumDeviceInterfaces(set, NULL, &ksaudio, i, &ifd); i++) {
+	for (i = 0; n < max && n < OZZY_CONTROL_MAX_DEVICES && SetupDiEnumDeviceInterfaces(set, NULL, &ksaudio, i, &ifd); i++) {
 		SP_DEVINFO_DATA dev = { sizeof(dev) };
 		SP_DEVICE_INTERFACE_DETAIL_DATA_W *detail;
-		struct ozzyctl_device *d = &devs[n];
+		struct ozzy_control_device *d = &devs[n];
 		struct ozzy_ksproperty_status st;
 		const struct ozzy_device *model;
 		wchar_t ids[1024] = { 0 }, instance[200], friendly[128] = { 0 };
@@ -132,25 +137,56 @@ static int find_devices(struct ozzyctl_device *devs, int max, wchar_t (*found)[5
 		d->has_clock = (st.available & (1u << OZZY_SETTING_CLOCK_SOURCE)) != 0;
 		d->clock.locked = st.clock_locked != 0;
 		d->clock.lock_rate = st.clock_locked ? st.lock_rate : 0;
+		snprintf(d->host.driver, sizeof(d->host.driver), "Ozzy (ACX)");
+		{
+			struct ozzy_info info;
+
+			memset(&info, 0, sizeof(info));
+			if (ks_property(found[n], OZZY_KSPROPERTY_INFO, KSPROPERTY_TYPE_GET, &info, sizeof(info), &returned))
+				d->has_info = ozzy_control_take_info(&d->info, &info, returned);
+		}
 		n++;
 	}
 	SetupDiDestroyDeviceInfoList(set);
 	return n;
 }
 
-int ozzyctl_backend_list(struct ozzyctl_device *devs, int max)
+int ozzy_control_backend_list(struct ozzy_control_device *devs, int max)
 {
-	return find_devices(devs, max, paths);
+	static wchar_t found[OZZY_CONTROL_MAX_DEVICES][512];
+	int n;
+
+	AcquireSRWLockExclusive(&paths_lock);
+	n = find_devices(devs, max, found);
+	npaths = n > 0 ? n : 0;
+	for (int i = 0; i < npaths; i++) {
+		memcpy(paths[i], found[i], sizeof(found[i]));
+		memcpy(path_ids[i], devs[i].id, sizeof(path_ids[i]));
+	}
+	ReleaseSRWLockExclusive(&paths_lock);
+	return n;
 }
 
-int ozzyctl_backend_set(const struct ozzyctl_device *dev, unsigned int id, unsigned int value)
+int ozzy_control_backend_set(const struct ozzy_control_device *dev, unsigned int id, unsigned int value)
 {
 	struct ozzy_ksproperty_setting s = { id, value };
+	wchar_t path[512];
 	DWORD returned = 0;
 
+	int i;
+
+	AcquireSRWLockShared(&paths_lock);
+	for (i = 0; i < npaths && strcmp(path_ids[i], dev->id); i++)
+		;
+	if (i < npaths)
+		wcsncpy_s(path, 512, paths[i], _TRUNCATE);
+	ReleaseSRWLockShared(&paths_lock);
+	if (i == npaths) {
+		fprintf(stderr, "%s: not connected any more\n", dev->name);
+		return -1;
+	}
 	/* A device setting restarts the device inside this call (streams glitch) */
-	if (dev->handle >= OZZYCTL_MAX_DEVICES ||
-	    !ks_property(paths[dev->handle], OZZY_KSPROPERTY_SETTING, KSPROPERTY_TYPE_SET, &s, sizeof(s), &returned)) {
+	if (!ks_property(path, OZZY_KSPROPERTY_SETTING, KSPROPERTY_TYPE_SET, &s, sizeof(s), &returned)) {
 		fprintf(stderr, "%s: setting %s failed (error %lu)\n", dev->name, ozzy_setting_descs[id].name,
 			GetLastError());
 		return -1;
@@ -159,7 +195,7 @@ int ozzyctl_backend_set(const struct ozzyctl_device *dev, unsigned int id, unsig
 }
 
 /*
- * The watch (ozzyctl_backend_watch). Each device's filter stays open with the event enabled; an
+ * The watch (ozzy_control_backend_watch). Each device's filter stays open with the event enabled; an
  * open handle holds up the device's removal, so it is closed as soon as removal is asked for.
  */
 struct watch_sub {
@@ -173,7 +209,7 @@ static struct {
 	void *ctx;
 	HANDLE rescan;                 /* auto-reset: devices came or go */
 	HCMNOTIFICATION interfaces;
-	struct watch_sub subs[OZZYCTL_MAX_DEVICES];
+	struct watch_sub subs[OZZY_CONTROL_MAX_DEVICES];
 	int nsubs;
 } watch;
 
@@ -242,9 +278,9 @@ static void watch_close(void)
 
 static void watch_open(void)
 {
-	struct ozzyctl_device devs[OZZYCTL_MAX_DEVICES];
-	static wchar_t found[OZZYCTL_MAX_DEVICES][512];
-	int n = find_devices(devs, OZZYCTL_MAX_DEVICES, found), i;
+	struct ozzy_control_device devs[OZZY_CONTROL_MAX_DEVICES];
+	static wchar_t found[OZZY_CONTROL_MAX_DEVICES][512];
+	int n = find_devices(devs, OZZY_CONTROL_MAX_DEVICES, found), i;
 
 	for (i = 0; i < n; i++) {
 		struct watch_sub *sub = &watch.subs[watch.nsubs];
@@ -288,7 +324,7 @@ static void watch_open(void)
 
 static DWORD WINAPI watch_thread(LPVOID arg)
 {
-	HANDLE waits[1 + OZZYCTL_MAX_DEVICES];
+	HANDLE waits[1 + OZZY_CONTROL_MAX_DEVICES];
 
 	(void)arg;
 	for (;;) {
@@ -311,7 +347,7 @@ static DWORD WINAPI watch_thread(LPVOID arg)
 	}
 }
 
-int ozzyctl_backend_watch(void (*changed)(void *ctx), void *ctx)
+int ozzy_control_backend_watch(void (*changed)(void *ctx), void *ctx)
 {
 	CM_NOTIFY_FILTER filter;
 	HANDLE thread;

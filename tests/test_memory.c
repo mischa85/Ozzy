@@ -125,7 +125,7 @@ static void xone(void)
 		if (x.pipe == 0x05) {
 			uint32_t n = (uint32_t)(uintptr_t)x.xfer;
 
-			for (f = 0; n >= 4 && f < PLOYTEC_FRAMES_PER_PKT; f++) {
+			for (f = 0; n >= 4 && f < 80; f++) {   /* the default transfer: 80 frames */
 				uint8_t enc[48];
 
 				ploytec_encode_frame_8ch(enc, ring + (((n - 4) * 80 + f) % 800) * 24);

@@ -70,16 +70,17 @@ void ozzy_engine_attach(struct ozzy_engine *e, const struct ozzy_bus *bus, volat
 	if (!shm->product_name[0])
 		ozzy_strlcpy((char *)shm->product_name, e->model->name, sizeof(shm->product_name));
 	ozzy_settings_defaults(&e->settings);
+	for (i = 0; i < OZZY_NUM_SETTINGS; i++)
+		e->settings.value[i] = ozzy_engine_setting_default(e, i);
 	update_routes(e);
 
-	/* Transfers in the shared memory: the PCM slots are the HAL's logical packets */
+	/* Transfers in the shared memory: the PCM rings the HAL reads and writes (laid out at start) */
 	memset(m, 0, sizeof(*m));
-	for (i = 0; i < OZZY_NUM_PACKETS; i++) {
-		m->pcm_out[i] = (uint8_t *)shm->audio.output_buffer + i * OZZY_MAX_PACKET_SIZE;
-		m->pcm_in[i] = (uint8_t *)shm->audio.input_buffer + i * OZZY_MAX_PACKET_SIZE;
-	}
-	m->pcm_out_slots = OZZY_NUM_PACKETS;
-	m->pcm_in_slots = OZZY_NUM_PACKETS;
+	m->pcm_out_ring = (uint8_t *)shm->audio.output_buffer;
+	m->pcm_out_ring_bytes = sizeof(shm->audio.output_buffer);
+	m->pcm_in_ring = (uint8_t *)shm->audio.input_buffer;
+	m->pcm_in_ring_bytes = sizeof(shm->audio.input_buffer);
+	m->pcm_out_slots = m->pcm_in_slots = 1;
 	m->isoc_in = (uint8_t *)shm->isoc_in_usb_buffer;
 	m->isoc_in_size = sizeof(shm->isoc_in_usb_buffer);
 	m->midi_in = (uint8_t *)shm->midi_in_usb_buffer;
@@ -131,6 +132,113 @@ enum ozzy_setting_change ozzy_engine_change_rate(struct ozzy_engine *e, uint32_t
 	ozzy_log("sample rate %u -> %u Hz", current, rate);
 	ozzy_engine_set_rate(e, rate);
 	return OZZY_SETTING_RESTART;
+}
+
+uint32_t ozzy_engine_pcm_layout(struct ozzy_engine *e, enum ozzy_pcm_dir dir, uint32_t bytes)
+{
+	struct ozzy_engine_memory *m = &e->mem;
+	uint8_t *ring = dir == OZZY_PCM_OUT ? m->pcm_out_ring : m->pcm_in_ring;
+	uint32_t ring_bytes = dir == OZZY_PCM_OUT ? m->pcm_out_ring_bytes : m->pcm_in_ring_bytes;
+	uint32_t places;
+
+	if (!bytes)
+		return 0;
+	if (ring)
+		places = ring_bytes / bytes;
+	else
+		places = bytes <= OZZY_PCM_SLOT_MIN ? OZZY_PCM_OWN_SLOTS : 0;
+	if (!places)
+		return 0;
+	if (dir == OZZY_PCM_OUT) {
+		m->pcm_out_slots = places;
+		m->pcm_out_stride = bytes;
+	} else {
+		m->pcm_in_slots = places;
+		m->pcm_in_stride = bytes;
+	}
+	return places;
+}
+
+/* struct ozzy_info has one pipe per role */
+typedef char ozzy_info_pipes_match[((int)OZZY_INFO_PIPES == (int)OZZY_PIPE_ROLES) ? 1 : -1];
+
+bool ozzy_engine_start(struct ozzy_engine *e)
+{
+	memset(&e->report, 0, sizeof(e->report));
+	if (!e->ops->start(e))
+		return false;
+	e->starts++;
+	ozzy_engine_publish_info(e);
+	return true;
+}
+
+void ozzy_engine_publish_info(struct ozzy_engine *e)
+{
+	volatile struct ozzy_shared_memory *shm = e->shm;
+	const struct ozzy_device *model = e->model;
+	const struct ozzy_engine_report *r = &e->report;
+	struct ozzy_device every_rate;
+	struct ozzy_info info;
+	uint32_t rates[OZZY_MAX_RATES], hz[OZZY_MAX_RATES];
+	unsigned int i, k, n, nall;
+
+	if (!shm)
+		return;
+	memset(&info, 0, sizeof(info));
+	info.version = OZZY_INFO_VERSION;
+	info.size = sizeof(info);
+	info.starts = e->starts;
+	info.vendor_id = model->vid;
+	info.product_id = model->pid;
+	info.family = model->family;
+	info.status = model->status;
+	info.usb_speed = e->usb_speed;
+	info.alt_setting = e->profile.alt_setting;
+	info.interface_count = e->profile.interface_count < 4 ? e->profile.interface_count : 4;
+	for (i = 0; i < info.interface_count; i++)
+		info.interfaces[i] = e->profile.interfaces[i];
+	info.output = r->output;
+	info.feedback = r->feedback;
+	info.firmware_valid = r->firmware_valid;
+	info.firmware_chip = r->firmware_chip;
+	memcpy(info.firmware, r->firmware, sizeof(info.firmware));
+	info.input_selector_valid = r->input_selector_valid;
+	info.input_selector = r->input_selector;
+	info.clock_locked = shm->audio.settings.clock_locked;
+
+	info.sample_rate = shm->audio.sample_rate;
+	info.boot_rate = r->boot_rate;
+	info.lock_rate = info.clock_locked ? shm->audio.settings.lock_rate : 0;
+	info.device_rates = model->rates;
+	/* The host rates as OZZY_RATE_* bits: their places among all the rates there are */
+	memset(&every_rate, 0, sizeof(every_rate));
+	every_rate.rates = (1u << OZZY_MAX_RATES) - 1;
+	nall = ozzy_device_rates(&every_rate, hz);
+	n = ozzy_engine_host_rates(e, rates);
+	for (i = 0; i < n; i++)
+		for (k = 0; k < nall; k++)
+			if (rates[i] == hz[k])
+				info.host_rates |= 1u << k;
+	info.in_channels = model->in_channels;
+	info.out_channels = model->out_channels;
+	info.transfer_frames[OZZY_PCM_OUT] = model->out_channels ? ozzy_engine_transfer_frames(e, OZZY_PCM_OUT) : 0;
+	info.transfer_frames[OZZY_PCM_IN] = model->in_channels ? ozzy_engine_transfer_frames(e, OZZY_PCM_IN) : 0;
+	info.out_bytes_per_frame = model->out_channels ? shm->audio.output_bytes_per_frame : 0;
+	info.in_bytes_per_frame = model->in_channels ? shm->audio.input_bytes_per_frame : 0;
+	info.safety_offset_frames = shm->audio.safety_offset_frames;
+	info.input_safety_offset_frames = model->in_channels ? (shm->audio.input_safety_offset_frames ?
+				shm->audio.input_safety_offset_frames : shm->audio.safety_offset_frames) : 0;
+	info.timestamp_frames = model->out_channels || model->in_channels ? shm->audio.timestamp_frames : 0;
+	if (e->driver_version)
+		ozzy_strlcpy(info.driver_version, e->driver_version, sizeof(info.driver_version));
+	for (i = 0; i < OZZY_PIPE_ROLES; i++) {
+		info.pipes[i].address = e->pipe[i].address;
+		info.pipes[i].transfer_type = e->pipe[i].transfer_type;
+		info.pipes[i].interval = e->pipe[i].interval;
+		info.pipes[i].max_packet = e->pipe[i].max_packet_size;
+		info.pipes[i].in_flight = e->pipe[i].address ? r->in_flight[i] : 0;
+	}
+	memcpy((void *)&shm->info, &info, sizeof(info));
 }
 
 bool ozzy_engine_restart(struct ozzy_engine *e)
@@ -270,7 +378,7 @@ void ozzy_engine_free_memory(struct ozzy_engine *e)
 
 	if (!a)
 		return;
-	for (i = 0; i < OZZY_NUM_PACKETS; i++) {
+	for (i = 0; i < OZZY_PCM_OWN_SLOTS; i++) {
 		if (m->pcm_out[i])
 			a->free(a->ctx, m->pcm_out[i]);
 		if (m->pcm_in[i])

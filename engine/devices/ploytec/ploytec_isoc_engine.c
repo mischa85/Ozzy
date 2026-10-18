@@ -10,7 +10,7 @@
 #include "../../../common/devices/ploytec/ploytec_handshake.h"
 #include "../../shared/ozzy_log.h"
 
-#define IN_TRANSFERS   2
+#define IN_QUEUE_DEFAULT   1   /* OZZY_SETTING_PCM_IN_QUEUE: 2 transfers in flight, as before the setting */
 
 /* Feedback format (ploytec_defs.h) */
 static const struct isoc_fb_config feedback = PLOYTEC_ISOC_FEEDBACK;
@@ -92,7 +92,7 @@ static bool isoc_start(struct ozzy_engine *e)
 	struct ploytec_rate_endpoints eps;
 	struct ploytec_handshake_info hs;
 	struct ozzy_isoc_output_config out;
-	uint32_t i;
+	uint32_t in_places, i;
 
 	if (!shm)
 		return false;
@@ -101,10 +101,20 @@ static bool isoc_start(struct ozzy_engine *e)
 		return false;
 	}
 
-	/* 1. What the HAL needs: a plain frame ring for output, Ploytec packets for input */
+	/* 0. The in transfer size for this run (a change takes a restart), laid out in its ring */
+	pe->in_frames = ozzy_pcm_frames(true, e->settings.value[OZZY_SETTING_PCM_IN_FRAMES]);
+	pe->in_queue = ozzy_pcm_queue(e->settings.value[OZZY_SETTING_PCM_IN_QUEUE]);
+	in_places = ozzy_engine_pcm_layout(e, OZZY_PCM_IN, ploytec_in_xfer_bytes(pe->in_frames));
+	if (!in_places) {
+		ploytec_log("isoc: PCM in transfers of %u frames don't fit", pe->in_frames);
+		return false;
+	}
+
+	/* 1. What the HAL needs: a plain frame ring for output, Ploytec sub-packets for input */
 	shm->audio.device_flags = OZZY_DEVICE_FLAG_PLAIN_OUTPUT;
-	shm->audio.frames_per_packet = PLOYTEC_FRAMES_PER_PKT;
-	shm->audio.samples_per_packet = PLOYTEC_FRAMES_PER_OUT_SUBPKT;
+	shm->audio.output_ring_frames = OZZY_PLAIN_RING_FRAMES;
+	shm->audio.input_ring_frames = in_places * pe->in_frames;
+	shm->audio.timestamp_frames = OZZY_TIMESTAMP_FRAMES;
 	shm->audio.output_bytes_per_frame = frame_bytes;
 	shm->audio.input_bytes_per_frame = PLOYTEC_IN_FRAME_SIZE;
 	shm->audio.input_channels = model->in_channels;
@@ -127,7 +137,19 @@ static bool isoc_start(struct ozzy_engine *e)
 	pe->sample_rate = hs.rate;
 	shm->audio.sample_rate = pe->sample_rate;
 	shm->audio.safety_offset_frames = ozzy_isoc_output_safety_offset(pe->sample_rate);
+	/* Input: the transfers queued (it shrinks with them; before the setting it was the output's
+	 * offset, 135-147 frames, now 160 at the defaults), at least the jitter floor */
+	shm->audio.input_safety_offset_frames = ozzy_engine_safety_offset(pe->in_queue * pe->in_frames, pe->sample_rate);
 	ozzy_engine_publish_settings(e, &hs.clock);
+	ploytec_report(e, &hs);
+	e->report.output = OZZY_INFO_OUTPUT_ISOC;
+	e->report.feedback = !pe->fb_addr || feedback.format == ISOC_FB_NONE ? OZZY_INFO_FEEDBACK_NONE :
+			     feedback.format == ISOC_FB_COUNT ? OZZY_INFO_FEEDBACK_COUNT : OZZY_INFO_FEEDBACK_Q16_16;
+	e->report.in_flight[OZZY_PIPE_PCM_OUT] = ISOC_OUT_TRANSFERS;
+	e->report.in_flight[OZZY_PIPE_PCM_IN] = (uint8_t)pe->in_queue;
+	e->report.in_flight[OZZY_PIPE_FEEDBACK] = ISOC_FB_TRANSFERS;
+	e->report.in_flight[OZZY_PIPE_MIDI_IN] = PLOYTEC_MIDI_IN_XFERS;
+	e->report.in_flight[OZZY_PIPE_MIDI_OUT] = 1;
 	/* MIDI framing on its own endpoints, as the device's kInACR picks it (ploytec_midi.h) */
 	ploytec_midi_init_xfer(&pe->midi, pe->sample_rate, (model->quirks & OZZY_QUIRK_MIDI_NS7) ?
 			       PLOYTEC_MIDI_XFER_NS7 : PLOYTEC_MIDI_XFER_M4_C1);
@@ -138,15 +160,15 @@ static bool isoc_start(struct ozzy_engine *e)
 	pe->running = true;
 
 	/* 3. Transfers: PCM in, PCM out with feedback, MIDI in; MIDI out from the timer */
-	for (i = 0; i < IN_TRANSFERS; i++)
-		if (!ploytec_submit_pcm_in(e, pe->in_addr, i))
+	for (i = 0; i < pe->in_queue; i++)
+		if (!ploytec_submit_pcm_in(e, pe->in_addr, pe->in_frames, i))
 			ploytec_log("isoc: input submission failed (idx: %u)", i);
 
 	memset(&out, 0, sizeof(out));
 	out.rate = pe->sample_rate;
 	out.frame_bytes = frame_bytes;
-	out.ring_frames = OZZY_NUM_PACKETS * PLOYTEC_FRAMES_PER_PKT;   /* the HAL's ring size */
-	out.anchor_frames = (uint64_t)OZZY_TIMESTAMP_PACKETS * PLOYTEC_FRAMES_PER_PKT;
+	out.ring_frames = OZZY_PLAIN_RING_FRAMES;   /* the HAL's ring size */
+	out.anchor_frames = OZZY_TIMESTAMP_FRAMES;
 	out.out_addr = pe->out_addr;
 	out.out_max_packet = pe->out_max_packet;
 	out.out_interval = pe->out_interval;
@@ -228,9 +250,11 @@ static void isoc_complete(struct ozzy_engine *e, uint8_t pipe, void *xfer, int s
 		return;
 
 	if (pipe == pe->in_addr) {
-		ploytec_decode_pcm_in(e, pe->decode, idx, status == 0 ? bytes : 0);
-		if (!ploytec_submit_pcm_in(e, pe->in_addr, idx + IN_TRANSFERS))
-			ploytec_log("isoc: input submission failed (idx: %u)", idx + IN_TRANSFERS);
+		uint32_t next = ploytec_pcm_next(idx, pe->in_queue, e->mem.pcm_in_slots);
+
+		ploytec_decode_pcm_in(e, pe->decode, pe->in_frames, idx, status == 0 ? bytes : 0);
+		if (!ploytec_submit_pcm_in(e, pe->in_addr, pe->in_frames, next))
+			ploytec_log("isoc: input submission failed (idx: %u)", next);
 	} else if (pipe == pe->midi_in_addr) {
 		if (status == 0)
 			ploytec_midi_in_to_ring(&pe->midi, shm, ploytec_midi_in_slot(e, idx),
@@ -276,8 +300,22 @@ static uint32_t isoc_transfer_frames(const struct ozzy_engine *e, enum ozzy_pcm_
 	uint32_t rates[OZZY_MAX_RATES];
 
 	if (dir == OZZY_PCM_IN)
-		return PLOYTEC_FRAMES_PER_PKT;
+		return ((const struct ploytec_isoc_engine *)e)->in_frames;
 	return rates[ozzy_device_rates(e->model, rates) - 1] * ISOC_TRANSFER_UFRAMES / ISOC_FB_UFRAMES_PER_SEC;
+}
+
+/* PCM in is Ploytec's 8-frame sub-packets: its transfer size and queue are settings; out is
+ * isochronous */
+static uint32_t isoc_setting_quirks(const struct ozzy_engine *e)
+{
+	return e->model->quirks | OZZY_QUIRK_PCM_IN_FRAMES | OZZY_QUIRK_PCM_IN_QUEUE;
+}
+
+/* The in queue starts at 2 here (the setting's own default is the Xones' 4) */
+static int isoc_setting_default(const struct ozzy_engine *e, unsigned int id)
+{
+	(void)e;
+	return id == OZZY_SETTING_PCM_IN_QUEUE ? IN_QUEUE_DEFAULT : -1;
 }
 
 static const struct ozzy_engine_ops ploytec_isoc_engine_ops = {
@@ -289,8 +327,9 @@ static const struct ozzy_engine_ops ploytec_isoc_engine_ops = {
 	isoc_isoc_complete,
 	NULL,                   /* midi_out_pending: MIDI goes out on the timer */
 	isoc_timer,
-	NULL,                   /* setting_quirks: the model's */
+	isoc_setting_quirks,
 	isoc_transfer_frames,
+	isoc_setting_default,
 };
 
 /* Channels and rates per device (common/ozzy_devices.def); run at the highest rate. Endpoints
@@ -309,6 +348,8 @@ void ploytec_isoc_engine_init(struct ploytec_isoc_engine *pe, const struct ozzy_
 	pe->base.model = model;
 	pe->default_rate = rates[ozzy_device_rates(model, rates) - 1];
 	pe->sample_rate = pe->default_rate;
+	pe->in_frames = ozzy_pcm_frames(true, ozzy_engine_setting_default(&pe->base, OZZY_SETTING_PCM_IN_FRAMES));
+	pe->in_queue = ozzy_pcm_queue(IN_QUEUE_DEFAULT);
 	pe->out_interval = 1;
 
 	p->interface_count = PLOYTEC_NUM_INTERFACES;

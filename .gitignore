@@ -44,5 +44,10 @@ DerivedData/
 # Logs
 *.log
 
-# ozzyctl binary
-ozzyctl/ozzyctl
+# ozzy-cli and ozzy (the app) builds; libui-ng as meson fetches it (apps/gui/subprojects/libui-ng.wrap)
+apps/cli/ozzy-cli
+apps/gui/build/
+apps/gui/build-*/
+apps/gui/subprojects/libui-ng/
+apps/gui/subprojects/.wraplock
+apps/gui/.cache/

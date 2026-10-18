@@ -20,7 +20,7 @@ USB completion path:
 | `circuit.c` | render and capture circuits: host and bridge pins, the one S24_3LE format |
 | `stream.c` | RT stream: WaveRT packets as one ring, positions, packet completion |
 | `midi.c` | MIDI in and out as a UMP MIDI circuit for Windows MIDI Services: a looped ring per direction mapped into the MIDI service, MIDI 1.0 bytes converted by `common/midi_ump.c` |
-| `settings.c` | the device settings for `ozzyctl`: a KS property set on each circuit (`ozzy_ksproperty.h`), kept in the device's registry key, and a KS event that tells of every change |
+| `settings.c` | the device settings for `ozzy-cli` and the ozzy app: a KS property set on each circuit (`ozzy_ksproperty.h`: status, settings and the driver's record `struct ozzy_info`), kept in the device's registry key, and a KS event that tells of every change |
 | `kmdf_bus.c` | the engine's bus (`ozzy_bus`) on KMDF USB: bulk/interrupt requests and isochronous URBs on the engine's own transfer buffers (`ozzy_engine_alloc_memory`), control requests |
 | `ozzy.inf.in` | INF template: endpoints, service; the build fills in the devices |
 | `GenInf.c` | writes `ozzy.inf`: one line per supported device in `common/ozzy_devices.def` (compiled and run by `ozzy.vcxproj` before the build, like `GenPersonalities.c` for the kext) |
@@ -47,8 +47,8 @@ direction has a stream open at the current rate, or the device is locked to S/PD
 rate; then the stream is refused.
 
 Device settings (clock source, S/PDIF out mode, routing, for the devices that have them): Windows
-has no place for them in its own sound settings, so they are `ozzyctl`'s
-(`ozzyctl/CMakeLists.txt`): `ozzyctl show`, `ozzyctl set clock-source internal`. A device
+has no place for them in its own sound settings, so they are `ozzy-cli`'s
+(`apps/cli/CMakeLists.txt`): `ozzy-cli show`, `ozzy-cli set clock-source internal`. The same settings are in the ozzy app (`apps/gui/`, meson from a VS developer prompt), which follows every change through the driver's KS event. A device
 setting restarts the engine (an open stream glitches); every change is kept in the device's
 registry key and applied when the device comes up.
 

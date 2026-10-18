@@ -114,6 +114,22 @@ enum ozzy_quirk {
 	 * and US-600 (_postprocessUS600_*, 3 pairs).
 	 */
 	OZZY_QUIRK_IN_ROUTING = 1u << 13,
+
+	/*
+	 * Selectable PCM transfer sizes (OZZY_SETTING_PCM_OUT_FRAMES / _IN_FRAMES). Not in
+	 * ozzy_devices.def: the engine family adds them (its setting_quirks), as they follow its
+	 * transport: Ploytec bulk / interrupt out has both, the isochronous family only in.
+	 */
+	OZZY_QUIRK_PCM_OUT_FRAMES = 1u << 14,
+	OZZY_QUIRK_PCM_IN_FRAMES = 1u << 15,
+
+	/*
+	 * Selectable PCM transfers in flight (OZZY_SETTING_PCM_OUT_QUEUE / _IN_QUEUE), added by the
+	 * engine family like the sizes: Ploytec bulk / interrupt out has both, the isochronous family
+	 * only in (with its own default, its engine's setting_default).
+	 */
+	OZZY_QUIRK_PCM_OUT_QUEUE = 1u << 16,
+	OZZY_QUIRK_PCM_IN_QUEUE = 1u << 17,
 };
 
 #endif /* OZZY_QUIRKS_H */

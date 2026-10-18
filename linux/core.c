@@ -47,6 +47,24 @@ static const struct usb_device_id ozzy_id_table[] = {
 };
 MODULE_DEVICE_TABLE(usb, ozzy_id_table);
 
+/* The connection as ozzy_info shows it */
+static enum ozzy_usb_speed ozzy_usb_speed(enum usb_device_speed speed)
+{
+	switch (speed) {
+	case USB_SPEED_LOW:
+		return OZZY_USB_SPEED_LOW;
+	case USB_SPEED_FULL:
+		return OZZY_USB_SPEED_FULL;
+	case USB_SPEED_HIGH:
+		return OZZY_USB_SPEED_HIGH;
+	case USB_SPEED_SUPER:
+	case USB_SPEED_SUPER_PLUS:
+		return OZZY_USB_SPEED_SUPER;
+	default:
+		return OZZY_USB_SPEED_UNKNOWN;
+	}
+}
+
 /*
  * ozzy_chip_restart - Process context, chip->lock held: apply the engine's rate and settings.
  * Running streams stop with an xrun, then the engine restarts with what changed.
@@ -57,8 +75,7 @@ int ozzy_chip_restart(struct ozzy_chip *chip)
 	if (chip->gone)
 		return -ENODEV;
 	chip->running = ozzy_engine_restart(chip->engine);
-	if (chip->running)
-		ozzy_controls_handshake(chip);
+	ozzy_controls_handshake(chip);   /* failed too: clients see the device stopped */
 	return chip->running ? 0 : -EIO;
 }
 
@@ -218,6 +235,8 @@ static int ozzy_chip_probe(struct usb_interface *intf, const struct usb_device_i
 		goto err_intf;
 
 	ozzy_engine_attach(chip->engine, &chip->bus.bus, chip->shm);
+	ozzy_engine_set_usb_speed(chip->engine, ozzy_usb_speed(chip->dev->speed));
+	ozzy_engine_set_driver_version(chip->engine, OZZY_GIT_VERSION);
 	if (!ozzy_engine_alloc_memory(chip->engine, &ozzy_kmalloc)) {
 		ret = -ENOMEM;
 		goto err_intf;
@@ -300,9 +319,8 @@ static int ozzy_chip_post_reset(struct usb_interface *intf)
 	for (i = 0; i < p->interface_count && p->alt_setting; i++)
 		usb_set_interface(chip->dev, p->interfaces[i], p->alt_setting);
 	chip->running = ozzy_engine_start(chip->engine);
-	if (chip->running)
-		ozzy_controls_handshake(chip);
-	else
+	ozzy_controls_handshake(chip);
+	if (!chip->running)
 		chip_err(chip, "restart after reset failed");
 	mutex_unlock(&chip->lock);
 	return 0;

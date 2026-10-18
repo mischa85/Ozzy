@@ -50,7 +50,6 @@ extern "C" {
 #define PLOYTEC_MAX_IN_CHANNELS     16  /* audio lanes in an input frame */
 #define PLOYTEC_OUT_FRAME_SIZE      48  /* bytes per device output frame */
 #define PLOYTEC_IN_FRAME_SIZE       64  /* bytes per device input frame */
-#define PLOYTEC_FRAMES_PER_PKT      80  /* audio frames per USB packet (in and out) */
 
 /* USB sub-packet sizes (minimal transfer unit) */
 #define PLOYTEC_BULK_OUT_SUBPKT_SIZE  512   /* bytes per bulk output sub-packet */
@@ -59,10 +58,13 @@ extern "C" {
 #define PLOYTEC_FRAMES_PER_OUT_SUBPKT 10    /* audio frames per output sub-packet */
 #define PLOYTEC_FRAMES_PER_IN_SUBPKT  8     /* audio frames per input sub-packet */
 
-/* Packet sizes */
-#define PLOYTEC_BULK_OUT_PKT_SIZE   4096    /* 8 bulk sub-packets (512 * 8) */
-#define PLOYTEC_INT_OUT_PKT_SIZE    3856    /* 8 interrupt sub-packets (482 * 8) */
-#define PLOYTEC_IN_PKT_SIZE         5120    /* 10 input sub-packets (512 * 10) */
+/*
+ * PCM transfers: any whole number of sub-packets (the device takes and sends them one by one;
+ * .claude/re/ploytec_bulk_devices.md). Ozzy goes up to 200 frames, the official driver's size.
+ */
+#define PLOYTEC_MAX_XFER_FRAMES     200
+#define PLOYTEC_MAX_OUT_SUBPKTS     (PLOYTEC_MAX_XFER_FRAMES / PLOYTEC_FRAMES_PER_OUT_SUBPKT)   /* 20 */
+#define PLOYTEC_MAX_IN_SUBPKTS      (PLOYTEC_MAX_XFER_FRAMES / PLOYTEC_FRAMES_PER_IN_SUBPKT)    /* 25 */
 
 /* USB interface configuration */
 #define PLOYTEC_NUM_INTERFACES      2

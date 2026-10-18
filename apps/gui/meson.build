@@ -1,0 +1,65 @@
+# ozzy: the settings app (ozzy_gui.c) on the shared control core and this platform's backend
+# (../control/), with libui-ng linked in statically. Meson fetches libui-ng itself at setup, at
+# the commit in subprojects/libui-ng.wrap, and applies the patch next to it.
+#
+#   meson setup apps/gui/build apps/gui && meson compile -C apps/gui/build     -> apps/gui/build/ozzy
+#   meson setup apps/gui/build-demo apps/gui -Ddemo=true                       made-up devices, no driver
+#
+# Linux needs GTK 3 and alsa-lib (Debian/Ubuntu: libgtk-3-dev libasound2-dev); Windows builds
+# from a VS developer prompt.
+project('ozzy', 'c',
+	meson_version: '>=0.63.0',
+	license: 'MIT',
+	default_options: [
+		'buildtype=release',
+		'c_std=c11',
+		'warning_level=2',
+	])
+
+libui = subproject('libui-ng',
+	default_options: [
+		'default_library=static',
+		'buildtype=release',
+		'tests=false',
+		'examples=false',
+	])
+
+os = host_machine.system()
+cc = meson.get_compiler('c')
+
+sources = files('ozzy_gui.c', '../control/ozzy_control_core.c')
+deps = [libui.get_variable('libui_dep'), libui.get_variable('libui_binary_deps')]
+
+if get_option('demo')
+	sources += files('../control/backend_demo.c')
+elif os == 'darwin'
+	sources += files('../control/backend_macos.c')
+	deps += dependency('appleframeworks', modules: ['CoreAudio', 'CoreFoundation'])
+elif os == 'windows'
+	sources += files('../control/backend_windows.c')
+	deps += [cc.find_library('setupapi'), cc.find_library('cfgmgr32')]
+else
+	sources += files('../control/backend_linux.c')
+	deps += dependency('alsa')
+endif
+if os != 'windows'
+	deps += dependency('threads')
+endif
+
+c_args = []
+link_args = []
+if os == 'windows'
+	c_args += ['-DUNICODE', '-D_UNICODE', '-D_CRT_SECURE_NO_WARNINGS', '-D_UI_STATIC']
+	# libui-ng linked in statically: the app carries the Common Controls 6 manifest itself
+	sources += import('windows').compile_resources('ozzy.rc', depend_files: ['ozzy.manifest'])
+	if cc.get_id() == 'msvc'
+		link_args += ['/ENTRY:mainCRTStartup']   # main() in a windowed app
+	endif
+endif
+
+executable('ozzy', sources,
+	dependencies: deps,
+	c_args: c_args,
+	link_args: link_args,
+	win_subsystem: 'windows',
+	install: true)

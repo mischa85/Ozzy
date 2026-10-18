@@ -113,6 +113,13 @@ static NTSTATUS wdev_evt_prepare_hardware(WDFDEVICE device, WDFCMRESLIST resourc
         if (NT_SUCCESS(status)) status = kbus_configure(&ctx->bus);
         if (!NT_SUCCESS(status)) return status;
         ozzy_engine_attach(ctx->engine, &ctx->bus.bus, ctx->shm);
+        /* The connection and the build, for ozzy_info (the tools show them) */
+        WDF_USB_DEVICE_INFORMATION usb_info;
+        WDF_USB_DEVICE_INFORMATION_INIT(&usb_info);
+        if (NT_SUCCESS(WdfUsbTargetDeviceRetrieveInformation(ctx->bus.usb, &usb_info)))
+            ozzy_engine_set_usb_speed(ctx->engine, (usb_info.Traits & WDF_USB_DEVICE_TRAIT_AT_HIGH_SPEED) ?
+                                      OZZY_USB_SPEED_HIGH : OZZY_USB_SPEED_FULL);
+        ozzy_engine_set_driver_version(ctx->engine, OZZY_GIT_VERSION);
         if (!ozzy_engine_alloc_memory(ctx->engine, &ctx->bus.allocator)) return STATUS_INSUFFICIENT_RESOURCES;
         wsettings_restore(ctx, device);
         ctx->configured = true;
@@ -210,7 +217,7 @@ NTSTATUS wdev_stream_rate(struct wdev* dev, bool render, uint32_t rate) {
         if (change == OZZY_SETTING_INVALID) status = STATUS_NOT_SUPPORTED;
         else if (change == OZZY_SETTING_RESTART && dev->started && !(dev->started = ozzy_engine_restart(dev->engine)))
             status = STATUS_DEVICE_NOT_READY;
-        restarted = change == OZZY_SETTING_RESTART && dev->started;
+        restarted = change == OZZY_SETTING_RESTART;   /* failed too: clients see the device stopped */
     }
     WdfWaitLockRelease(dev->lock);
     if (restarted) wsettings_changed(dev);

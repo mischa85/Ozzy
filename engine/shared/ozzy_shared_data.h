@@ -13,6 +13,7 @@
 
 #include "ozzy_platform.h"
 #include "../../common/ozzy_settings.h"
+#include "ozzy_info.h"
 
 #ifdef OZZY_ENGINE_SIDE
 typedef volatile uint32_t ozzy_atomic_u32;
@@ -27,7 +28,7 @@ typedef std::atomic<bool>     ozzy_atomic_bool;
 
 #define OZZY_SHARED_MEM_NAME            "/ozzy_shared_mem"
 #define OZZY_MAGIC                      0x4F5A5A59   /* "OZZY" */
-#define OZZY_SHARED_VERSION             7            /* bump when ozzy_shared_memory changes layout */
+#define OZZY_SHARED_VERSION             8            /* bump when ozzy_shared_memory changes layout */
 
 /* OzzyKext user client: external method selectors */
 #define OZZY_METHOD_MIDI_OUT_PENDING    0            /* OzzyMIDI queued bytes in midi_out */
@@ -45,9 +46,9 @@ typedef std::atomic<bool>     ozzy_atomic_bool;
  */
 #define OZZY_METHOD_SET_RATE            2
 /*
- * OzzyHAL device property for the settings (common/ozzy_settings.h), for ozzyctl or an app. A
- * custom property (declared in kAudioObjectPropertyCustomPropertyInfoList), so its data is a
- * CFPropertyList, no qualifier:
+ * OzzyHAL device property for the settings (common/ozzy_settings.h), for ozzy-cli, the ozzy app or
+ * another app. A custom property (declared in kAudioObjectPropertyCustomPropertyInfoList), so its
+ * data is a CFPropertyList, no qualifier:
  *   get: CFDictionary, setting name (ozzy_setting_descs[].name) -> CFNumber value, for every
  *        setting the device has, plus "Clock Locked" (CFBoolean) and "Lock Rate" (CFNumber, Hz)
  *        with the clock source; the caller releases it
@@ -57,21 +58,28 @@ typedef std::atomic<bool>     ozzy_atomic_bool;
  * The device has it if it has any setting.
  */
 #define OZZY_PROPERTY_SETTING           'ozst'
+/*
+ * OzzyHAL device property with what the driver knows of the device and its stream: a custom
+ * property, get only: CFData holding struct ozzy_info (ozzy_info.h) as of the last handshake;
+ * the caller releases it. Changes with OZZY_PROPERTY_SETTING (both are notified together).
+ */
+#define OZZY_PROPERTY_INFO              'ozin'
 #define OZZY_AUDIO_PROPERTY_KEY         "OzzyAudio"  /* registry: true if the device has audio channels */
 
-/* Sizing: 8 KB covers a High Speed USB transfer; devices use what they need */
-#define OZZY_MAX_PACKET_SIZE            8192
-#define OZZY_NUM_PACKETS                128          /* logical packets in each ring */
-#define OZZY_USB_BUFFERS                4            /* USB buffers in flight (ping-pong) */
-#define OZZY_PACKET_MASK                (OZZY_USB_BUFFERS - 1)
+/* Each PCM ring's bytes (struct ozzy_audio_buffer): the device's transfers end to end */
+#define OZZY_PCM_RING_BYTES             (1024 * 1024)
 
 /*
- * The engine publishes a timestamp anchor every OZZY_TIMESTAMP_PACKETS packets; the HAL reports
- * that spacing as the zero timestamp period. CoreAudio caps the IO buffer size at 3/8 of the
- * period (measured: 8 packets of 80 frames -> 240 frames max, too small for 256+ buffers), so
- * 40 packets (3200 frames) allows buffers up to 1200 frames. Must stay below OZZY_NUM_PACKETS.
+ * The engine publishes a timestamp anchor about every OZZY_TIMESTAMP_FRAMES frames (exactly:
+ * audio.timestamp_frames, a whole number of transfers); the HAL reports that spacing as the
+ * zero timestamp period. CoreAudio caps the IO buffer size at 3/8 of the period (measured: 640
+ * frames -> 240 frames max, too small for 256+ buffers), so 3200 frames allows buffers up to
+ * 1200 frames. Must stay well below the rings' frames.
  */
-#define OZZY_TIMESTAMP_PACKETS          40
+#define OZZY_TIMESTAMP_FRAMES           3200
+
+/* The isochronous family's plain output ring, in frames (OZZY_DEVICE_FLAG_PLAIN_OUTPUT) */
+#define OZZY_PLAIN_RING_FRAMES          10240
 
 /* ozzy_audio_buffer.device_flags */
 #define OZZY_DEVICE_FLAG_PLOYTEC_BULK   (1u << 0)    /* Ploytec 512-byte "bulk" output layout, else 482-byte "interrupt" */
@@ -84,7 +92,7 @@ typedef std::atomic<bool>     ozzy_atomic_bool;
 #define OZZY_MIDI_RING_SIZE             1024
 #define OZZY_MIDI_RING_MASK             (OZZY_MIDI_RING_SIZE - 1)
 
-/* The device's clock: an anchor every OZZY_TIMESTAMP_PACKETS, as a seqlock (odd sequence while
+/* The device's clock: an anchor every audio.timestamp_frames, as a seqlock (odd sequence while
  * the engine writes) */
 struct ozzy_timestamp {
 	ozzy_atomic_u32 sequence;
@@ -98,14 +106,16 @@ struct ozzy_audio_buffer {
 	ozzy_atomic_u32 sample_rate;
 	ozzy_atomic_u32 device_flags;          /* OZZY_DEVICE_FLAG_* */
 
-	/* Frame format, set by the engine */
-	uint32_t frames_per_packet;            /* frames per logical packet (80 for Ploytec) */
-	uint32_t samples_per_packet;           /* frames per USB sub-packet (10 for Ploytec) */
+	/* Frame format and ring layout, set by the engine at each start */
+	uint32_t output_ring_frames;           /* frames in output_buffer (it wraps there) */
+	uint32_t input_ring_frames;            /* frames in input_buffer */
+	uint32_t timestamp_frames;             /* frames between clock anchors */
 	uint32_t output_bytes_per_frame;       /* encoded bytes per output frame (e.g. 48) */
 	uint32_t input_bytes_per_frame;        /* encoded bytes per input frame (e.g. 64) */
 	uint32_t input_channels;               /* channels the device sends (e.g. 8, or 16 for the WZ4) */
 	uint32_t output_channels;              /* channels the device receives (e.g. 8, or 2 for the WZ4) */
 	uint32_t safety_offset_frames;         /* how far ahead of the clock the engine reads output */
+	uint32_t input_safety_offset_frames;   /* how far behind the clock input is complete (0: as output) */
 
 	/*
 	 * Device settings (common/ozzy_settings.h) as the engine applied them at its last
@@ -126,14 +136,18 @@ struct ozzy_audio_buffer {
 	uint8_t _pad2[64];
 
 	/*
-	 * Input: logical packets at OZZY_MAX_PACKET_SIZE stride. Output: logical packets at
-	 * OZZY_MAX_PACKET_SIZE stride in the device's packet layout, or with
-	 * OZZY_DEVICE_FLAG_PLAIN_OUTPUT a ring of OZZY_NUM_PACKETS * frames_per_packet plain frames
-	 * of output_bytes_per_frame bytes (interleaved S24_3LE), which isochronous transfers read
-	 * directly.
+	 * The PCM rings, which the transfers go to and come from as they are (the HAL writes and
+	 * reads them by sample time, frame f at f % *_ring_frames):
+	 * - Ploytec input: 512-byte sub-packets of 8 frames, end to end (frame f in sub-packet
+	 *   f / 8, at (f % 8) * 64).
+	 * - Ploytec output: sub-packets of 10 frames in the device's layout (512 bulk / 482
+	 *   interrupt bytes, with their MIDI and control bytes), end to end.
+	 * - With OZZY_DEVICE_FLAG_PLAIN_OUTPUT: plain frames of output_bytes_per_frame bytes
+	 *   (interleaved S24_3LE), which isochronous transfers read directly.
+	 * A ring holds a whole number of transfers, so none wraps.
 	 */
-	uint8_t input_buffer[OZZY_MAX_PACKET_SIZE * OZZY_NUM_PACKETS];
-	uint8_t output_buffer[OZZY_MAX_PACKET_SIZE * OZZY_NUM_PACKETS];
+	uint8_t input_buffer[OZZY_PCM_RING_BYTES];
+	uint8_t output_buffer[OZZY_PCM_RING_BYTES];
 };
 
 /* A single-producer, single-consumer byte ring */
@@ -161,6 +175,10 @@ struct ozzy_shared_memory {
 	char manufacturer_name[64];
 	char product_name[64];
 	char serial_number[64];
+
+	/* What the driver knows of the device and its stream, as of the last handshake
+	 * (ozzy_engine_publish_info), for the tools (ozzy_info.h) */
+	struct ozzy_info info;
 
 	struct ozzy_midi_buffer midi_out;      /* clients fill it, the engine drains it */
 	struct ozzy_midi_buffer midi_in;       /* the engine fills it, clients drain it */

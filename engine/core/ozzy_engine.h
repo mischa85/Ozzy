@@ -88,11 +88,15 @@ static inline uint32_t ozzy_pcm_boundaries(uint64_t *next, uint64_t pos, uint32_
 /*
  * struct ozzy_engine_memory - Where the engine's transfers go: every buffer it hands to
  * ozzy_bus_ops.submit / submit_isoc is in here. ozzy_engine_attach() points it into the
- * shared memory (macOS: the HAL reads and writes the PCM slots there; Windows, the harness and
+ * shared memory (macOS: the HAL reads and writes the PCM rings there; Windows, the harness and
  * the tests use it as it is). A platform whose transfers need memory of their own (Linux:
  * DMA-capable, a cache line per buffer) has the engine allocate it (ozzy_engine_alloc_memory).
- * @pcm_out/@pcm_in:  slots of at least OZZY_PCM_SLOT_MIN bytes; transfer idx uses slot
- *                    idx % slots (at least the transfers in flight, 4)
+ * PCM transfers go to places in turn, transfer idx to place idx % places:
+ * @pcm_out_ring/@pcm_in_ring: the shared memory's rings (@*_ring_bytes); the places are the
+ *                    transfers end to end, @*_stride bytes apart, as many as fit
+ *                    (ozzy_engine_pcm_layout at start); NULL: the platform's own buffers
+ * @pcm_out/@pcm_in:  the platform's own: OZZY_PCM_OWN_SLOTS buffers of OZZY_PCM_SLOT_MIN
+ *                    bytes, a place each (at least the transfers in flight, 4)
  * @isoc_out:         NULL: isochronous OUT packets point into the shared memory's frame ring,
  *                    which the HAL writes; else one buffer per OUT transfer
  *                    (ISOC_OUT_TRANSFERS, @isoc_out_size bytes each), filled at submit
@@ -100,15 +104,21 @@ static inline uint32_t ozzy_pcm_boundaries(uint64_t *next, uint64_t pos, uint32_
  * @midi_in:          MIDI IN transfers, OZZY_MIDI_IN_SIZE bytes (OZZY_DMA_ALIGN aligned)
  * @midi_out:         one MIDI OUT transfer, OZZY_MIDI_OUT_SIZE bytes
  */
-#define OZZY_PCM_SLOT_MIN   5120   /* the largest PCM transfer (Ploytec PCM in) */
+#define OZZY_PCM_SLOT_MIN   12800  /* the largest PCM transfer (Ploytec PCM in: 25 sub-packets) */
 #define OZZY_MIDI_IN_SIZE   512    /* 4 transfers in flight, OZZY_DMA_ALIGN apart */
 #define OZZY_MIDI_OUT_SIZE  64
 #define OZZY_PCM_OWN_SLOTS  4      /* ozzy_engine_alloc_memory: PCM buffers per direction */
 
 struct ozzy_engine_memory {
-	uint8_t *pcm_out[OZZY_NUM_PACKETS];
+	uint8_t *pcm_out_ring;
+	uint32_t pcm_out_ring_bytes;
+	uint32_t pcm_out_stride;
+	uint8_t *pcm_in_ring;
+	uint32_t pcm_in_ring_bytes;
+	uint32_t pcm_in_stride;
+	uint8_t *pcm_out[OZZY_PCM_OWN_SLOTS];
+	uint8_t *pcm_in[OZZY_PCM_OWN_SLOTS];
 	uint32_t pcm_out_slots;
-	uint8_t *pcm_in[OZZY_NUM_PACKETS];
 	uint32_t pcm_in_slots;
 	uint8_t *isoc_out[ISOC_OUT_TRANSFERS];
 	uint32_t isoc_out_size;
@@ -164,7 +174,8 @@ struct ozzy_engine;
 
 /*
  * struct ozzy_engine_ops - One per device family. Optional: @isoc_complete, @midi_out_pending,
- * @timer, @setting_quirks, @transfer_frames (default: shm->audio.frames_per_packet). @stop and @suspend end resubmitting (completions
+ * @timer, @setting_quirks, @transfer_frames (default: 0, no PCM), @setting_default (the family's
+ * own default value of a setting, or -1: the setting's). @stop and @suspend end resubmitting (completions
  * with OZZY_STATUS_ABORTED resubmit nothing); the wrappers then abort what is in flight.
  */
 struct ozzy_engine_ops {
@@ -180,6 +191,26 @@ struct ozzy_engine_ops {
 	void (*timer)(struct ozzy_engine *e);
 	uint32_t (*setting_quirks)(const struct ozzy_engine *e);
 	uint32_t (*transfer_frames)(const struct ozzy_engine *e, enum ozzy_pcm_dir dir);
+	int (*setting_default)(const struct ozzy_engine *e, unsigned int id);
+};
+
+/*
+ * struct ozzy_engine_report - What a family's start() learned beyond the stream format, for
+ * ozzy_info (ozzy_engine_publish_info after a start that succeeded). Zeroed before each start.
+ * @output/@feedback: enum ozzy_info_output / enum ozzy_info_feedback
+ * @in_flight:        transfers the family keeps queued per pipe role
+ * The rest as struct ozzy_info has them.
+ */
+struct ozzy_engine_report {
+	bool firmware_valid;
+	uint8_t firmware_chip;
+	uint8_t firmware[3];
+	bool input_selector_valid;
+	uint8_t input_selector;
+	uint8_t output;
+	uint8_t feedback;
+	uint32_t boot_rate;
+	uint8_t in_flight[OZZY_PIPE_ROLES];
 };
 
 /*
@@ -196,6 +227,10 @@ struct ozzy_engine_ops {
  * @mem:          where the transfers go (struct ozzy_engine_memory)
  * @pipe:         each role's endpoint as ozzy_engine_set_endpoint() gave it (address 0: none)
  * @allocator:    what @mem came from (ozzy_engine_alloc_memory), NULL: the shared memory
+ * @report:       the family's part of ozzy_info, from its last start()
+ * @usb_speed:    enum ozzy_usb_speed, as the platform found it (ozzy_engine_set_usb_speed)
+ * @driver_version: the platform's build (OZZY_GIT_VERSION), NULL if it didn't say
+ * @starts:       starts that succeeded since ozzy_engine_attach
  */
 struct ozzy_engine {
 	const struct ozzy_engine_ops *ops;
@@ -213,6 +248,10 @@ struct ozzy_engine {
 	struct ozzy_engine_memory mem;
 	struct ozzy_engine_pipe pipe[OZZY_PIPE_ROLES];
 	const struct ozzy_allocator *allocator;
+	struct ozzy_engine_report report;
+	uint8_t usb_speed;
+	const char *driver_version;
+	uint32_t starts;
 };
 
 /* Bytes to allocate for @model's engine (0 if Ozzy has none for its family) */
@@ -237,15 +276,29 @@ bool ozzy_engine_alloc_memory(struct ozzy_engine *e, const struct ozzy_allocator
 /* Free what ozzy_engine_alloc_memory gave (the engine is stopped); before freeing the engine */
 void ozzy_engine_free_memory(struct ozzy_engine *e);
 
-/* The PCM slot of transfer @idx */
+/*
+ * ozzy_engine_pcm_layout - At start, before submitting: PCM transfers of @bytes for @dir. In the
+ * shared memory's ring they go end to end, as many as fit; the platform's own buffers take
+ * them in turn. Returns the places (transfers before one comes round again), 0 if a transfer
+ * doesn't fit.
+ */
+uint32_t ozzy_engine_pcm_layout(struct ozzy_engine *e, enum ozzy_pcm_dir dir, uint32_t bytes);
+
+/* The place of PCM transfer @idx */
 static inline uint8_t *ozzy_engine_pcm_out_slot(const struct ozzy_engine *e, uint32_t idx)
 {
-	return e->mem.pcm_out[idx % e->mem.pcm_out_slots];
+	const struct ozzy_engine_memory *m = &e->mem;
+
+	return m->pcm_out_ring ? m->pcm_out_ring + (idx % m->pcm_out_slots) * m->pcm_out_stride
+			       : m->pcm_out[idx % m->pcm_out_slots];
 }
 
 static inline uint8_t *ozzy_engine_pcm_in_slot(const struct ozzy_engine *e, uint32_t idx)
 {
-	return e->mem.pcm_in[idx % e->mem.pcm_in_slots];
+	const struct ozzy_engine_memory *m = &e->mem;
+
+	return m->pcm_in_ring ? m->pcm_in_ring + (idx % m->pcm_in_slots) * m->pcm_in_stride
+			      : m->pcm_in[idx % m->pcm_in_slots];
 }
 
 /*
@@ -272,9 +325,20 @@ static inline void ozzy_engine_set_endpoint(struct ozzy_engine *e, enum ozzy_pip
 	e->ops->set_endpoint(e, role, address, transfer_type, max_packet_size, interval);
 }
 
-static inline bool ozzy_engine_start(struct ozzy_engine *e)
+/* The handshake and streaming; after a start that succeeded, ozzy_info (ozzy_engine_publish_info) */
+bool ozzy_engine_start(struct ozzy_engine *e);
+
+/* How the device is connected (enum ozzy_usb_speed): the platform tells, before starting */
+static inline void ozzy_engine_set_usb_speed(struct ozzy_engine *e, enum ozzy_usb_speed speed)
 {
-	return e->ops->start(e);
+	e->usb_speed = (uint8_t)speed;
+}
+
+/* The driver's build (OZZY_GIT_VERSION, which only the platform's own files get): a string
+ * that outlives the engine */
+static inline void ozzy_engine_set_driver_version(struct ozzy_engine *e, const char *version)
+{
+	e->driver_version = version;
 }
 
 /* No more transfers: stop resubmitting and the timer, abort what is in flight, and tell the
@@ -361,6 +425,21 @@ enum ozzy_setting_change {
 	OZZY_SETTING_RESTART = 2,    /* a device setting or rate: ozzy_engine_restart applies it */
 };
 
+/*
+ * The least safety offset a family reports (shm safety_offset_frames / input_safety_offset_frames)
+ * at @rate: 1 ms, room for the jitter between the device's clock anchors and the transfers'
+ * completions. What the family queues is its own (the settings); this is only what the host is
+ * told to keep ahead. A guess, to be measured on hardware; far below what the defaults queue.
+ */
+#define OZZY_SAFETY_MIN_US 1000
+
+static inline uint32_t ozzy_engine_safety_offset(uint32_t queued_frames, uint32_t rate)
+{
+	uint32_t floor = (uint32_t)(((uint64_t)rate * OZZY_SAFETY_MIN_US + 999999) / 1000000);
+
+	return queued_frames > floor ? queued_frames : floor;
+}
+
 /* The rates the host may pick now: ozzy_device_host_rates with the last handshake's clock status */
 static inline unsigned int ozzy_engine_host_rates(const struct ozzy_engine *e, uint32_t *out)
 {
@@ -395,7 +474,7 @@ static inline uint32_t ozzy_engine_transfer_frames(const struct ozzy_engine *e, 
 {
 	if (e->ops->transfer_frames)
 		return e->ops->transfer_frames(e, dir);
-	return e->shm ? e->shm->audio.frames_per_packet : 0;
+	return 0;
 }
 
 /* Whether the platform attaches PCM rings (without one attached, PCM out is silence) */
@@ -411,15 +490,28 @@ uint32_t ozzy_engine_setting_quirks(const struct ozzy_engine *e);
 bool ozzy_engine_has_setting(const struct ozzy_engine *e, unsigned int id);
 /* How many values setting @id has on this device (0: it doesn't have it) */
 unsigned int ozzy_engine_setting_values(const struct ozzy_engine *e, unsigned int id);
+/* The value setting @id starts with on this device (ozzy_engine_attach): the family's default if
+ * it has one, else the setting's */
+static inline uint8_t ozzy_engine_setting_default(const struct ozzy_engine *e, unsigned int id)
+{
+	int v = e->ops->setting_default ? e->ops->setting_default(e, id) : -1;
+
+	return v >= 0 ? (uint8_t)v : ozzy_setting_descs[id].def;
+}
+
 /* A device setting takes effect with the next start (ozzy_engine_restart); a route setting at
  * once. No checks: ozzy_engine_change_setting is the one with them. */
 void ozzy_engine_set_setting(struct ozzy_engine *e, unsigned int id, uint8_t value);
 
-/* A setting from the user (ALSA control, the HAL, ozzyctl): checked, logged and set */
+/* A setting from the user (ALSA control, the HAL, ozzy-cli or the ozzy app): checked, logged and set */
 enum ozzy_setting_change ozzy_engine_change_setting(struct ozzy_engine *e, unsigned int id, unsigned int value);
 
 /* For the families: publish @e->settings and the clock status of the handshake start() just ran */
 void ozzy_engine_publish_settings(struct ozzy_engine *e, const struct ozzy_clock_status *clock);
+
+/* shm->info from the engine, the model and @e->report (ozzy_engine_start does it); the
+ * platform may call it again after changing what it shows (the USB speed) */
+void ozzy_engine_publish_info(struct ozzy_engine *e);
 
 #ifdef __cplusplus
 }

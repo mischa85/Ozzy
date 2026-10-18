@@ -6,7 +6,7 @@ Cross-platform USB audio driver for Ploytec-based devices (Linux kernel module +
 ## Reverse Engineering
 This project involves ongoing reverse engineering of the Ploytec USB protocol. RE findings, open questions, and suspicions are maintained in `.claude/re/`:
 - `ploytec_device_table.md` — all devices, init flow, class layout, PCM codecs, dispatch table
-- `ploytec_bulk_devices.md` — USB High Speed flag and transfer type selection (isPloytecBulkDevice is really isPloytecHighSpeedDevice); output framing follows wMaxPacketSize (512 vs 964), not transfer type
+- `ploytec_bulk_devices.md` — USB High Speed flag and transfer type selection (isPloytecBulkDevice is really isPloytecHighSpeedDevice); output framing follows wMaxPacketSize (512 vs 964), not transfer type; transfer sizes are the host's choice down to one sub-packet (10 frames out / 8 in, tested on the DB4)
 - `ploytec_vendor_requests.md` — all known USB control requests ('I','V','A','B','M','T', etc.)
 - `ploytec_vendor_request_I.md` — deep dive on vendor request 0x49 registers and bit fields
 - `ploytec_midi.md` — MIDI framing: MIDI out in every PCM sub-packet paced to 2500 bytes/s (80% of 31250 baud) plus a control byte; MIDI in frames per rate (4 slots + control at <=48k, 2 or 1 at 96k)

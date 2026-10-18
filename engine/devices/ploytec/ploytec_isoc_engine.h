@@ -43,6 +43,8 @@ struct ploytec_isoc_engine {
 	struct ozzy_isoc_output output;
 	bool midi_out_busy;
 	ploytec_frame_fn decode;   /* PCM in, for the model's channels */
+	uint32_t in_frames;        /* frames per PCM in transfer this run (OZZY_SETTING_PCM_IN_FRAMES) */
+	uint32_t in_queue;         /* PCM in transfers in flight this run (OZZY_SETTING_PCM_IN_QUEUE) */
 };
 
 void ploytec_isoc_engine_init(struct ploytec_isoc_engine *pe, const struct ozzy_device *model);

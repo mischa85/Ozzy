@@ -1,7 +1,7 @@
 # Device settings: plan and facts (clock source, digital I/O, routing)
 
 Status: clock source, S/PDIF out mode, routing (US-144MKII, US-600, US-200) and the ESU1808 S/PDIF
-mirror pair implemented 2026-10-17, untested on hardware, with `ozzyctl` for them. Every setting of
+mirror pair implemented 2026-10-17, untested on hardware, with `ozzy-cli` and the `ozzy` app for them. Every setting of
 the devices Ozzy supports is done. The rest of the table belongs to devices or tools Ozzy doesn't
 have yet: the US-3xx mixer modes and the 'B' reverb buffer, 'M' routing table and 'T' mixer values
 (Tascam US-322/US-366, not in the device list; #91), and the firmware updater (#21, protocol not
@@ -178,9 +178,10 @@ every setting the device has, plus "Clock Locked" / "Lock Rate"; set: dictionary
 name -> number. Device settings go through the configuration change to the kext, the rest apply in
 the HAL at once.
 
-**ozzyctl** (`ozzyctl/`): console tool (`ozzyctl.c`: list / show / set / watch) on a platform-neutral
-core shared with future front ends such as a GUI (`ozzyctl_core.c`: names as slugs of
-`ozzy_setting_descs`, device / setting / value lookup) plus a backend per platform (`ozzyctl.h`); macOS backend through
+**Control** (`apps/control/`, was `ozzyctl/` until 2026-10-18): a platform-neutral core (`ozzy_control_core.c`:
+names as slugs of `ozzy_setting_descs`, device / setting / value lookup) plus a backend per platform
+(`ozzy_control.h`), shared by two front ends: **ozzy-cli** (`apps/cli/`, list / show / set / watch) and
+**ozzy** (`apps/gui/`, the libui-ng app, see below). macOS backend through
 `OZZY_PROPERTY_SETTING`, installed by `install.command`; Linux backend (`backend_linux.c`) through
 alsa-lib: snd-usb-ozzy cards (card driver name), the settings' mixer controls by name, the lock
 from "S/PDIF Clock Validity", the channels from the device table via the card's USB IDs in sysfs,
@@ -189,7 +190,7 @@ card (no Ozzy card on the test VM). Windows backend through the KS property set.
 device setting reads back changed (on Linux the control write itself resets the device, so it's
 there at once), woken by change notifications, not polling.
 
-**Change notifications** (`ozzyctl_backend_watch`, 2026-10-18, untested on hardware). The clock lock
+**Change notifications** (`ozzy_control_backend_watch`, 2026-10-18, untested on hardware). The clock lock
 is only learned in a handshake (`ozzy_engine_publish_settings`), so a set, a rate change and a
 (re)start are the only moments anything changes, and the driver knows each of them:
 - macOS: nothing new in the driver. OzzyHAL already posts `OZZY_PROPERTY_SETTING` after a host set
@@ -209,8 +210,76 @@ is only learned in a handshake (`ozzy_engine_publish_settings`), so a set, a rat
   filter, and uses CM notifications for interfaces coming and going, and for query-remove on the
   open handle (closed then, so it doesn't hold up removal). Filters are now opened shared. Backend
   cross-compiles with MinGW; driver part not compiled (no WDK here).
-- Linux gap: the rate ozzyctl shows comes from /proc while a stream is open; closing a stream sends
+- Linux gap: the rate the backend reports comes from /proc while a stream is open; closing a stream sends
   no event, so a front end shows the old rate until the next change.
+
+**What the driver knows** (`engine/shared/ozzy_info.h`, 2026-10-18, untested on hardware): `struct
+ozzy_info`, one fixed-width record for every platform (layout in `tests/golden/layout.txt`, checked by
+`tests/test_info.c`). `ozzy_engine_start` publishes it into the shared memory after every start that
+succeeded: the model row (USB ID, family, status, rates), the USB speed and the build
+(`ozzy_engine_set_usb_speed` / `_set_driver_version`, from the platform), interfaces and alt setting,
+each pipe (address, type, bInterval, bytes, transfers queued), the rate, frames per packet and per
+transfer, bytes per frame on the wire, safety offset, timestamp spacing, and what the handshake read
+and used to drop: firmware ('V', shown 1.major.minor), the rate at power-on, the input selector byte.
+Families fill `e->report`. Each driver hands the record out as it is: OzzyHAL custom property 'ozin'
+(CFData, notified with 'ozst'), Linux bytes control "Ozzy Info" (notified after each handshake),
+Windows `OZZY_KSPROPERTY_INFO`. The backends add the OS's own view (`struct ozzy_control_host`:
+CoreAudio buffer size, latency, safety offset, in use; ALSA period, buffer, format) and
+`ozzy_control_facts` turns both into the lines `ozzy-cli show` prints and the app's Driver tab
+lists. On Linux the record also gives the engine's rate with no stream open, which closes most of the
+gap above. Not covered: live counters (errors, xruns, feedback state); they change all the time and
+would need polling to show.
+
+**PCM transfer sizes** (2026-10-18, untested on hardware; the device side is: 10 / 8 frames
+worked on the DB4, `ploytec_bulk_devices.md`): `OZZY_SETTING_PCM_OUT_FRAMES` (10-200 frames, steps
+of a 10-frame sub-packet) and `_IN_FRAMES` (8-200, steps of 8), device-kind (a restart), default 80
+/ 80. The Ploytec bulk / interrupt family has both, the isochronous family only in (its out is
+isochronous); the families add them through `setting_quirks` (`OZZY_QUIRK_PCM_OUT_FRAMES` /
+`_IN_FRAMES`, not in the .def). With them, the transfers in flight per direction,
+`OZZY_SETTING_PCM_OUT_QUEUE` / `_IN_QUEUE` (1-4; `OZZY_QUIRK_PCM_OUT_QUEUE` / `_IN_QUEUE`): the
+Xones have both (default 4), the isochronous family the in queue with its own default of 2 (a
+family's default: `ozzy_engine_ops.setting_default`, taken at attach). Out, every transfer
+queued is latency (the safety offset is queue x frames); in, a frame is there once its own
+transfer completes, so the queue is margin, not latency. The HAL's input safety offset still is
+queue x frames, as it ran before the settings on the Xones (the isochronous family's was its
+output's, 135-147 frames, now queue x frames, 160 at its defaults, so it never shrinks below
+that when the transfers shrink): conservative, to be lowered once hardware shows the completion
+jitter. Both reported offsets have a floor of 1 ms (`OZZY_SAFETY_MIN_US`,
+`ozzy_engine_safety_offset`): room for the HAL's clock interpolation between anchors and the
+completion jitter, far below the defaults, so only the smallest settings get it; a guess to be
+measured. What is queued stays as set, and the tools show that, not the floor. The tools show
+out latency, in latency (one transfer) and the margin (out: all but one transfer queued, in: the
+transfers queued besides the one filling), plus the device's own buffer, which isn't known. The
+80-frame packet is gone everywhere:
+- The shared memory's PCM rings are the transfers as they go on the wire, end to end: output in
+  sub-packets (482 / 512 bytes with their MIDI and control bytes), input in 512-byte sub-packets
+  (64 bytes a frame). At each start the family lays its transfers out (`ozzy_engine_pcm_layout`:
+  as many as fit, so none wraps) and publishes `output_ring_frames`, `input_ring_frames` and
+  `timestamp_frames` (a whole number of out transfers near 3200). Linux keeps its own 4 buffers
+  per direction, grown to 12800 bytes.
+- The HAL addresses frame f at sub-packet f / 10 out (f * 64 in), reports per-direction safety
+  offsets (queue x frames per direction) and the clock spacing as its zero timestamp period, and
+  notifies both when they change.
+- MIDI out pacing runs per sub-packet, so it is the same at every size.
+`tests/test_transfers.c` checks every size on both out layouts, and queues 1-4 at 10 / 8 frames: the bytes on the wire are the same
+stream as at 80 frames (from the first encoded transfer), input decodes the same, transfers lie
+end to end, the clock anchors on a whole number of transfers; at 80 / 80 the golden trace matches
+the engine before the setting (offsets aside). The app shows the result as "USB latency" in its
+Stream section, under the two settings.
+
+**ozzy, the app** (`apps/gui/`, 2026-10-18): one libui-ng window (C, native widgets: Cocoa, Win32, GTK 3),
+built with meson; libui-ng is a meson wrap pinned to 43ba1ef with a patch (its macOS flags as
+project arguments, since meson refuses global ones in a subproject), linked in statically; on
+Windows the app embeds the Common Controls 6 manifest (`ozzy.rc`). One device at a time (a picker
+when there are more), groups Clock (source plus the digital-in lock) / Digital output / Routing,
+only the settings the device has. Notifications only queue a refresh on the main thread
+(uiQueueMain); a refresh rebuilds when the device's shape changes (id, settings, channels) and
+updates in place otherwise. Settings apply on a thread of their own; a device setting greys the
+window until done. `-Ddemo=true` builds against `apps/control/backend_demo.c` (made-up US-600 and DB4;
+`OZZY_DEMO_EVENTS=1` plays plug-in, an outside clock change, unplug and replug). Checked on this Mac
+with the demo (layout, every notification path, empty -> full) and the real backend (empty state);
+cross-builds for Windows with MinGW; not built on Linux yet (no GTK here). Not yet tried: choosing
+a value in the window (needs a click; the demo can't script it).
 
 ## Open
 

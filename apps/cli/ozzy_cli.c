@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT
 /*
- * ozzyctl: the console tool, on the core and a backend (see ozzyctl.h)
+ * ozzy-cli: the console tool, on the shared control core and a backend (control/ozzy_control.h)
  *
- *   ozzyctl [list]                              devices
- *   ozzyctl show [-d DEVICE]                    a device's settings and their choices
- *   ozzyctl set [-d DEVICE] SETTING VALUE ...   change one or more settings
- *   ozzyctl watch                               every device, again whenever it changes
+ *   ozzy-cli [list]                             devices
+ *   ozzy-cli show [-d DEVICE]                   a device's settings, and all the driver knows
+ *   ozzy-cli set [-d DEVICE] SETTING VALUE ...  change one or more settings
+ *   ozzy-cli watch                              every device, again whenever it changes
  *
  * DEVICE is the number from "list" or part of the name (default: the first device).
  * SETTING and VALUE are names as "show" prints them (lower case, dashes: clock-source,
@@ -24,15 +24,15 @@
 #include <time.h>
 #endif
 
-#include "ozzyctl.h"
+#include "../control/ozzy_control.h"
 
 /* How long "set" waits for the next change while the setting hasn't read back (a device
  * setting restarts streaming, about a second) */
-#define OZZYCTL_SET_WAIT_MS 5000
-#define OZZYCTL_FOREVER 0xffffffffu
+#define OZZY_CLI_SET_WAIT_MS 5000
+#define OZZY_CLI_FOREVER 0xffffffffu
 
 /*
- * The backend's change notifications (ozzyctl_backend_watch) as a count the main thread waits
+ * The backend's change notifications (ozzy_control_backend_watch) as a count the main thread waits
  * on: it reads the count, looks at the devices, then waits for the count to move on.
  */
 #ifdef _WIN32
@@ -76,7 +76,7 @@ static unsigned long changes_now(void)
 	return n;
 }
 
-/* Wait until there were changes after the count @seen, at most @ms (OZZYCTL_FOREVER: no limit).
+/* Wait until there were changes after the count @seen, at most @ms (OZZY_CLI_FOREVER: no limit).
  * False if none came. */
 static bool wait_change(unsigned long seen, unsigned int ms)
 {
@@ -85,7 +85,7 @@ static bool wait_change(unsigned long seen, unsigned int ms)
 #ifdef _WIN32
 	AcquireSRWLockExclusive(&change_lock);
 	while (changes == seen &&
-	       SleepConditionVariableSRW(&change_cond, &change_lock, ms == OZZYCTL_FOREVER ? INFINITE : ms, 0))
+	       SleepConditionVariableSRW(&change_cond, &change_lock, ms == OZZY_CLI_FOREVER ? INFINITE : ms, 0))
 		;
 	changed = changes != seen;
 	ReleaseSRWLockExclusive(&change_lock);
@@ -101,8 +101,8 @@ static bool wait_change(unsigned long seen, unsigned int ms)
 		until.tv_nsec -= 1000000000;
 	}
 	pthread_mutex_lock(&change_lock);
-	while (changes == seen && err != ETIMEDOUT)
-		err = ms == OZZYCTL_FOREVER ? pthread_cond_wait(&change_cond, &change_lock)
+	while (changes == seen && !err)   /* ETIMEDOUT, or an error: give up */
+		err = ms == OZZY_CLI_FOREVER ? pthread_cond_wait(&change_cond, &change_lock)
 					    : pthread_cond_timedwait(&change_cond, &change_lock, &until);
 	changed = changes != seen;
 	pthread_mutex_unlock(&change_lock);
@@ -110,53 +110,71 @@ static bool wait_change(unsigned long seen, unsigned int ms)
 	return changed;
 }
 
-static void print_value(const struct ozzyctl_device *dev, unsigned int id)
+/* Milliseconds on a clock that only goes forward */
+static uint64_t now_ms(void)
+{
+#ifdef _WIN32
+	return GetTickCount64();
+#else
+	struct timespec t;
+
+	clock_gettime(CLOCK_MONOTONIC, &t);
+	return (uint64_t)t.tv_sec * 1000 + (uint64_t)t.tv_nsec / 1000000;
+#endif
+}
+
+static void print_value(const struct ozzy_control_device *dev, unsigned int id)
 {
 	const struct ozzy_setting_desc *d = &ozzy_setting_descs[id];
-	unsigned int v = dev->settings.value[id], n = ozzyctl_values(dev, id), i;
+	unsigned int v = dev->settings.value[id], n = ozzy_control_values(dev, id), i;
 	char s[96];
 
-	ozzyctl_slug(d->name, s, sizeof(s));
+	ozzy_control_slug(d->name, s, sizeof(s));
 	printf("  %-24s ", s);
-	ozzyctl_slug(v < n ? d->value_names[v] : "?", s, sizeof(s));
+	ozzy_control_slug(v < n ? d->value_names[v] : "?", s, sizeof(s));
 	printf("%-16s (", s);
 	for (i = 0; i < n; i++) {
-		ozzyctl_slug(d->value_names[i], s, sizeof(s));
+		ozzy_control_slug(d->value_names[i], s, sizeof(s));
 		printf("%s%s", i ? ", " : "", s);
 	}
 	printf(")%s\n", d->kind == OZZY_SETTING_DEVICE ? "" : "  [host]");
 }
 
-static void show(const struct ozzyctl_device *dev)
+/* The settings and their choices */
+static void show_settings(const struct ozzy_control_device *dev)
 {
-	unsigned int id;
+	unsigned int id, n = 0;
 
-	printf("%s\n", dev->name);
-	if (dev->sample_rate)
-		printf("  %-24s %u Hz, %u in / %u out\n", "running at", dev->sample_rate,
-		       dev->in_channels, dev->out_channels);
-	else
-		printf("  %-24s %u in / %u out (rate: not streaming)\n", "channels", dev->in_channels,
-		       dev->out_channels);
-	if (dev->has_clock) {
-		if (dev->clock.locked && dev->clock.lock_rate)
-			printf("  %-24s locked to S/PDIF at %u Hz\n", "clock", dev->clock.lock_rate);
-		else if (dev->clock.locked)
-			printf("  %-24s locked to S/PDIF\n", "clock");
-		else
-			printf("  %-24s internal\n", "clock");
-	}
-	if (!dev->available) {
-		printf("  (no settings)\n");
-		return;
-	}
+	printf("Settings\n");
 	/* A setting without values (channel counts unknown) can't be set: left out */
-	for (id = 0; id < OZZY_NUM_SETTINGS; id++)
-		if (ozzyctl_values(dev, id))
+	for (id = 0; id < OZZY_NUM_SETTINGS; id++) {
+		if (ozzy_control_values(dev, id)) {
 			print_value(dev, id);
+			n++;
+		}
+	}
+	if (!n)
+		printf("  (none)\n");
 }
 
-static void list(const struct ozzyctl_device *devs, int n)
+/* Everything known about @dev: the settings, then the facts by group (ozzy_control_facts) */
+static void show(const struct ozzy_control_device *dev)
+{
+	struct ozzy_control_fact facts[OZZY_CONTROL_MAX_FACTS];
+	int n = ozzy_control_facts(dev, facts, OZZY_CONTROL_MAX_FACTS), i;
+
+	printf("%s\n", dev->name);
+	show_settings(dev);
+	for (i = 0; i < n; i++) {
+		if (!i || facts[i].group != facts[i - 1].group)
+			printf("%s\n", ozzy_control_group_names[facts[i].group]);
+		printf("  %-24s %s\n", facts[i].label, facts[i].value);
+	}
+	if (!dev->has_info)
+		printf("(The driver gives no more: it is older than these tools.)\n");
+}
+
+static void list(const struct ozzy_control_device *devs, int n)
 {
 	int i, k;
 
@@ -168,7 +186,7 @@ static void list(const struct ozzyctl_device *devs, int n)
 		unsigned int count = 0;
 
 		for (k = 0; k < OZZY_NUM_SETTINGS; k++)
-			count += !!ozzyctl_values(&devs[i], (unsigned int)k);
+			count += !!ozzy_control_values(&devs[i], (unsigned int)k);
 		if (devs[i].sample_rate)
 			printf("%d  %-32s %6u Hz  %u setting%s\n", i, devs[i].name, devs[i].sample_rate,
 			       count, count == 1 ? "" : "s");
@@ -178,25 +196,25 @@ static void list(const struct ozzyctl_device *devs, int n)
 	}
 }
 
-static int set(const struct ozzyctl_device *dev, int argc, char **argv)
+static int set(const struct ozzy_control_device *dev, int argc, char **argv)
 {
 	unsigned int ids[OZZY_NUM_SETTINGS], vals[OZZY_NUM_SETTINGS], count = 0, i;
-	struct ozzyctl_device now;
+	struct ozzy_control_device now;
 
 	if (argc == 0 || argc % 2) {
 		fprintf(stderr, "set: give SETTING VALUE pairs\n");
 		return 2;
 	}
 	for (; argc >= 2 && count < OZZY_NUM_SETTINGS; argc -= 2, argv += 2) {
-		int id = ozzyctl_find_setting(dev, argv[0]), v;
+		int id = ozzy_control_find_setting(dev, argv[0]), v;
 
 		if (id < 0) {
-			fprintf(stderr, "%s has no setting \"%s\" (see: ozzyctl show)\n", dev->name, argv[0]);
+			fprintf(stderr, "%s has no setting \"%s\" (see: ozzy-cli show)\n", dev->name, argv[0]);
 			return 1;
 		}
-		v = ozzyctl_find_value(dev, (unsigned int)id, argv[1]);
+		v = ozzy_control_find_value(dev, (unsigned int)id, argv[1]);
 		if (v < 0) {
-			fprintf(stderr, "\"%s\" is not a value of %s (see: ozzyctl show)\n", argv[1],
+			fprintf(stderr, "\"%s\" is not a value of %s (see: ozzy-cli show)\n", argv[1],
 				ozzy_setting_descs[id].name);
 			return 1;
 		}
@@ -204,43 +222,46 @@ static int set(const struct ozzyctl_device *dev, int argc, char **argv)
 		vals[count++] = (unsigned int)v;
 	}
 
-	if (ozzyctl_backend_watch(on_change, NULL) < 0)
+	if (ozzy_control_backend_watch(on_change, NULL) < 0)
 		return 1;
 	for (i = 0; i < count; i++)
-		if (ozzyctl_backend_set(dev, ids[i], vals[i]) < 0)
+		if (ozzy_control_backend_set(dev, ids[i], vals[i]) < 0)
 			return 1;
 
-	/* A device setting restarts the device's streaming: wait until it reads back */
-	for (;;) {
+	/* A device setting restarts the device's streaming: wait until it reads back, at most
+	 * OZZY_CLI_SET_WAIT_MS however many other changes come meanwhile */
+	for (uint64_t deadline = now_ms() + OZZY_CLI_SET_WAIT_MS;;) {
 		unsigned long seen = changes_now();
-		bool done = ozzyctl_reread(dev->id, &now);
+		bool done = ozzy_control_reread(dev->id, &now);
+		uint64_t t = now_ms();
 
 		for (i = 0; done && i < count; i++)
 			done = now.settings.value[ids[i]] == vals[i];
 		if (done)
 			break;
-		if (!wait_change(seen, OZZYCTL_SET_WAIT_MS)) {
+		if (t >= deadline || !wait_change(seen, (unsigned int)(deadline - t))) {
 			fprintf(stderr, "the device didn't report the new value within %u s\n",
-				OZZYCTL_SET_WAIT_MS / 1000);
+				OZZY_CLI_SET_WAIT_MS / 1000);
 			return 1;
 		}
 	}
-	show(&now);
+	printf("%s\n", now.name);
+	show_settings(&now);
 	return 0;
 }
 
 /* Every device, then each one again when it changes, arrives or leaves; until interrupted */
 static int watch(void)
 {
-	struct ozzyctl_device last[OZZYCTL_MAX_DEVICES], now[OZZYCTL_MAX_DEVICES];
+	struct ozzy_control_device last[OZZY_CONTROL_MAX_DEVICES], now[OZZY_CONTROL_MAX_DEVICES];
 	unsigned long seen;
 	int nlast, nnow, i, k;
 
 	/* Watching first, so a change while listing isn't missed */
-	if (ozzyctl_backend_watch(on_change, NULL) < 0)
+	if (ozzy_control_backend_watch(on_change, NULL) < 0)
 		return 1;
 	seen = changes_now();
-	nlast = ozzyctl_backend_list(last, OZZYCTL_MAX_DEVICES);
+	nlast = ozzy_control_backend_list(last, OZZY_CONTROL_MAX_DEVICES);
 	if (nlast < 0)
 		return 1;
 	if (!nlast)
@@ -250,9 +271,9 @@ static int watch(void)
 	fflush(stdout);
 
 	for (;;) {
-		wait_change(seen, OZZYCTL_FOREVER);
+		wait_change(seen, OZZY_CLI_FOREVER);
 		seen = changes_now();
-		nnow = ozzyctl_backend_list(now, OZZYCTL_MAX_DEVICES);
+		nnow = ozzy_control_backend_list(now, OZZY_CONTROL_MAX_DEVICES);
 		if (nnow < 0)
 			continue;
 		for (i = 0; i < nlast; i++) {
@@ -264,7 +285,7 @@ static int watch(void)
 		for (k = 0; k < nnow; k++) {
 			for (i = 0; i < nlast && strcmp(now[k].id, last[i].id); i++)
 				;
-			if (i == nlast || !ozzyctl_same(&now[k], &last[i]))
+			if (i == nlast || !ozzy_control_same(&now[k], &last[i]))
 				show(&now[k]);
 		}
 		fflush(stdout);
@@ -275,10 +296,10 @@ static int watch(void)
 
 static void usage(void)
 {
-	printf("usage: ozzyctl [list]\n"
-	       "       ozzyctl show [-d DEVICE]\n"
-	       "       ozzyctl set [-d DEVICE] SETTING VALUE [SETTING VALUE ...]\n"
-	       "       ozzyctl watch\n"
+	printf("usage: ozzy-cli [list]\n"
+	       "       ozzy-cli show [-d DEVICE]\n"
+	       "       ozzy-cli set [-d DEVICE] SETTING VALUE [SETTING VALUE ...]\n"
+	       "       ozzy-cli watch\n"
 	       "DEVICE: a number from \"list\" or part of the name (default: the first).\n"
 	       "SETTING, VALUE: names as \"show\" prints them, or numbers.\n"
 	       "[host]: applied by the driver on the computer, at once; the others restart streaming.\n"
@@ -287,8 +308,8 @@ static void usage(void)
 
 int main(int argc, char **argv)
 {
-	struct ozzyctl_device devs[OZZYCTL_MAX_DEVICES];
-	const struct ozzyctl_device *dev;
+	struct ozzy_control_device devs[OZZY_CONTROL_MAX_DEVICES];
+	const struct ozzy_control_device *dev;
 	const char *cmd = argc > 1 ? argv[1] : "list";
 	const char *which = NULL;
 	int n;
@@ -307,7 +328,7 @@ int main(int argc, char **argv)
 
 	if (!strcmp(cmd, "watch"))
 		return watch();
-	n = ozzyctl_backend_list(devs, OZZYCTL_MAX_DEVICES);
+	n = ozzy_control_backend_list(devs, OZZY_CONTROL_MAX_DEVICES);
 	if (n < 0)
 		return 1;
 	if (!strcmp(cmd, "list")) {
@@ -318,9 +339,9 @@ int main(int argc, char **argv)
 		usage();
 		return 2;
 	}
-	dev = ozzyctl_pick(devs, n, which);
+	dev = ozzy_control_pick(devs, n, which);
 	if (!dev) {
-		fprintf(stderr, n ? "No device \"%s\" (see: ozzyctl list)\n" : "No Ozzy devices found.\n",
+		fprintf(stderr, n ? "No device \"%s\" (see: ozzy-cli list)\n" : "No Ozzy devices found.\n",
 			which ? which : "");
 		return 1;
 	}

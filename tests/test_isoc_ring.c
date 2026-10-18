@@ -73,6 +73,13 @@ int main(void)
 	ozzy_engine_set_pcm_ring(e, OZZY_PCM_OUT, &ro);
 	ozzy_engine_set_pcm_ring(e, OZZY_PCM_IN, &ri);
 	CHECK(ozzy_engine_start(e), "start");
+	/* The family's own defaults: 80-frame in transfers, 2 in flight, input safety what they queue */
+	CHECK(ozzy_engine_has_setting(e, OZZY_SETTING_PCM_IN_QUEUE) && !ozzy_engine_has_setting(e, OZZY_SETTING_PCM_OUT_QUEUE) &&
+	      !ozzy_engine_has_setting(e, OZZY_SETTING_PCM_OUT_FRAMES), "isoc: the wrong transfer settings");
+	CHECK(ozzy_pcm_queue(e->settings.value[OZZY_SETTING_PCM_IN_QUEUE]) == 2 &&
+	      shm.info.pipes[OZZY_PIPE_PCM_IN].in_flight == 2, "isoc: in queue %u by default, %u in flight",
+	      ozzy_pcm_queue(e->settings.value[OZZY_SETTING_PCM_IN_QUEUE]), shm.info.pipes[OZZY_PIPE_PCM_IN].in_flight);
+	CHECK(shm.audio.input_safety_offset_frames == 2 * 80, "isoc: input safety %u", shm.audio.input_safety_offset_frames);
 
 	for (i = 0; i < 300 && fake_bus_pop(&fb, &x); i++) {
 		if (x.isoc && !(x.pipe & 0x80))
@@ -85,10 +92,11 @@ int main(void)
 
 		wrong += memcmp(sent + i * 12, src + 6, 6) || memcmp(sent + i * 12 + 6, src + 6, 6);
 	}
-	/* The last IN packet's frames */
+	/* The last IN transfer's frames (80, end to end in the ring) */
 	for (i = 0; i < 80 && ins; i++) {
 		unsigned int j = ins - 1;
-		const uint8_t *pkt = (const uint8_t *)shm.audio.input_buffer + (j % OZZY_NUM_PACKETS) * OZZY_MAX_PACKET_SIZE;
+		const uint8_t *pkt = (const uint8_t *)shm.audio.input_buffer +
+				     (j % (shm.audio.input_ring_frames / 80)) * 80 * PLOYTEC_IN_FRAME_SIZE;
 		uint32_t r = (j * 80 + i) % 1000;
 		uint8_t dec[12];
 

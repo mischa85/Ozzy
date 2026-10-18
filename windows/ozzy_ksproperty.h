@@ -1,8 +1,8 @@
 /* SPDX-License-Identifier: MIT */
 /*
- * The Windows driver's settings, for ozzyctl (ozzyctl/backend_windows.c): a KS property set on
- * each circuit's filter (the endpoints' KSCATEGORY_AUDIO device interfaces), read and written
- * with IOCTL_KS_PROPERTY. Windows has no place of its own for a clock source, an S/PDIF mode or
+ * The Windows driver's settings, for ozzy-cli and the ozzy app (apps/control/backend_windows.c): a KS
+ * property set on each circuit's filter (the endpoints' KSCATEGORY_AUDIO device interfaces), read
+ * and written with IOCTL_KS_PROPERTY. Windows has no place of its own for a clock source, an S/PDIF mode or
  * routing, so this is how they are reached. The same header builds in the driver and in user
  * mode.
  *
@@ -16,6 +16,7 @@
 #define OZZY_KSPROPERTY_H
 
 #include "../common/ozzy_settings.h"
+#include "../engine/shared/ozzy_info.h"
 
 /* The property set: {5499d49d-b94c-4c8b-b547-08b3a0e494aa}, as a GUID initializer */
 #define OZZY_PROPSETID_SETTINGS_INIT \
@@ -24,6 +25,7 @@
 enum ozzy_ksproperty_id {
 	OZZY_KSPROPERTY_STATUS = 0,    /* get: struct ozzy_ksproperty_status */
 	OZZY_KSPROPERTY_SETTING = 1,   /* set: struct ozzy_ksproperty_setting */
+	OZZY_KSPROPERTY_INFO = 2,      /* get: struct ozzy_info (engine/shared/ozzy_info.h) */
 };
 
 /* The event set: {1fd13819-4ef9-40f0-bdf3-695f6589d659}, as a GUID initializer */
@@ -35,7 +37,7 @@ enum ozzy_ksevent_id {
 };
 
 /* Bump when struct ozzy_ksproperty_status changes */
-#define OZZY_KSPROPERTY_VERSION 1
+#define OZZY_KSPROPERTY_VERSION 2   /* 2: the PCM transfer size settings (value[] grew) */
 
 /*
  * struct ozzy_ksproperty_status - The device as the engine has it.

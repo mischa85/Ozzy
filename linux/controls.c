@@ -3,13 +3,14 @@
  * Ozzy USB Audio Driver - device settings as ALSA controls on the engine
  *
  * One enumerated control per setting the device has, named as common/ozzy_settings.h names
- * it (ozzyctl finds them by name), plus "S/PDIF Clock Validity" with the clock source.
+ * it (apps/control/backend_linux.c finds them by name), plus "S/PDIF Clock Validity" with the clock
+ * source, and "Ozzy Info": the engine's struct ozzy_info as bytes, for ozzy-cli and the ozzy app.
  * A route applies at once (the engine routes from the next packet); a device setting
  * restarts the engine, whose handshake sends it.
  *
  * Clients learn of changes from control events (snd_ctl_subscribe_events): ALSA sends one for
- * a setting a client changed, the driver one for the clock lock after each handshake
- * (ozzy_controls_handshake), the only time the engine learns it.
+ * a setting a client changed, the driver one for the clock lock and the info after each
+ * handshake (ozzy_controls_handshake), the only time the engine learns them.
  *
  * Copyright (C) 2024 Marcel Bierling <marcel@hackerman.art>
  */
@@ -53,12 +54,52 @@ static int setting_put(struct snd_kcontrol *kctl, struct snd_ctl_elem_value *uco
 	return ret < 0 ? ret : 1;
 }
 
-/* After a handshake (the engine started): the clock lock may have changed */
+/* After a handshake (the engine started, or failed to): the clock lock and the info may have
+ * changed */
 void ozzy_controls_handshake(struct ozzy_chip *chip)
 {
 	if (chip->clock_lock_kctl)
 		snd_ctl_notify(chip->card, SNDRV_CTL_EVENT_MASK_VALUE, &chip->clock_lock_kctl->id);
+	ozzy_controls_stream_changed(chip);
 }
+
+/* A stream opened, was set up or closed: clients read its rate, period and buffer again (they
+ * come from /proc, which has no events of its own); the info control stands for them */
+void ozzy_controls_stream_changed(struct ozzy_chip *chip)
+{
+	if (chip->info_kctl)
+		snd_ctl_notify(chip->card, SNDRV_CTL_EVENT_MASK_VALUE, &chip->info_kctl->id);
+}
+
+static int info_info(struct snd_kcontrol *kctl, struct snd_ctl_elem_info *uinfo)
+{
+	uinfo->type = SNDRV_CTL_ELEM_TYPE_BYTES;
+	uinfo->count = sizeof(struct ozzy_info);
+	return 0;
+}
+
+/* Under the lock: a restart writes it */
+static int info_get(struct snd_kcontrol *kctl, struct snd_ctl_elem_value *ucontrol)
+{
+	struct ozzy_chip *chip = snd_kcontrol_chip(kctl);
+
+	mutex_lock(&chip->lock);
+	memcpy(ucontrol->value.bytes.data, &chip->shm->info, sizeof(struct ozzy_info));
+	mutex_unlock(&chip->lock);
+	return 0;
+}
+
+/* A card control, not a mixer one: mixers and alsactl store leave the blob alone */
+static const struct snd_kcontrol_new info_ctl = {
+	.iface  = SNDRV_CTL_ELEM_IFACE_CARD,
+	.name   = "Ozzy Info",
+	.access = SNDRV_CTL_ELEM_ACCESS_READ | SNDRV_CTL_ELEM_ACCESS_VOLATILE,
+	.info   = info_info,
+	.get    = info_get,
+};
+
+/* The bytes control carries the whole record */
+static_assert(sizeof(struct ozzy_info) <= sizeof(((struct snd_ctl_elem_value *)0)->value.bytes.data));
 
 static int clock_lock_get(struct snd_kcontrol *kctl, struct snd_ctl_elem_value *ucontrol)
 {
@@ -104,5 +145,10 @@ int ozzy_controls_init(struct ozzy_chip *chip)
 			return ret;
 		chip->clock_lock_kctl = kctl;
 	}
+	kctl = snd_ctl_new1(&info_ctl, chip);
+	ret = snd_ctl_add(chip->card, kctl);
+	if (ret < 0)
+		return ret;
+	chip->info_kctl = kctl;
 	return 0;
 }

@@ -78,6 +78,7 @@ static int ozzy_pcm_close(struct snd_pcm_substream *substream)
 	struct ozzy_chip *chip = snd_pcm_substream_chip(substream);
 
 	chip->stream[substream_dir(substream)].substream = NULL;
+	ozzy_controls_stream_changed(chip);
 	return 0;
 }
 
@@ -112,6 +113,7 @@ static int ozzy_pcm_prepare(struct snd_pcm_substream *substream)
 	st->pos = 0;
 	st->period_next = runtime->period_size;
 	spin_unlock_irqrestore(&st->lock, flags);
+	ozzy_controls_stream_changed(chip);
 	return 0;
 }
 

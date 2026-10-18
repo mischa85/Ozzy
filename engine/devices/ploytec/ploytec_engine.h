@@ -35,12 +35,16 @@ struct ploytec_engine {
 	uint32_t sample_rate;
 	uint32_t default_rate;
 	volatile bool running;
-	uint32_t packet_size_out;
 	bool pcm_in_int1024;
 	struct ploytec_midi midi;
 	ploytec_frame_fn encode;
 	ploytec_frame_fn decode;
 	bool mirror;
+	uint32_t out_frames;   /* frames per PCM transfer this run (OZZY_SETTING_PCM_OUT_FRAMES at start) */
+	uint32_t in_frames;
+	uint32_t out_queue;    /* PCM transfers in flight this run (OZZY_SETTING_PCM_OUT_QUEUE at start) */
+	uint32_t in_queue;
+	uint32_t anchor_frames;   /* frames between clock anchors: a whole number of out transfers */
 };
 
 void ploytec_engine_init(struct ploytec_engine *pe, const struct ozzy_device *model);

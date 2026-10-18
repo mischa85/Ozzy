@@ -1,0 +1,2 @@
+option('demo', type: 'boolean', value: false,
+	description: 'Made-up devices instead of the platform backend (control/backend_demo.c), to try the window without hardware')

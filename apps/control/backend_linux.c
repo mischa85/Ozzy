@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: MIT
 /*
- * ozzyctl backend for Linux: the snd-usb-ozzy cards through alsa-lib. Each setting is a mixer
+ * The control backend for Linux: the snd-usb-ozzy cards through alsa-lib. Each setting is a mixer
  * control named after ozzy_setting_descs[].name (linux/controls.c), the digital lock is
  * "S/PDIF Clock Validity". The channel counts come from the device table, through the card's
- * USB IDs in sysfs; the rate from /proc/asound while a stream is open. Changes come from ALSA
+ * USB IDs in sysfs; the driver's record (struct ozzy_info) from the bytes control "Ozzy Info";
+ * the rate, period, buffer and format from /proc/asound while a stream is open. Changes come from ALSA
  * control events on each card (a setting a client set, the clock lock after each handshake) and
  * inotify on /dev/snd (cards coming and going), on one thread waiting in poll().
  *
@@ -11,6 +12,7 @@
  */
 
 #include <alsa/asoundlib.h>
+#include <errno.h>
 #include <limits.h>
 #include <poll.h>
 #include <pthread.h>
@@ -20,8 +22,8 @@
 #include <sys/inotify.h>
 #include <unistd.h>
 
-#include "ozzyctl.h"
-#include "../common/ozzy_devices.h"
+#include "ozzy_control.h"
+#include "../../common/ozzy_devices.h"
 
 #ifndef OZZY_ALSA_DRIVER
 #define OZZY_ALSA_DRIVER "snd-usb-ozzy"   /* card->driver, linux/core.c */
@@ -59,14 +61,16 @@ static const struct ozzy_device *card_model(int card)
 	return (vid < 0 || pid < 0) ? NULL : ozzy_device_lookup((uint16_t)vid, (uint16_t)pid);
 }
 
-/* The rate of an open stream of card @card (playback, else capture), or 0 */
-static uint32_t card_rate(int card)
+/* An open stream of card @card (playback, else capture): its rate into @rate (else 0), its
+ * period, buffer and format into @h ("closed" in hw_params: none open) */
+static void card_stream(int card, uint32_t *rate, struct ozzy_control_host *h)
 {
 	static const char *const dirs[] = { "pcm0p", "pcm0c" };
-	unsigned int i, rate;
-	char path[96], line[128];
+	unsigned int i, v;
+	char path[96], line[128], word[32];
 
-	for (i = 0; i < 2; i++) {
+	*rate = 0;
+	for (i = 0; i < 2 && !*rate; i++) {
 		FILE *f;
 
 		snprintf(path, sizeof(path), "/proc/asound/card%d/%s/sub0/hw_params", card, dirs[i]);
@@ -74,14 +78,38 @@ static uint32_t card_rate(int card)
 		if (!f)
 			continue;
 		while (fgets(line, sizeof(line), f)) {
-			if (sscanf(line, "rate: %u", &rate) == 1) {
-				fclose(f);
-				return rate;
-			}
+			if (sscanf(line, "rate: %u", &v) == 1)
+				*rate = v;
+			else if (sscanf(line, "period_size: %u", &v) == 1)
+				h->buffer_frames = v;
+			else if (sscanf(line, "buffer_size: %u", &v) == 1)
+				h->ring_frames = v;
+			else if (sscanf(line, "format: %31s", word) == 1)
+				snprintf(h->format, sizeof(h->format), "%s", word);
 		}
 		fclose(f);
 	}
-	return 0;
+	h->running = *rate != 0;
+}
+
+/* The driver's record from "Ozzy Info", if it has one this build reads */
+static void read_info(snd_ctl_t *ctl, struct ozzy_control_device *d)
+{
+	snd_ctl_elem_value_t *v;
+	snd_ctl_elem_info_t *info;
+
+	snd_ctl_elem_info_alloca(&info);
+	snd_ctl_elem_value_alloca(&v);
+	snd_ctl_elem_info_set_interface(info, SND_CTL_ELEM_IFACE_CARD);   /* a card control, not a mixer one */
+	snd_ctl_elem_info_set_name(info, "Ozzy Info");
+	if (snd_ctl_elem_info(ctl, info) < 0 || snd_ctl_elem_info_get_type(info) != SND_CTL_ELEM_TYPE_BYTES)
+		return;
+	snd_ctl_elem_value_set_interface(v, SND_CTL_ELEM_IFACE_CARD);
+	snd_ctl_elem_value_set_name(v, "Ozzy Info");
+	if (snd_ctl_elem_read(ctl, v) < 0)
+		return;
+	d->has_info = ozzy_control_take_info(&d->info, snd_ctl_elem_value_get_bytes(v),
+					     snd_ctl_elem_info_get_count(info));
 }
 
 /* Whether the card behind @ctl is one of ours; its info into @ci */
@@ -115,12 +143,12 @@ static bool read_control(snd_ctl_t *ctl, const char *name, long *value)
 	return true;
 }
 
-int ozzyctl_backend_list(struct ozzyctl_device *devs, int max)
+int ozzy_control_backend_list(struct ozzy_control_device *devs, int max)
 {
 	int card = -1, n = 0;
 
 	while (n < max && snd_card_next(&card) >= 0 && card >= 0) {
-		struct ozzyctl_device *d = &devs[n];
+		struct ozzy_control_device *d = &devs[n];
 		const struct ozzy_device *model;
 		snd_ctl_card_info_t *ci;
 		char hw[16];
@@ -141,7 +169,9 @@ int ozzyctl_backend_list(struct ozzyctl_device *devs, int max)
 		snprintf(d->name, sizeof(d->name), "%s", snd_ctl_card_info_get_name(ci));
 		snprintf(d->id, sizeof(d->id), "%s", snd_ctl_card_info_get_id(ci));
 		d->handle = (uintptr_t)card;
-		d->sample_rate = card_rate(card);
+		snprintf(d->host.driver, sizeof(d->host.driver), "%s", OZZY_ALSA_DRIVER);
+		card_stream(card, &d->sample_rate, &d->host);
+		read_info(ctl, d);
 		model = card_model(card);
 		if (model) {
 			d->in_channels = model->in_channels;
@@ -155,11 +185,14 @@ int ozzyctl_backend_list(struct ozzyctl_device *devs, int max)
 				d->settings.value[id] = (uint8_t)v;
 			}
 		}
+		/* The engine runs with no stream open too: its rate, from the record */
+		if (!d->sample_rate && d->has_info)
+			d->sample_rate = d->info.sample_rate;
 		if (read_control(ctl, "S/PDIF Clock Validity", &v)) {
 			d->has_clock = true;
 			d->clock.locked = v != 0;
 			/* Locked, the stream runs at the lock rate (the driver allows only it) */
-			d->clock.lock_rate = d->clock.locked ? d->sample_rate : 0;
+			d->clock.lock_rate = !d->clock.locked ? 0 : d->has_info ? d->info.lock_rate : d->sample_rate;
 		}
 		snd_ctl_close(ctl);
 		n++;
@@ -167,7 +200,7 @@ int ozzyctl_backend_list(struct ozzyctl_device *devs, int max)
 	return n;
 }
 
-int ozzyctl_backend_set(const struct ozzyctl_device *dev, unsigned int id, unsigned int value)
+int ozzy_control_backend_set(const struct ozzy_control_device *dev, unsigned int id, unsigned int value)
 {
 	snd_ctl_elem_value_t *v;
 	snd_ctl_t *ctl;
@@ -195,12 +228,12 @@ int ozzyctl_backend_set(const struct ozzyctl_device *dev, unsigned int id, unsig
 	return 0;
 }
 
-/* The watch (ozzyctl_backend_watch): one thread, waiting on inotify and each card's events */
+/* The watch (ozzy_control_backend_watch): one thread, waiting on inotify and each card's events */
 struct watch {
 	void (*changed)(void *ctx);
 	void *ctx;
 	int inotify;
-	snd_ctl_t *ctls[OZZYCTL_MAX_DEVICES];
+	snd_ctl_t *ctls[OZZY_CONTROL_MAX_DEVICES];
 	int nctls;
 };
 
@@ -212,7 +245,7 @@ static void watch_open(struct watch *w)
 	for (i = 0; i < w->nctls; i++)
 		snd_ctl_close(w->ctls[i]);
 	w->nctls = 0;
-	while (w->nctls < OZZYCTL_MAX_DEVICES && snd_card_next(&card) >= 0 && card >= 0) {
+	while (w->nctls < OZZY_CONTROL_MAX_DEVICES && snd_card_next(&card) >= 0 && card >= 0) {
 		snd_ctl_card_info_t *ci;
 		snd_ctl_t *ctl;
 		char hw[16];
@@ -254,8 +287,8 @@ static bool watch_read_inotify(int fd)
 static void *watch_thread(void *arg)
 {
 	struct watch *w = arg;
-	struct pollfd fds[1 + OZZYCTL_MAX_DEVICES * 4];
-	int owner[1 + OZZYCTL_MAX_DEVICES * 4];
+	struct pollfd fds[1 + OZZY_CONTROL_MAX_DEVICES * 4];
+	int owner[1 + OZZY_CONTROL_MAX_DEVICES * 4];
 
 	for (;;) {
 		bool reopen = false, changed = false;
@@ -271,8 +304,12 @@ static void *watch_thread(void *arg)
 				owner[nfds + k] = i;
 			nfds += n > 0 ? n : 0;
 		}
-		if (poll(fds, (nfds_t)nfds, -1) < 0)
-			continue;
+		if (poll(fds, (nfds_t)nfds, -1) < 0) {
+			if (errno == EINTR)
+				continue;
+			perror("watch: poll");   /* not going to get better: stop rather than spin */
+			return NULL;
+		}
 
 		if (fds[0].revents & POLLIN)
 			reopen = watch_read_inotify(w->inotify);
@@ -297,7 +334,7 @@ static void *watch_thread(void *arg)
 	return NULL;
 }
 
-int ozzyctl_backend_watch(void (*changed)(void *ctx), void *ctx)
+int ozzy_control_backend_watch(void (*changed)(void *ctx), void *ctx)
 {
 	static struct watch w;
 	pthread_t thread;

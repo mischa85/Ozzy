@@ -1,0 +1,7 @@
+# libui-ng (MIT), fetched by meson setup at a fixed commit. The patch lets it build as a
+# subproject: its macOS flags become project arguments (meson refuses global ones there).
+[wrap-git]
+url = https://github.com/libui-ng/libui-ng.git
+revision = 43ba1ef553c8993a43a67f1ce6e35983a2660d8c
+depth = 1
+diff_files = libui-ng-subproject.patch

@@ -13,6 +13,7 @@
 #include "../../../common/devices/ploytec/ploytec_midi.h"
 #include "../../../common/devices/ploytec/ploytec_protocol.h"
 #include "../../../common/devices/ploytec/ploytec_codec.h"
+#include "../../../common/devices/ploytec/ploytec_handshake.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -22,12 +23,65 @@ extern "C" {
  * clear_halt; the context is the engine's struct ozzy_bus */
 extern const struct ploytec_host_ops ploytec_bus_host_ops;
 
-/* One PCM IN transfer: 80 frames into PCM in slot @idx (the shared memory's logical packet
- * idx % 128 on macOS, where the HAL's reader expects it) */
-static inline bool ploytec_submit_pcm_in(const struct ozzy_engine *e, uint8_t address, uint32_t idx)
+/* What the handshake read, for ozzy_info: the firmware ('V', shown as 1.<major>.<minor>, as
+ * the official tools do), the rate the device booted at and the input selector byte */
+static inline void ploytec_report(struct ozzy_engine *e, const struct ploytec_handshake_info *hs)
 {
-	return ozzy_bus_submit(e->bus, address, ozzy_engine_pcm_in_slot(e, idx), PLOYTEC_IN_PKT_SIZE,
-			       (void *)(uintptr_t)idx);
+	e->report.firmware_valid = true;
+	e->report.firmware_chip = hs->firmware.chip_id;
+	e->report.firmware[0] = 1;
+	e->report.firmware[1] = hs->firmware.major;
+	e->report.firmware[2] = hs->firmware.minor;
+	e->report.boot_rate = hs->boot_rate;
+	e->report.input_selector_valid = true;
+	e->report.input_selector = hs->status;
+}
+
+/*
+ * PCM transfers: any whole number of sub-packets, at the engine's places in turn
+ * (ozzy_engine_pcm_layout: in the shared memory's rings end to end, where the HAL reads and
+ * writes them by sample time; or the platform's own buffers). Transfer indices wrap at
+ * ploytec_pcm_wrap, a multiple of the places, so a transfer keeps its place in the ring (2^32
+ * is one only when the places are a power of two).
+ */
+static inline uint32_t ploytec_pcm_wrap(uint32_t places)
+{
+	return (places ? places : 1) << 20;
+}
+
+/* The most places a ring has (one 482-byte sub-packet per transfer), shifted, must fit */
+typedef char ploytec_pcm_wrap_fits[((uint64_t)(OZZY_PCM_RING_BYTES / PLOYTEC_INT_OUT_SUBPKT_SIZE) << 20) <=
+				   0xFFFFFFFFu ? 1 : -1];
+
+/* Transfer @t - 1, wrapped */
+static inline uint32_t ploytec_pcm_prev(uint32_t t, uint32_t places)
+{
+	return t ? t - 1 : ploytec_pcm_wrap(places) - 1;
+}
+
+/* Transfer @t + @n, wrapped */
+static inline uint32_t ploytec_pcm_next(uint32_t t, uint32_t n, uint32_t places)
+{
+	return (t + n) % ploytec_pcm_wrap(places);
+}
+
+/* Bytes of a PCM out transfer of @frames frames (frames / 10 sub-packets) */
+static inline uint32_t ploytec_out_xfer_bytes(enum ploytec_out_layout layout, uint32_t frames)
+{
+	return frames / PLOYTEC_FRAMES_PER_OUT_SUBPKT * ploytec_out_subpkt_size(layout);
+}
+
+/* Bytes of a PCM in transfer of @frames frames (frames / 8 sub-packets of 512 bytes) */
+static inline uint32_t ploytec_in_xfer_bytes(uint32_t frames)
+{
+	return frames * PLOYTEC_IN_FRAME_SIZE;
+}
+
+/* One PCM IN transfer of @frames frames, at transfer @t's place */
+static inline bool ploytec_submit_pcm_in(const struct ozzy_engine *e, uint8_t address, uint32_t frames, uint32_t t)
+{
+	return ozzy_bus_submit(e->bus, address, ozzy_engine_pcm_in_slot(e, t), ploytec_in_xfer_bytes(frames),
+			       (void *)(uintptr_t)t);
 }
 
 /*
@@ -59,11 +113,11 @@ static inline void ploytec_midi_in_to_ring(const struct ploytec_midi *midi, vola
 }
 
 /*
- * PCM in into the attached ring (ploytec_io.c): the frames of completed IN transfer @idx,
+ * PCM in into the attached ring (ploytec_io.c): the @frames frames of completed IN transfer @t,
  * decoded straight from the shared memory into the ring with the input routing. A short (or
  * failed, @bytes 0) transfer leaves silence, so the ring keeps the device's clock.
  */
-void ploytec_decode_pcm_in(struct ozzy_engine *e, ploytec_frame_fn decode, uint32_t idx, uint32_t bytes);
+void ploytec_decode_pcm_in(struct ozzy_engine *e, ploytec_frame_fn decode, uint32_t frames, uint32_t t, uint32_t bytes);
 
 #ifdef __cplusplus
 }

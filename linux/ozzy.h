@@ -111,6 +111,7 @@ struct ozzy_chip {
 	struct ozzy_pcm_stream stream[OZZY_PCM_DIRS];
 	struct ozzy_midi midi;
 	struct snd_kcontrol *clock_lock_kctl;
+	struct snd_kcontrol *info_kctl;
 };
 
 /* bus.c */
@@ -134,5 +135,6 @@ void ozzy_midi_service(struct ozzy_chip *chip);
 /* controls.c */
 int ozzy_controls_init(struct ozzy_chip *chip);
 void ozzy_controls_handshake(struct ozzy_chip *chip);
+void ozzy_controls_stream_changed(struct ozzy_chip *chip);
 
 #endif /* OZZY_H */

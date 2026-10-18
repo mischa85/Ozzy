@@ -1,0 +1,3 @@
+// ozzy on Windows: the manifest (1 = CREATEPROCESS_MANIFEST_RESOURCE_ID, 24 = RT_MANIFEST)
+#pragma code_page(65001)
+1 24 "ozzy.manifest"

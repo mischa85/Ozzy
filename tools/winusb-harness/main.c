@@ -135,26 +135,31 @@ static void wav_close(struct wav* w) {
     w->f = NULL;
 }
 
-enum { RING_FRAMES = OZZY_NUM_PACKETS * PLOYTEC_FRAMES_PER_PKT };
+/* Frame @f of the output ring: sub-packets of 10 frames end to end in the device's layout */
+static uint8_t* out_frame(struct ozzy_shared_memory* shm, enum ploytec_out_layout layout, uint32_t f) {
+    return (uint8_t*)shm->audio.output_buffer + (f / PLOYTEC_FRAMES_PER_OUT_SUBPKT) * ploytec_out_subpkt_size(layout) +
+           ploytec_out_frame_offset(layout, f % PLOYTEC_FRAMES_PER_OUT_SUBPKT);
+}
 
-/* A -18 dBFS sine on outputs 1 and 2 with a whole number of cycles in the output ring, so the
- * engine can loop the ring forever without a position from us. Written with the float frame
- * codec into the frames of each logical packet; the MIDI and sync bytes stay as the engine's
- * start set them. */
+/* A -18 dBFS sine on outputs 1 and 2 with a whole number of cycles in the output ring (its
+ * frames as the engine laid it out at start), so the engine can loop the ring forever without
+ * a position from us. Written with the float frame codec into its frames; the MIDI and sync
+ * bytes stay as the engine's start set them. */
 static double fill_tone(struct ozzy_shared_memory* shm, uint32_t channels, uint32_t rate) {
+    const uint32_t ring_frames = shm->audio.output_ring_frames;
     ploytec_frame_f32_enc_fn encode = ploytec_frame_encoder_f32(channels);
     if (!encode) return 0;
     enum ploytec_out_layout layout = (shm->audio.device_flags & OZZY_DEVICE_FLAG_PLOYTEC_BULK) ? PLOYTEC_OUT_LAYOUT_BULK
                                                                                             : PLOYTEC_OUT_LAYOUT_INT;
     const uint32_t cycles = 48;
     float frame[16] = { 0 };
-    for (uint32_t f = 0; f < RING_FRAMES; f++) {
-        float v = 0.125f * (float)sin(2.0 * 3.14159265358979 * cycles * f / RING_FRAMES);
+    if (!ring_frames) return 0;
+    for (uint32_t f = 0; f < ring_frames; f++) {
+        float v = 0.125f * (float)sin(2.0 * 3.14159265358979 * cycles * f / ring_frames);
         frame[0] = frame[1] = v;
-        encode(shm->audio.output_buffer + (f / PLOYTEC_FRAMES_PER_PKT) * OZZY_MAX_PACKET_SIZE +
-               ploytec_out_frame_offset(layout, f % PLOYTEC_FRAMES_PER_PKT), frame);
+        encode(out_frame(shm, layout, f), frame);
     }
-    return (double)cycles * rate / RING_FRAMES;
+    return (double)cycles * rate / ring_frames;
 }
 
 int main(int argc, char** argv) {
@@ -260,18 +265,20 @@ int main(int argc, char** argv) {
             first_host = host_time;
         }
 
-        /* Input up to 3 packets before the anchor (the IN transfers run alongside the OUT ones) */
+        /* Input up to the input safety offset before the anchor (the IN transfers run alongside
+         * the OUT ones); the ring: 64 bytes a frame end to end */
         if (wav.f) {
-            uint64_t end = sample_time > 3 * PLOYTEC_FRAMES_PER_PKT ? sample_time - 3 * PLOYTEC_FRAMES_PER_PKT : 0;
-            if (end > next_frame + RING_FRAMES / 2) {
-                lost += end - RING_FRAMES / 2 - next_frame;
-                next_frame = end - RING_FRAMES / 2;
+            const uint32_t in_frames = shm->audio.input_ring_frames ? shm->audio.input_ring_frames : 1;
+            const uint32_t behind = shm->audio.input_safety_offset_frames;
+            uint64_t end = sample_time > behind ? sample_time - behind : 0;
+            if (end > next_frame + in_frames / 2) {
+                lost += end - in_frames / 2 - next_frame;
+                next_frame = end - in_frames / 2;
             }
             uint8_t s24[16 * 3];
             for (; next_frame < end; next_frame++) {
-                uint32_t f = (uint32_t)(next_frame % RING_FRAMES);
-                decode(s24, shm->audio.input_buffer + (f / PLOYTEC_FRAMES_PER_PKT) * OZZY_MAX_PACKET_SIZE +
-                                (f % PLOYTEC_FRAMES_PER_PKT) * PLOYTEC_IN_FRAME_SIZE);
+                uint32_t f = (uint32_t)(next_frame % in_frames);
+                decode(s24, (const uint8_t*)shm->audio.input_buffer + f * PLOYTEC_IN_FRAME_SIZE);
                 wav_write(&wav, s24, 1);
             }
         }

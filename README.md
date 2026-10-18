@@ -168,7 +168,7 @@ The installer automatically:
 
 **Leaving devices out:** `OZZY_DISABLE="TascamUS144 NumarkNS7" ./install.command` builds without those devices (names are the keys in [`common/ozzy_devices.def`](common/ozzy_devices.def)), so another driver can keep them.
 
-**Device settings:** the installer also puts `ozzyctl` in `/usr/local/bin`. `ozzyctl` lists the devices, `ozzyctl show` a device's settings (clock source, S/PDIF out mode, routing, for the devices that have them) and `ozzyctl set clock-source internal` changes one. The clock source is also in Audio MIDI Setup.
+**Device settings:** the installer also puts `ozzy-cli` in `/usr/local/bin`. `ozzy-cli` lists the devices, `ozzy-cli show` a device's settings (clock source, S/PDIF out mode, routing, for the devices that have them) and everything the driver knows of it (firmware, USB speed, rates, packet and transfer sizes, endpoints, latency) and `ozzy-cli set clock-source internal` changes one. The clock source is also in Audio MIDI Setup. The same settings are in **ozzy**, a small settings window (see [The ozzy app](#the-ozzy-app)).
 
 **Uninstall:** Run `macos/uninstall.command`
 
@@ -188,15 +188,27 @@ The installer automatically:
     sudo modprobe snd-usb-ozzy
     ```
 
-**Device settings** are ALSA controls ("Clock Source", "IEC958 Playback Mode", "Output 1-2 Source", ..., for the devices that have them), kept across reboots by `alsactl store`. Use `alsamixer` / `amixer`, or `ozzyctl`, the same tool as on macOS (needs alsa-lib, e.g. `libasound2-dev`):
+**Device settings** are ALSA controls ("Clock Source", "IEC958 Playback Mode", "Output 1-2 Source", ..., for the devices that have them), kept across reboots by `alsactl store`. Use `alsamixer` / `amixer`, or `ozzy-cli`, the same tool as on macOS (needs alsa-lib, e.g. `libasound2-dev`):
 ```bash
-make -C ozzyctl && sudo install -m 755 ozzyctl/ozzyctl /usr/local/bin/
-ozzyctl show
-ozzyctl set clock-source internal
-ozzyctl watch        # prints a device again whenever it changes
+make -C apps/cli && sudo install -m 755 apps/cli/ozzy-cli /usr/local/bin/
+ozzy-cli show
+ozzy-cli set clock-source internal
+ozzy-cli watch       # prints a device again whenever it changes
 ```
+The settings window, **ozzy**, works on Linux too (needs GTK 3 as well: `libgtk-3-dev`): see [The ozzy app](#the-ozzy-app).
 
 **Leaving devices out:** `make OZZY_DISABLE="NumarkNS7 ReloopIQ2MIDI"` builds without those devices (names are the keys in [`common/ozzy_devices.def`](common/ozzy_devices.def)). By default the Linux build leaves out the Tascam US-144 and US-144MKII, which the kernel's own drivers handle; `make OZZY_DISABLE=` builds them in.
+
+### The ozzy app
+
+**ozzy** shows a device's settings in one window (clock source and digital input lock, S/PDIF output, routing, for the devices that have them), with everything the driver knows of it in a second tab (as `ozzy-cli show` prints it), and follows every change at once, whether made in the window, by `ozzy-cli`, another app or the device. It is built with [libui-ng](https://github.com/libui-ng/libui-ng) (native controls on macOS, Linux and Windows), which meson downloads and links in:
+```bash
+meson setup apps/gui/build apps/gui && meson compile -C apps/gui/build
+./apps/gui/build/ozzy
+```
+**Latency:** on the Xone family (DB2, DB4, 4D, ESU1808, ...) the PCM transfer size is a setting per direction, from 10 frames out and 8 in (one USB sub-packet) up to 200, and so is how many transfers are in flight (1 to 4). The latency on USB is the two multiplied, which the app shows next to them; the defaults are 80 frames and 4 in flight each way. `ozzy-cli set pcm-playback-transfer 10 pcm-capture-transfer 8 pcm-playback-queue 1 pcm-capture-queue 1` sets the lowest. Lower is faster but leaves less margin when the computer is busy.
+
+Without a device: `meson setup apps/gui/build-demo apps/gui -Ddemo=true` builds it with two made-up devices; `OZZY_DEMO_EVENTS=1 ./apps/gui/build-demo/ozzy` plugs them in, changes the clock and unplugs one.
 
 ---
 
@@ -389,7 +401,10 @@ Ozzy/
 ├── macos/          # macOS kext + HAL/MIDI drivers
 │   └── Backends/   # Platform backends (Kext, future Dext)
 ├── windows/        # Windows ACX (WASAPI) driver (WIP)
-├── ozzyctl/        # Device settings from the command line (macOS, Linux, Windows)
+├── apps/           # The user's tools: ozzy-cli and the ozzy app (macOS, Linux, Windows)
+│   ├── control/    # What both share: devices, settings, their changes, the driver's facts
+│   ├── cli/        # ozzy-cli: device settings from the command line
+│   └── gui/        # ozzy: the settings app (libui-ng)
 ├── tests/          # Host tests of the engine on a fake USB bus
 ├── tools/
 │   └── winusb-harness/  # The engine over WinUSB in a console program (Windows dev tool)

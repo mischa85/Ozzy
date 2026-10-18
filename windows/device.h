@@ -56,7 +56,7 @@ NTSTATUS wcircuit_create(WDFDEVICE device, bool render, ACXCIRCUIT* circuit);
  * which a stream of the other direction would not survive, so that refuses it */
 NTSTATUS wdev_stream_rate(struct wdev* dev, bool render, uint32_t rate);
 
-/* settings.c: ozzyctl's property set (windows/ozzy_ksproperty.h) on a circuit, and the settings
+/* settings.c: the control property set (windows/ozzy_ksproperty.h) on a circuit, and the settings
  * the registry keeps, into the engine (PrepareHardware, after ozzy_engine_attach) */
 NTSTATUS wsettings_assign(PACXCIRCUIT_INIT init);
 void wsettings_restore(struct wdev* dev, WDFDEVICE device);

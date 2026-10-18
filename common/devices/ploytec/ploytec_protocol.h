@@ -185,8 +185,8 @@ enum ploytec_us3xx_config_flags {
 /* ========================================================================
  * Output Packet Layout
  *
- * One output packet carries PLOYTEC_FRAMES_PER_PKT (80) frames in
- * 8 sub-packets of 10 frames, with MIDI bytes embedded in each sub-packet.
+ * Output goes in sub-packets of 10 frames, with a MIDI byte and a control
+ * byte embedded in each; a transfer is any number of them in a row.
  * There are two layouts. Which one a device uses follows the PCM OUT
  * endpoint's wMaxPacketSize, not its transfer type, like the official
  * driver (AudioBulkIRP::useOut):
@@ -216,17 +216,15 @@ static inline enum ploytec_out_layout ploytec_out_layout_for_maxpacket(uint16_t 
 							      : PLOYTEC_OUT_LAYOUT_INT;
 }
 
-/*
- * ploytec_out_packet_size - Size in bytes of one output packet (80 frames).
- */
-static inline uint32_t ploytec_out_packet_size(enum ploytec_out_layout layout)
+/* Bytes of one output sub-packet (10 frames, a MIDI slot and a control byte) */
+static inline uint32_t ploytec_out_subpkt_size(enum ploytec_out_layout layout)
 {
-	return layout == PLOYTEC_OUT_LAYOUT_BULK ? PLOYTEC_BULK_OUT_PKT_SIZE
-						 : PLOYTEC_INT_OUT_PKT_SIZE;
+	return layout == PLOYTEC_OUT_LAYOUT_BULK ? PLOYTEC_BULK_OUT_SUBPKT_SIZE : PLOYTEC_INT_OUT_SUBPKT_SIZE;
 }
 
 /*
- * ploytec_out_frame_offset - Byte offset of a frame (0-79) within an output packet.
+ * ploytec_out_frame_offset - Byte offset of frame @frame of a run of sub-packets from the start
+ * of its first (frame 10 is the first of the second sub-packet).
  */
 static inline uint32_t ploytec_out_frame_offset(enum ploytec_out_layout layout, uint32_t frame)
 {
@@ -242,7 +240,7 @@ static inline uint32_t ploytec_out_frame_offset(enum ploytec_out_layout layout, 
 }
 
 /*
- * ploytec_out_midi_offset - Byte offset of the MIDI slot of sub-packet 0-7.
+ * ploytec_out_midi_offset - Byte offset of the MIDI slot of sub-packet @subpkt of a run.
  * The control byte follows it.
  */
 static inline uint32_t ploytec_out_midi_offset(enum ploytec_out_layout layout, uint32_t subpkt)
@@ -256,17 +254,17 @@ static inline uint32_t ploytec_out_midi_offset(enum ploytec_out_layout layout, u
 }
 
 /*
- * ploytec_out_init_packet - Fill an output packet with silence, idle MIDI slots
+ * ploytec_out_init_subpkts - Fill @count sub-packets from @pkt with silence, idle MIDI slots
  * and idle control bytes.
  */
-static inline void ploytec_out_init_packet(enum ploytec_out_layout layout, uint8_t *pkt)
+static inline void ploytec_out_init_subpkts(enum ploytec_out_layout layout, uint8_t *pkt, uint32_t count)
 {
 	uint32_t k, midi;
 
-	for (k = 0; k < ploytec_out_packet_size(layout); k++)
+	for (k = 0; k < count * ploytec_out_subpkt_size(layout); k++)
 		pkt[k] = 0;
 
-	for (k = 0; k < PLOYTEC_FRAMES_PER_PKT / PLOYTEC_FRAMES_PER_OUT_SUBPKT; k++) {
+	for (k = 0; k < count; k++) {
 		midi = ploytec_out_midi_offset(layout, k);
 		pkt[midi] = PLOYTEC_MIDI_IDLE_BYTE;
 		pkt[midi + 1] = PLOYTEC_MIDI_CONTROL_IDLE;

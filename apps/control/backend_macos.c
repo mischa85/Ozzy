@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: MIT
 /*
- * ozzyctl backend for macOS: OzzyHAL's devices through CoreAudio. Their UIDs start with
+ * The control backend for macOS: OzzyHAL's devices through CoreAudio. Their UIDs start with
  * "OzzyHAL."; the settings are the custom property OZZY_PROPERTY_SETTING, a dictionary of
- * setting name -> value (engine/shared/ozzy_shared_data.h). Changes come from property
- * listeners: on the device list, and on each Ozzy device's OZZY_PROPERTY_SETTING (OzzyHAL
- * notifies it on every set and after every handshake), rate and liveness.
+ * setting name -> value, the driver's record OZZY_PROPERTY_INFO a CFData of struct ozzy_info
+ * (engine/shared/ozzy_shared_data.h); the rest (buffer size, latency, whether a client streams)
+ * is CoreAudio's own. Changes come from property listeners: on the device list, and on each
+ * Ozzy device's OZZY_PROPERTY_SETTING and OZZY_PROPERTY_INFO (OzzyHAL notifies them on every
+ * set and after every handshake), rate, buffer size, use and liveness.
  *
  * Copyright (C) 2024 Marcel Bierling <marcel@hackerman.art>
  */
@@ -16,10 +18,13 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "ozzyctl.h"
+#include "ozzy_control.h"
 
-/* Same value as engine/shared/ozzy_shared_data.h (its client side is C++, for the HAL) */
+/* Same values as engine/shared/ozzy_shared_data.h (its client side is C++, for the HAL) */
 #define OZZY_PROPERTY_SETTING 'ozst'
+#define OZZY_PROPERTY_INFO 'ozin'
+/* kAudioDevicePropertyZeroTimeStampPeriod, which only AudioServerPlugIn.h names */
+#define ZERO_TIMESTAMP_PERIOD 'ring'
 
 static AudioObjectPropertyAddress addr(AudioObjectPropertySelector sel, AudioObjectPropertyScope scope)
 {
@@ -74,7 +79,7 @@ static bool dict_int(CFDictionaryRef d, CFStringRef key, SInt32 *out)
 }
 
 /* The device's settings from OZZY_PROPERTY_SETTING */
-static void read_settings(AudioObjectID dev, struct ozzyctl_device *out)
+static void read_settings(AudioObjectID dev, struct ozzy_control_device *out)
 {
 	AudioObjectPropertyAddress a = addr(OZZY_PROPERTY_SETTING, kAudioObjectPropertyScopeGlobal);
 	CFDictionaryRef dict = NULL;
@@ -108,7 +113,48 @@ static void read_settings(AudioObjectID dev, struct ozzyctl_device *out)
 	CFRelease(dict);
 }
 
-int ozzyctl_backend_list(struct ozzyctl_device *devs, int max)
+static UInt32 get_u32(AudioObjectID obj, AudioObjectPropertySelector sel, AudioObjectPropertyScope scope)
+{
+	AudioObjectPropertyAddress a = addr(sel, scope);
+	UInt32 v = 0, sz = sizeof(v);
+
+	if (AudioObjectGetPropertyData(obj, &a, 0, NULL, &sz, &v) != noErr)
+		return 0;
+	return v;
+}
+
+/* The driver's record (OZZY_PROPERTY_INFO), if it has one this build reads */
+static void read_info(AudioObjectID dev, struct ozzy_control_device *out)
+{
+	AudioObjectPropertyAddress a = addr(OZZY_PROPERTY_INFO, kAudioObjectPropertyScopeGlobal);
+	CFDataRef data = NULL;
+	UInt32 sz = sizeof(data);
+
+	if (!AudioObjectHasProperty(dev, &a) ||
+	    AudioObjectGetPropertyData(dev, &a, 0, NULL, &sz, &data) != noErr || !data)
+		return;
+	if (CFGetTypeID(data) == CFDataGetTypeID())
+		out->has_info = ozzy_control_take_info(&out->info, CFDataGetBytePtr(data), (size_t)CFDataGetLength(data));
+	CFRelease(data);
+}
+
+/* What CoreAudio has of the device */
+static void read_host(AudioObjectID dev, struct ozzy_control_device *out)
+{
+	struct ozzy_control_host *h = &out->host;
+
+	snprintf(h->driver, sizeof(h->driver), "Ozzy kext + OzzyHAL");
+	h->running = get_u32(dev, kAudioDevicePropertyDeviceIsRunningSomewhere, kAudioObjectPropertyScopeGlobal) != 0;
+	h->buffer_frames = get_u32(dev, kAudioDevicePropertyBufferFrameSize, kAudioObjectPropertyScopeGlobal);
+	h->latency[0] = get_u32(dev, kAudioDevicePropertyLatency, kAudioObjectPropertyScopeOutput);
+	h->latency[1] = get_u32(dev, kAudioDevicePropertyLatency, kAudioObjectPropertyScopeInput);
+	h->safety_offset[0] = get_u32(dev, kAudioDevicePropertySafetyOffset, kAudioObjectPropertyScopeOutput);
+	h->safety_offset[1] = get_u32(dev, kAudioDevicePropertySafetyOffset, kAudioObjectPropertyScopeInput);
+	h->timestamp_period = get_u32(dev, ZERO_TIMESTAMP_PERIOD, kAudioObjectPropertyScopeGlobal);
+	snprintf(h->format, sizeof(h->format), "32-bit float, 24-bit on the device");
+}
+
+int ozzy_control_backend_list(struct ozzy_control_device *devs, int max)
 {
 	AudioObjectPropertyAddress a = addr(kAudioHardwarePropertyDevices, kAudioObjectPropertyScopeGlobal);
 	AudioObjectID *ids;
@@ -127,7 +173,7 @@ int ozzyctl_backend_list(struct ozzyctl_device *devs, int max)
 	}
 	count = (int)(sz / sizeof(AudioObjectID));
 	for (i = 0; i < count && n < max; i++) {
-		struct ozzyctl_device *d = &devs[n];
+		struct ozzy_control_device *d = &devs[n];
 		AudioObjectPropertyAddress ra = addr(kAudioDevicePropertyNominalSampleRate,
 						     kAudioObjectPropertyScopeGlobal);
 		Float64 rate = 0;
@@ -144,13 +190,15 @@ int ozzyctl_backend_list(struct ozzyctl_device *devs, int max)
 		d->out_channels = channels(ids[i], kAudioObjectPropertyScopeOutput);
 		d->handle = ids[i];
 		read_settings(ids[i], d);
+		read_info(ids[i], d);
+		read_host(ids[i], d);
 		n++;
 	}
 	free(ids);
 	return n;
 }
 
-int ozzyctl_backend_set(const struct ozzyctl_device *dev, unsigned int id, unsigned int value)
+int ozzy_control_backend_set(const struct ozzy_control_device *dev, unsigned int id, unsigned int value)
 {
 	AudioObjectPropertyAddress a = addr(OZZY_PROPERTY_SETTING, kAudioObjectPropertyScopeGlobal);
 	CFStringRef key = CFStringCreateWithCString(NULL, ozzy_setting_descs[id].name, kCFStringEncodingUTF8);
@@ -178,18 +226,33 @@ int ozzyctl_backend_set(const struct ozzyctl_device *dev, unsigned int id, unsig
 	return 0;
 }
 
-/* The watch (ozzyctl_backend_watch): the devices with listeners, under watch_lock, which also
- * makes the callbacks one at a time */
-static pthread_mutex_t watch_lock = PTHREAD_MUTEX_INITIALIZER;
+/*
+ * The watch (ozzy_control_backend_watch). CoreAudio is never called with a lock held, so an add or
+ * remove of a listener can't wait on a callback that waits on us: state_lock guards only the list
+ * of watched devices (by object and UID, as an object ID may come back for another device), and
+ * callback_lock only makes the callbacks one at a time.
+ */
+#define WATCH_MAX OZZY_CONTROL_MAX_DEVICES
+
+struct watched {
+	AudioObjectID id;
+	char uid[160];
+};
+
+static pthread_mutex_t state_lock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t callback_lock = PTHREAD_MUTEX_INITIALIZER;
 static void (*watch_changed)(void *ctx);
 static void *watch_ctx;
-static AudioObjectID watched[64];
+static struct watched watched[WATCH_MAX];
 static int nwatched;
 
 /* What of a device the listeners hear about */
 static const AudioObjectPropertySelector device_props[] = {
 	OZZY_PROPERTY_SETTING,
+	OZZY_PROPERTY_INFO,
 	kAudioDevicePropertyNominalSampleRate,
+	kAudioDevicePropertyBufferFrameSize,
+	kAudioDevicePropertyDeviceIsRunningSomewhere,
 	kAudioDevicePropertyStreamConfiguration,
 	kAudioDevicePropertyDeviceIsAlive,
 	kAudioObjectPropertyName,
@@ -198,45 +261,70 @@ static const AudioObjectPropertySelector device_props[] = {
 
 static OSStatus on_property(AudioObjectID obj, UInt32 count, const AudioObjectPropertyAddress *addrs, void *ctx);
 
-/* Listen to devices that came, forget those that left: called with watch_lock held */
+static void listen(AudioObjectID id, bool on)
+{
+	unsigned int p;
+
+	for (p = 0; p < NUM_DEVICE_PROPS; p++) {
+		AudioObjectPropertyAddress pa = addr(device_props[p], kAudioObjectPropertyScopeWildcard);
+
+		if (on)
+			AudioObjectAddPropertyListener(id, &pa, on_property, NULL);
+		else
+			AudioObjectRemovePropertyListener(id, &pa, on_property, NULL);
+	}
+}
+
+static bool same_device(const struct watched *a, const struct watched *b)
+{
+	return a->id == b->id && !strcmp(a->uid, b->uid);
+}
+
+/*
+ * Listen to devices that came, forget those that left: the list from CoreAudio, then the
+ * difference under state_lock, then the listeners outside it. Two scans at once only race on
+ * who adds or drops a device's listeners, which state_lock decides; at worst a device that just
+ * left keeps a listener, which goes with it.
+ */
 static void watch_devices(void)
 {
 	AudioObjectPropertyAddress a = addr(kAudioHardwarePropertyDevices, kAudioObjectPropertyScopeGlobal);
-	AudioObjectID ids[64], keep[64];
+	struct watched now[WATCH_MAX], add[WATCH_MAX], drop[WATCH_MAX];
+	AudioObjectID ids[64];
 	UInt32 sz = sizeof(ids);
-	int count = 0, nkeep = 0, i, k;
-	unsigned int p;
-	char uid[160];
+	int count = 0, nnow = 0, nadd = 0, ndrop = 0, i, k;
 
 	if (AudioObjectGetPropertyData(kAudioObjectSystemObject, &a, 0, NULL, &sz, ids) == noErr)
 		count = (int)(sz / sizeof(AudioObjectID));
-	for (i = 0; i < count && nkeep < 64; i++) {
-		if (!get_string(ids[i], kAudioDevicePropertyDeviceUID, uid, sizeof(uid)) ||
-		    strncmp(uid, "OzzyHAL.", 8) != 0)
+	for (i = 0; i < count && nnow < WATCH_MAX; i++) {
+		if (!get_string(ids[i], kAudioDevicePropertyDeviceUID, now[nnow].uid, sizeof(now[nnow].uid)) ||
+		    strncmp(now[nnow].uid, "OzzyHAL.", 8) != 0)
 			continue;
-		for (k = 0; k < nwatched && watched[k] != ids[i]; k++)
-			;
-		if (k == nwatched) {
-			for (p = 0; p < NUM_DEVICE_PROPS; p++) {
-				AudioObjectPropertyAddress pa = addr(device_props[p], kAudioObjectPropertyScopeWildcard);
-
-				AudioObjectAddPropertyListener(ids[i], &pa, on_property, NULL);
-			}
-		}
-		keep[nkeep++] = ids[i];
+		now[nnow++].id = ids[i];
 	}
-	/* A device that left takes its listeners along; removing them is for one that stays */
+
+	pthread_mutex_lock(&state_lock);
+	for (i = 0; i < nnow; i++) {
+		for (k = 0; k < nwatched && !same_device(&watched[k], &now[i]); k++)
+			;
+		if (k == nwatched)
+			add[nadd++] = now[i];
+	}
 	for (k = 0; k < nwatched; k++) {
-		for (i = 0; i < nkeep && keep[i] != watched[k]; i++)
+		for (i = 0; i < nnow && !same_device(&watched[k], &now[i]); i++)
 			;
-		for (p = 0; i == nkeep && p < NUM_DEVICE_PROPS; p++) {
-			AudioObjectPropertyAddress pa = addr(device_props[p], kAudioObjectPropertyScopeWildcard);
-
-			AudioObjectRemovePropertyListener(watched[k], &pa, on_property, NULL);
-		}
+		if (i == nnow)
+			drop[ndrop++] = watched[k];
 	}
-	memcpy(watched, keep, sizeof(keep[0]) * (size_t)nkeep);
-	nwatched = nkeep;
+	memcpy(watched, now, sizeof(now[0]) * (size_t)nnow);
+	nwatched = nnow;
+	pthread_mutex_unlock(&state_lock);
+
+	/* A device that left takes its listeners along; removed in case its object stays around */
+	for (k = 0; k < ndrop; k++)
+		listen(drop[k].id, false);
+	for (i = 0; i < nadd; i++)
+		listen(add[i].id, true);
 }
 
 static OSStatus on_property(AudioObjectID obj, UInt32 count, const AudioObjectPropertyAddress *addrs, void *ctx)
@@ -244,33 +332,31 @@ static OSStatus on_property(AudioObjectID obj, UInt32 count, const AudioObjectPr
 	(void)count;
 	(void)addrs;
 	(void)ctx;
-	pthread_mutex_lock(&watch_lock);
 	if (obj == kAudioObjectSystemObject)
 		watch_devices();
+	pthread_mutex_lock(&callback_lock);
 	watch_changed(watch_ctx);
-	pthread_mutex_unlock(&watch_lock);
+	pthread_mutex_unlock(&callback_lock);
 	return noErr;
 }
 
-int ozzyctl_backend_watch(void (*changed)(void *ctx), void *ctx)
+int ozzy_control_backend_watch(void (*changed)(void *ctx), void *ctx)
 {
 	AudioObjectPropertyAddress loop = addr(kAudioHardwarePropertyRunLoop, kAudioObjectPropertyScopeGlobal);
 	AudioObjectPropertyAddress devices = addr(kAudioHardwarePropertyDevices, kAudioObjectPropertyScopeGlobal);
 	CFRunLoopRef none = NULL;
 	OSStatus st;
 
-	pthread_mutex_lock(&watch_lock);
 	watch_changed = changed;
 	watch_ctx = ctx;
 	/* Notifications on CoreAudio's own thread, not a run loop the process may not run */
 	AudioObjectSetPropertyData(kAudioObjectSystemObject, &loop, 0, NULL, sizeof(none), &none);
+	/* The list's listener first, then the devices: a device that comes meanwhile is in one of them */
 	st = AudioObjectAddPropertyListener(kAudioObjectSystemObject, &devices, on_property, NULL);
-	if (st == noErr)
-		watch_devices();
-	pthread_mutex_unlock(&watch_lock);
 	if (st != noErr) {
 		fprintf(stderr, "CoreAudio: can't watch the devices (error %d)\n", (int)st);
 		return -1;
 	}
+	watch_devices();
 	return 0;
 }

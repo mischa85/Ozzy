@@ -7,6 +7,10 @@
  * A route applies at once (the engine routes from the next packet); a device setting
  * restarts the engine, whose handshake sends it.
  *
+ * Clients learn of changes from control events (snd_ctl_subscribe_events): ALSA sends one for
+ * a setting a client changed, the driver one for the clock lock after each handshake
+ * (ozzy_controls_handshake), the only time the engine learns it.
+ *
  * Copyright (C) 2024 Marcel Bierling <marcel@hackerman.art>
  */
 
@@ -46,10 +50,14 @@ static int setting_put(struct snd_kcontrol *kctl, struct snd_ctl_elem_value *uco
 		return -EINVAL;
 	if (change == OZZY_SETTING_SAME)
 		return 0;
+	return ret < 0 ? ret : 1;
+}
 
+/* After a handshake (the engine started): the clock lock may have changed */
+void ozzy_controls_handshake(struct ozzy_chip *chip)
+{
 	if (chip->clock_lock_kctl)
 		snd_ctl_notify(chip->card, SNDRV_CTL_EVENT_MASK_VALUE, &chip->clock_lock_kctl->id);
-	return ret < 0 ? ret : 1;
 }
 
 static int clock_lock_get(struct snd_kcontrol *kctl, struct snd_ctl_elem_value *ucontrol)

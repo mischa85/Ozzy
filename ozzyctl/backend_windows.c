@@ -3,13 +3,16 @@
  * ozzyctl backend for Windows: the Ozzy ACX driver's property set (windows/ozzy_ksproperty.h)
  * through IOCTL_KS_PROPERTY. Each device has a KSCATEGORY_AUDIO interface per endpoint; the
  * first one that answers the property stands for the device (the driver serves it on both).
- * Devices with another driver (the official one) don't answer, and aren't listed.
+ * Devices with another driver (the official one) don't answer, and aren't listed. Changes come
+ * from the driver's KS event on that filter (OZZY_KSEVENT_CHANGED) and CM notifications for the
+ * interfaces coming and going, on one thread waiting for them.
  *
  * Copyright (C) 2024 Marcel Bierling <marcel@hackerman.art>
  */
 
 #include <windows.h>
 #include <setupapi.h>
+#include <cfgmgr32.h>
 #include <ks.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -22,6 +25,7 @@
 /* KSCATEGORY_AUDIO, here so no GUID library is needed */
 static const GUID ksaudio = { 0x6994ad04, 0x93ef, 0x11d0, { 0xa3, 0xcc, 0x00, 0xa0, 0xc9, 0x22, 0x31, 0x96 } };
 static const GUID ozzy_propsetid_settings = OZZY_PROPSETID_SETTINGS_INIT;
+static const GUID ozzy_eventsetid_settings = OZZY_EVENTSETID_SETTINGS_INIT;
 
 /* Interface paths of the listed devices, by ozzyctl_device.handle */
 static wchar_t paths[OZZYCTL_MAX_DEVICES][512];
@@ -33,7 +37,9 @@ static bool ks_property(const wchar_t *path, ULONG id, ULONG flags, void *value,
 	HANDLE h;
 	BOOL ok;
 
-	h = CreateFileW(path, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+	/* Shared: the watch keeps the filter open */
+	h = CreateFileW(path, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING,
+			FILE_ATTRIBUTE_NORMAL, NULL);
 	if (h == INVALID_HANDLE_VALUE)
 		return false;
 	memset(&prop, 0, sizeof(prop));
@@ -51,7 +57,8 @@ static void to_utf8(const wchar_t *w, char *out, int size)
 		out[0] = 0;
 }
 
-int ozzyctl_backend_list(struct ozzyctl_device *devs, int max)
+/* Our devices into @devs, each one's interface path into @found */
+static int find_devices(struct ozzyctl_device *devs, int max, wchar_t (*found)[512])
 {
 	SP_DEVICE_INTERFACE_DATA ifd = { sizeof(ifd) };
 	HDEVINFO set;
@@ -105,7 +112,7 @@ int ozzyctl_backend_list(struct ozzyctl_device *devs, int max)
 			free(detail);
 			continue;
 		}
-		wcsncpy_s(paths[n], 512, detail->DevicePath, _TRUNCATE);
+		wcsncpy_s(found[n], 512, detail->DevicePath, _TRUNCATE);
 		free(detail);
 
 		if (SetupDiGetDeviceRegistryPropertyW(set, &dev, SPDRP_FRIENDLYNAME, NULL, (BYTE *)friendly,
@@ -131,6 +138,11 @@ int ozzyctl_backend_list(struct ozzyctl_device *devs, int max)
 	return n;
 }
 
+int ozzyctl_backend_list(struct ozzyctl_device *devs, int max)
+{
+	return find_devices(devs, max, paths);
+}
+
 int ozzyctl_backend_set(const struct ozzyctl_device *dev, unsigned int id, unsigned int value)
 {
 	struct ozzy_ksproperty_setting s = { id, value };
@@ -143,5 +155,185 @@ int ozzyctl_backend_set(const struct ozzyctl_device *dev, unsigned int id, unsig
 			GetLastError());
 		return -1;
 	}
+	return 0;
+}
+
+/*
+ * The watch (ozzyctl_backend_watch). Each device's filter stays open with the event enabled; an
+ * open handle holds up the device's removal, so it is closed as soon as removal is asked for.
+ */
+struct watch_sub {
+	HANDLE volatile file;          /* INVALID_HANDLE_VALUE once closed */
+	HANDLE event;                  /* the driver signals it */
+	HCMNOTIFICATION removal;       /* NULL if none */
+};
+
+static struct {
+	void (*changed)(void *ctx);
+	void *ctx;
+	HANDLE rescan;                 /* auto-reset: devices came or go */
+	HCMNOTIFICATION interfaces;
+	struct watch_sub subs[OZZYCTL_MAX_DEVICES];
+	int nsubs;
+} watch;
+
+static void sub_close_file(struct watch_sub *sub)
+{
+	HANDLE h = InterlockedExchangePointer((PVOID volatile *)&sub->file, INVALID_HANDLE_VALUE);
+
+	if (h != INVALID_HANDLE_VALUE)
+		CloseHandle(h);
+}
+
+/* An audio interface came or went */
+static DWORD CALLBACK on_interface(HCMNOTIFICATION note, PVOID ctx, CM_NOTIFY_ACTION action,
+				   PCM_NOTIFY_EVENT_DATA data, DWORD size)
+{
+	(void)note;
+	(void)ctx;
+	(void)action;
+	(void)data;
+	(void)size;
+	SetEvent(watch.rescan);
+	return ERROR_SUCCESS;
+}
+
+/* A watched device is to be removed: let go of it, and look again once that is decided (not
+ * before: opening it again would hold the removal up). Removal refused: it is opened again. */
+static DWORD CALLBACK on_device(HCMNOTIFICATION note, PVOID ctx, CM_NOTIFY_ACTION action,
+				PCM_NOTIFY_EVENT_DATA data, DWORD size)
+{
+	struct watch_sub *sub = ctx;
+
+	(void)note;
+	(void)data;
+	(void)size;
+	switch (action) {
+	case CM_NOTIFY_ACTION_DEVICEQUERYREMOVE:
+	case CM_NOTIFY_ACTION_DEVICEREMOVEPENDING:
+		sub_close_file(sub);
+		break;
+	case CM_NOTIFY_ACTION_DEVICEREMOVECOMPLETE:
+		sub_close_file(sub);
+		SetEvent(watch.rescan);
+		break;
+	case CM_NOTIFY_ACTION_DEVICEQUERYREMOVEFAILED:
+		SetEvent(watch.rescan);
+		break;
+	default:
+		break;
+	}
+	return ERROR_SUCCESS;
+}
+
+/* Called on the watch thread only (CM_Unregister_Notification must not run in a callback) */
+static void watch_close(void)
+{
+	int i;
+
+	for (i = 0; i < watch.nsubs; i++) {
+		if (watch.subs[i].removal)
+			CM_Unregister_Notification(watch.subs[i].removal);
+		sub_close_file(&watch.subs[i]);
+		CloseHandle(watch.subs[i].event);
+	}
+	watch.nsubs = 0;
+}
+
+static void watch_open(void)
+{
+	struct ozzyctl_device devs[OZZYCTL_MAX_DEVICES];
+	static wchar_t found[OZZYCTL_MAX_DEVICES][512];
+	int n = find_devices(devs, OZZYCTL_MAX_DEVICES, found), i;
+
+	for (i = 0; i < n; i++) {
+		struct watch_sub *sub = &watch.subs[watch.nsubs];
+		CM_NOTIFY_FILTER filter;
+		KSEVENTDATA data;
+		KSEVENT ev;
+		DWORD returned = 0;
+		HANDLE h, event;
+
+		h = CreateFileW(found[i], GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL,
+				OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+		if (h == INVALID_HANDLE_VALUE)
+			continue;
+		event = CreateEventW(NULL, FALSE, FALSE, NULL);
+		memset(&ev, 0, sizeof(ev));
+		ev.Set = ozzy_eventsetid_settings;
+		ev.Id = OZZY_KSEVENT_CHANGED;
+		ev.Flags = KSEVENT_TYPE_ENABLE;
+		memset(&data, 0, sizeof(data));
+		data.NotificationType = KSEVENTF_EVENT_HANDLE;
+		data.EventHandle.Event = event;
+		/* The event goes with the handle: closing it disables the event */
+		if (!event || !DeviceIoControl(h, IOCTL_KS_ENABLE_EVENT, &ev, sizeof(ev), &data, sizeof(data), &returned, NULL)) {
+			if (event)
+				CloseHandle(event);
+			CloseHandle(h);
+			continue;
+		}
+		sub->file = h;
+		sub->event = event;
+		sub->removal = NULL;
+		memset(&filter, 0, sizeof(filter));
+		filter.cbSize = sizeof(filter);
+		filter.FilterType = CM_NOTIFY_FILTER_TYPE_DEVICEHANDLE;
+		filter.u.DeviceHandle.hTarget = h;
+		if (CM_Register_Notification(&filter, sub, on_device, &sub->removal) != CR_SUCCESS)
+			sub->removal = NULL;
+		watch.nsubs++;
+	}
+}
+
+static DWORD WINAPI watch_thread(LPVOID arg)
+{
+	HANDLE waits[1 + OZZYCTL_MAX_DEVICES];
+
+	(void)arg;
+	for (;;) {
+		DWORD r;
+		int i;
+
+		waits[0] = watch.rescan;
+		for (i = 0; i < watch.nsubs; i++)
+			waits[1 + i] = watch.subs[i].event;
+		r = WaitForMultipleObjects((DWORD)(1 + watch.nsubs), waits, FALSE, INFINITE);
+		if (r == WAIT_FAILED) {
+			fprintf(stderr, "watch: waiting failed (error %lu)\n", GetLastError());
+			return 1;
+		}
+		if (r == WAIT_OBJECT_0) {
+			watch_close();
+			watch_open();
+		}
+		watch.changed(watch.ctx);
+	}
+}
+
+int ozzyctl_backend_watch(void (*changed)(void *ctx), void *ctx)
+{
+	CM_NOTIFY_FILTER filter;
+	HANDLE thread;
+
+	watch.changed = changed;
+	watch.ctx = ctx;
+	watch.rescan = CreateEventW(NULL, FALSE, FALSE, NULL);
+	memset(&filter, 0, sizeof(filter));
+	filter.cbSize = sizeof(filter);
+	filter.FilterType = CM_NOTIFY_FILTER_TYPE_DEVICEINTERFACE;
+	filter.u.DeviceInterface.ClassGuid = ksaudio;
+	if (!watch.rescan || CM_Register_Notification(&filter, NULL, on_interface, &watch.interfaces) != CR_SUCCESS) {
+		fprintf(stderr, "can't watch audio devices (error %lu)\n", GetLastError());
+		return -1;
+	}
+	/* Subscribed before returning: a change right after is heard */
+	watch_open();
+	thread = CreateThread(NULL, 0, watch_thread, NULL, 0, NULL);
+	if (!thread) {
+		fprintf(stderr, "can't start the watch thread (error %lu)\n", GetLastError());
+		return -1;
+	}
+	CloseHandle(thread);
 	return 0;
 }

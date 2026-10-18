@@ -2,13 +2,16 @@
 /*
  * ozzyctl backend for macOS: OzzyHAL's devices through CoreAudio. Their UIDs start with
  * "OzzyHAL."; the settings are the custom property OZZY_PROPERTY_SETTING, a dictionary of
- * setting name -> value (engine/shared/ozzy_shared_data.h).
+ * setting name -> value (engine/shared/ozzy_shared_data.h). Changes come from property
+ * listeners: on the device list, and on each Ozzy device's OZZY_PROPERTY_SETTING (OzzyHAL
+ * notifies it on every set and after every handshake), rate and liveness.
  *
  * Copyright (C) 2024 Marcel Bierling <marcel@hackerman.art>
  */
 
 #include <CoreAudio/CoreAudio.h>
 #include <CoreFoundation/CoreFoundation.h>
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -170,6 +173,103 @@ int ozzyctl_backend_set(const struct ozzyctl_device *dev, unsigned int id, unsig
 	if (st != noErr) {
 		fprintf(stderr, "%s: setting %s failed (CoreAudio error %d)\n", dev->name,
 			ozzy_setting_descs[id].name, (int)st);
+		return -1;
+	}
+	return 0;
+}
+
+/* The watch (ozzyctl_backend_watch): the devices with listeners, under watch_lock, which also
+ * makes the callbacks one at a time */
+static pthread_mutex_t watch_lock = PTHREAD_MUTEX_INITIALIZER;
+static void (*watch_changed)(void *ctx);
+static void *watch_ctx;
+static AudioObjectID watched[64];
+static int nwatched;
+
+/* What of a device the listeners hear about */
+static const AudioObjectPropertySelector device_props[] = {
+	OZZY_PROPERTY_SETTING,
+	kAudioDevicePropertyNominalSampleRate,
+	kAudioDevicePropertyStreamConfiguration,
+	kAudioDevicePropertyDeviceIsAlive,
+	kAudioObjectPropertyName,
+};
+#define NUM_DEVICE_PROPS (sizeof(device_props) / sizeof(device_props[0]))
+
+static OSStatus on_property(AudioObjectID obj, UInt32 count, const AudioObjectPropertyAddress *addrs, void *ctx);
+
+/* Listen to devices that came, forget those that left: called with watch_lock held */
+static void watch_devices(void)
+{
+	AudioObjectPropertyAddress a = addr(kAudioHardwarePropertyDevices, kAudioObjectPropertyScopeGlobal);
+	AudioObjectID ids[64], keep[64];
+	UInt32 sz = sizeof(ids);
+	int count = 0, nkeep = 0, i, k;
+	unsigned int p;
+	char uid[160];
+
+	if (AudioObjectGetPropertyData(kAudioObjectSystemObject, &a, 0, NULL, &sz, ids) == noErr)
+		count = (int)(sz / sizeof(AudioObjectID));
+	for (i = 0; i < count && nkeep < 64; i++) {
+		if (!get_string(ids[i], kAudioDevicePropertyDeviceUID, uid, sizeof(uid)) ||
+		    strncmp(uid, "OzzyHAL.", 8) != 0)
+			continue;
+		for (k = 0; k < nwatched && watched[k] != ids[i]; k++)
+			;
+		if (k == nwatched) {
+			for (p = 0; p < NUM_DEVICE_PROPS; p++) {
+				AudioObjectPropertyAddress pa = addr(device_props[p], kAudioObjectPropertyScopeWildcard);
+
+				AudioObjectAddPropertyListener(ids[i], &pa, on_property, NULL);
+			}
+		}
+		keep[nkeep++] = ids[i];
+	}
+	/* A device that left takes its listeners along; removing them is for one that stays */
+	for (k = 0; k < nwatched; k++) {
+		for (i = 0; i < nkeep && keep[i] != watched[k]; i++)
+			;
+		for (p = 0; i == nkeep && p < NUM_DEVICE_PROPS; p++) {
+			AudioObjectPropertyAddress pa = addr(device_props[p], kAudioObjectPropertyScopeWildcard);
+
+			AudioObjectRemovePropertyListener(watched[k], &pa, on_property, NULL);
+		}
+	}
+	memcpy(watched, keep, sizeof(keep[0]) * (size_t)nkeep);
+	nwatched = nkeep;
+}
+
+static OSStatus on_property(AudioObjectID obj, UInt32 count, const AudioObjectPropertyAddress *addrs, void *ctx)
+{
+	(void)count;
+	(void)addrs;
+	(void)ctx;
+	pthread_mutex_lock(&watch_lock);
+	if (obj == kAudioObjectSystemObject)
+		watch_devices();
+	watch_changed(watch_ctx);
+	pthread_mutex_unlock(&watch_lock);
+	return noErr;
+}
+
+int ozzyctl_backend_watch(void (*changed)(void *ctx), void *ctx)
+{
+	AudioObjectPropertyAddress loop = addr(kAudioHardwarePropertyRunLoop, kAudioObjectPropertyScopeGlobal);
+	AudioObjectPropertyAddress devices = addr(kAudioHardwarePropertyDevices, kAudioObjectPropertyScopeGlobal);
+	CFRunLoopRef none = NULL;
+	OSStatus st;
+
+	pthread_mutex_lock(&watch_lock);
+	watch_changed = changed;
+	watch_ctx = ctx;
+	/* Notifications on CoreAudio's own thread, not a run loop the process may not run */
+	AudioObjectSetPropertyData(kAudioObjectSystemObject, &loop, 0, NULL, sizeof(none), &none);
+	st = AudioObjectAddPropertyListener(kAudioObjectSystemObject, &devices, on_property, NULL);
+	if (st == noErr)
+		watch_devices();
+	pthread_mutex_unlock(&watch_lock);
+	if (st != noErr) {
+		fprintf(stderr, "CoreAudio: can't watch the devices (error %d)\n", (int)st);
 		return -1;
 	}
 	return 0;

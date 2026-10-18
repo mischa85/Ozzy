@@ -57,6 +57,8 @@ int ozzy_chip_restart(struct ozzy_chip *chip)
 	if (chip->gone)
 		return -ENODEV;
 	chip->running = ozzy_engine_restart(chip->engine);
+	if (chip->running)
+		ozzy_controls_handshake(chip);
 	return chip->running ? 0 : -EIO;
 }
 
@@ -298,7 +300,9 @@ static int ozzy_chip_post_reset(struct usb_interface *intf)
 	for (i = 0; i < p->interface_count && p->alt_setting; i++)
 		usb_set_interface(chip->dev, p->interfaces[i], p->alt_setting);
 	chip->running = ozzy_engine_start(chip->engine);
-	if (!chip->running)
+	if (chip->running)
+		ozzy_controls_handshake(chip);
+	else
 		chip_err(chip, "restart after reset failed");
 	mutex_unlock(&chip->lock);
 	return 0;

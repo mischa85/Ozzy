@@ -178,14 +178,39 @@ every setting the device has, plus "Clock Locked" / "Lock Rate"; set: dictionary
 name -> number. Device settings go through the configuration change to the kext, the rest apply in
 the HAL at once.
 
-**ozzyctl** (`ozzyctl/`): console tool, platform-neutral core (`ozzyctl.c`: list / show / set, names
-as slugs of `ozzy_setting_descs`) plus a backend per platform (`ozzyctl.h`); macOS backend through
+**ozzyctl** (`ozzyctl/`): console tool (`ozzyctl.c`: list / show / set / watch) on a platform-neutral
+core shared with future front ends such as a GUI (`ozzyctl_core.c`: names as slugs of
+`ozzy_setting_descs`, device / setting / value lookup) plus a backend per platform (`ozzyctl.h`); macOS backend through
 `OZZY_PROPERTY_SETTING`, installed by `install.command`; Linux backend (`backend_linux.c`) through
 alsa-lib: snd-usb-ozzy cards (card driver name), the settings' mixer controls by name, the lock
 from "S/PDIF Clock Validity", the channels from the device table via the card's USB IDs in sysfs,
 the rate from /proc/asound while a stream is open. Tested against user-defined controls on another
-card (no Ozzy card on the test VM). Windows backend later. `set` waits until a device setting reads
-back changed (on Linux the control write itself resets the device, so it's there at once).
+card (no Ozzy card on the test VM). Windows backend through the KS property set. `set` waits until a
+device setting reads back changed (on Linux the control write itself resets the device, so it's
+there at once), woken by change notifications, not polling.
+
+**Change notifications** (`ozzyctl_backend_watch`, 2026-10-18, untested on hardware). The clock lock
+is only learned in a handshake (`ozzy_engine_publish_settings`), so a set, a rate change and a
+(re)start are the only moments anything changes, and the driver knows each of them:
+- macOS: nothing new in the driver. OzzyHAL already posts `OZZY_PROPERTY_SETTING` after a host set
+  (`SetSetting`) and on connect and every configuration change (`NotifyDeviceChanged`). The backend
+  listens to the device list plus 'ozst', the rate, stream configuration, liveness and name of each
+  Ozzy device, on CoreAudio's own thread (`kAudioHardwarePropertyRunLoop` NULL). Device-list
+  notifications checked on this Mac with an aggregate device.
+- Linux: ALSA itself notifies a control a client changed; the driver now notifies "S/PDIF Clock
+  Validity" after each handshake (`ozzy_controls_handshake`, from `ozzy_chip_restart` and the
+  post-reset start) instead of from the put. The backend subscribes to each card's control events
+  and watches /dev/snd with inotify (controlC* create / delete / attrib, since udev sets the group
+  after the node appears), all in one poll(). Not compiled on Linux yet (no Linux box reachable);
+  syntax-checked against stub headers.
+- Windows: the driver has a KS event, `OZZY_EVENTSETID_SETTINGS` / `OZZY_KSEVENT_CHANGED`
+  (`ozzy_ksproperty.h`), an ACXEVENT on each audio circuit, generated after a setting change, a
+  rate restart and D0 entry. The backend enables it with `IOCTL_KS_ENABLE_EVENT` on a kept-open
+  filter, and uses CM notifications for interfaces coming and going, and for query-remove on the
+  open handle (closed then, so it doesn't hold up removal). Filters are now opened shared. Backend
+  cross-compiles with MinGW; driver part not compiled (no WDK here).
+- Linux gap: the rate ozzyctl shows comes from /proc while a stream is open; closing a stream sends
+  no event, so a front end shows the old rate until the next change.
 
 ## Open
 

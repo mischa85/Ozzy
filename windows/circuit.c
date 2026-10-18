@@ -58,6 +58,8 @@ NTSTATUS wcircuit_create(WDFDEVICE device, bool render, ACXCIRCUIT* out) {
     }
     struct wcircuit* ctx = wcircuit_get(circuit);
     ctx->render = render;
+    status = wsettings_add_event(circuit);
+    if (!NT_SUCCESS(status)) return status;
 
     /* Pin 0: the host pin the stream connects to; pin 1: the bridge to the device */
     ACXPIN pins[2];

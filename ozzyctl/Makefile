@@ -1,4 +1,4 @@
-# ozzyctl: the core plus this platform's backend (ozzyctl.h)
+# ozzyctl: the console tool on the core and this platform's backend (ozzyctl.h)
 
 CFLAGS ?= -O2
 CFLAGS += -std=gnu11 -Wall -Wextra   # gnu: POSIX (usleep, realpath) and alsa-lib on glibc
@@ -9,13 +9,13 @@ BACKEND := backend_macos.c
 LDLIBS  += -framework CoreAudio -framework CoreFoundation
 else ifeq ($(UNAME),Linux)
 BACKEND := backend_linux.c
-LDLIBS  += -lasound    # alsa-lib (Debian/Ubuntu: libasound2-dev, Fedora: alsa-lib-devel, Arch: alsa-lib)
+LDLIBS  += -lasound -pthread   # alsa-lib (Debian/Ubuntu: libasound2-dev, Fedora: alsa-lib-devel, Arch: alsa-lib)
 else
 $(error ozzyctl has no backend for $(UNAME); on Windows build it with CMakeLists.txt)
 endif
 
-ozzyctl: ozzyctl.c $(BACKEND) ozzyctl.h ../common/ozzy_settings.h ../common/ozzy_route.h ../common/ozzy_quirks.h ../common/ozzy_devices.h ../common/ozzy_devices.def
-	$(CC) $(CFLAGS) -o $@ ozzyctl.c $(BACKEND) $(LDLIBS)
+ozzyctl: ozzyctl.c ozzyctl_core.c $(BACKEND) ozzyctl.h ../common/ozzy_settings.h ../common/ozzy_route.h ../common/ozzy_quirks.h ../common/ozzy_devices.h ../common/ozzy_devices.def
+	$(CC) $(CFLAGS) -o $@ ozzyctl.c ozzyctl_core.c $(BACKEND) $(LDLIBS)
 
 clean:
 	rm -f ozzyctl

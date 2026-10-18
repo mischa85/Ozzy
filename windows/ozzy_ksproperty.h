@@ -6,6 +6,9 @@
  * routing, so this is how they are reached. The same header builds in the driver and in user
  * mode.
  *
+ * A client that keeps a filter open learns of changes from a KS event on it
+ * (IOCTL_KS_ENABLE_EVENT with OZZY_EVENTSETID_SETTINGS, OZZY_KSEVENT_CHANGED).
+ *
  * Copyright (C) 2024 Marcel Bierling <marcel@hackerman.art>
  */
 
@@ -21,6 +24,14 @@
 enum ozzy_ksproperty_id {
 	OZZY_KSPROPERTY_STATUS = 0,    /* get: struct ozzy_ksproperty_status */
 	OZZY_KSPROPERTY_SETTING = 1,   /* set: struct ozzy_ksproperty_setting */
+};
+
+/* The event set: {1fd13819-4ef9-40f0-bdf3-695f6589d659}, as a GUID initializer */
+#define OZZY_EVENTSETID_SETTINGS_INIT \
+	{ 0x1fd13819, 0x4ef9, 0x40f0, { 0xbd, 0xf3, 0x69, 0x5f, 0x65, 0x89, 0xd6, 0x59 } }
+
+enum ozzy_ksevent_id {
+	OZZY_KSEVENT_CHANGED = 0,      /* a setting, the rate or the clock lock changed: get the status */
 };
 
 /* Bump when struct ozzy_ksproperty_status changes */

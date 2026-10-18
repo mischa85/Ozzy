@@ -193,6 +193,7 @@ The installer automatically:
 make -C ozzyctl && sudo install -m 755 ozzyctl/ozzyctl /usr/local/bin/
 ozzyctl show
 ozzyctl set clock-source internal
+ozzyctl watch        # prints a device again whenever it changes
 ```
 
 **Leaving devices out:** `make OZZY_DISABLE="NumarkNS7 ReloopIQ2MIDI"` builds without those devices (names are the keys in [`common/ozzy_devices.def`](common/ozzy_devices.def)). By default the Linux build leaves out the Tascam US-144 and US-144MKII, which the kernel's own drivers handle; `make OZZY_DISABLE=` builds them in.

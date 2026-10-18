@@ -5,9 +5,11 @@
  * has them, and a change, which the engine checks and applies (ozzy_engine_change_setting).
  * KS property requests arrive at PASSIVE_LEVEL. Each change is kept in the device's registry
  * key and applied again when the device comes up (wsettings_restore), the way alsactl and
- * CoreAudio's plug-in storage do it on the other platforms. */
+ * CoreAudio's plug-in storage do it on the other platforms. Every change, and every handshake
+ * (which learns the clock lock), signals OZZY_KSEVENT_CHANGED on the filters. */
 
 static const GUID ozzy_propsetid_settings = OZZY_PROPSETID_SETTINGS_INIT;
+static const GUID ozzy_eventsetid_settings = OZZY_EVENTSETID_SETTINGS_INIT;
 
 /* The registry value of setting @id: its name (ozzy_setting_descs), as UTF-16 in @buf */
 static void wsettings_value_name(unsigned int id, WCHAR* buf, USHORT chars, UNICODE_STRING* name) {
@@ -122,8 +124,48 @@ static VOID wsettings_evt_setting(WDFOBJECT object, WDFREQUEST request) {
     WdfWaitLockRelease(dev->lock);
 
     /* Kept even if the device didn't take it now: the next start sends it again */
-    if (change != OZZY_SETTING_INVALID && change != OZZY_SETTING_SAME) wsettings_save(device, set->id, set->value);
+    if (change != OZZY_SETTING_INVALID && change != OZZY_SETTING_SAME) {
+        wsettings_save(device, set->id, set->value);
+        wsettings_changed(dev);
+    }
     WdfRequestComplete(request, status);
+}
+
+/* The event is always there to signal: nothing to switch on or off at the source */
+static NTSTATUS wsettings_evt_event_enable(ACXEVENT event) {
+    UNREFERENCED_PARAMETER(event);
+    PAGED_CODE();
+    return STATUS_SUCCESS;
+}
+
+static VOID wsettings_evt_event_disable(ACXEVENT event) {
+    UNREFERENCED_PARAMETER(event);
+    PAGED_CODE();
+}
+
+NTSTATUS wsettings_add_event(ACXCIRCUIT circuit) {
+    PAGED_CODE();
+    ACX_EVENT_CALLBACKS callbacks;
+    ACX_EVENT_CALLBACKS_INIT(&callbacks);
+    callbacks.EvtAcxEventEnable = wsettings_evt_event_enable;
+    callbacks.EvtAcxEventDisable = wsettings_evt_event_disable;
+
+    ACX_EVENT_CONFIG config;
+    ACX_EVENT_CONFIG_INIT(&config);
+    config.Set = &ozzy_eventsetid_settings;
+    config.Id = OZZY_KSEVENT_CHANGED;
+    config.Callbacks = &callbacks;
+
+    WDF_OBJECT_ATTRIBUTES attributes;
+    WDF_OBJECT_ATTRIBUTES_INIT(&attributes);
+    attributes.ParentObject = circuit;
+    return AcxEventCreate(circuit, &attributes, &config, &wcircuit_get(circuit)->changed);
+}
+
+void wsettings_changed(struct wdev* dev) {
+    PAGED_CODE();
+    if (dev->render && wcircuit_get(dev->render)->changed) AcxEventGenerateEvent(wcircuit_get(dev->render)->changed);
+    if (dev->capture && wcircuit_get(dev->capture)->changed) AcxEventGenerateEvent(wcircuit_get(dev->capture)->changed);
 }
 
 NTSTATUS wsettings_assign(PACXCIRCUIT_INIT init) {

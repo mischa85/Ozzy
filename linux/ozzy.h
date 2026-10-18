@@ -133,5 +133,6 @@ void ozzy_midi_service(struct ozzy_chip *chip);
 
 /* controls.c */
 int ozzy_controls_init(struct ozzy_chip *chip);
+void ozzy_controls_handshake(struct ozzy_chip *chip);
 
 #endif /* OZZY_H */

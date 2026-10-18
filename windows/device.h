@@ -41,6 +41,7 @@ WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(wdev, wdev_get)
 /* A circuit: its direction and a format per rate the device lists (ACX keeps pointers to them) */
 struct wcircuit {
     bool render;
+    ACXEVENT changed;                  /* OZZY_KSEVENT_CHANGED (settings.c), NULL if none */
     KSDATAFORMAT_WAVEFORMATEXTENSIBLE formats[OZZY_MAX_RATES];
 };
 typedef struct wcircuit wcircuit;
@@ -59,5 +60,10 @@ NTSTATUS wdev_stream_rate(struct wdev* dev, bool render, uint32_t rate);
  * the registry keeps, into the engine (PrepareHardware, after ozzy_engine_attach) */
 NTSTATUS wsettings_assign(PACXCIRCUIT_INIT init);
 void wsettings_restore(struct wdev* dev, WDFDEVICE device);
+
+/* settings.c, PASSIVE_LEVEL: OZZY_KSEVENT_CHANGED on a created circuit, and its generation on
+ * both audio circuits after a handshake or a setting change (without dev->lock held) */
+NTSTATUS wsettings_add_event(ACXCIRCUIT circuit);
+void wsettings_changed(struct wdev* dev);
 
 #endif

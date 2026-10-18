@@ -3,16 +3,22 @@
  * ozzyctl backend for Linux: the snd-usb-ozzy cards through alsa-lib. Each setting is a mixer
  * control named after ozzy_setting_descs[].name (linux/controls.c), the digital lock is
  * "S/PDIF Clock Validity". The channel counts come from the device table, through the card's
- * USB IDs in sysfs; the rate from /proc/asound while a stream is open.
+ * USB IDs in sysfs; the rate from /proc/asound while a stream is open. Changes come from ALSA
+ * control events on each card (a setting a client set, the clock lock after each handshake) and
+ * inotify on /dev/snd (cards coming and going), on one thread waiting in poll().
  *
  * Copyright (C) 2024 Marcel Bierling <marcel@hackerman.art>
  */
 
 #include <alsa/asoundlib.h>
 #include <limits.h>
+#include <poll.h>
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/inotify.h>
+#include <unistd.h>
 
 #include "ozzyctl.h"
 #include "../common/ozzy_devices.h"
@@ -78,6 +84,12 @@ static uint32_t card_rate(int card)
 	return 0;
 }
 
+/* Whether the card behind @ctl is one of ours; its info into @ci */
+static bool is_ozzy(snd_ctl_t *ctl, snd_ctl_card_info_t *ci)
+{
+	return snd_ctl_card_info(ctl, ci) >= 0 && !strcmp(snd_ctl_card_info_get_driver(ci), OZZY_ALSA_DRIVER);
+}
+
 /* Read mixer control @name: its first value. False if the card doesn't have it. */
 static bool read_control(snd_ctl_t *ctl, const char *name, long *value)
 {
@@ -120,7 +132,7 @@ int ozzyctl_backend_list(struct ozzyctl_device *devs, int max)
 		if (snd_ctl_open(&ctl, hw, 0) < 0)
 			continue;
 		snd_ctl_card_info_alloca(&ci);
-		if (snd_ctl_card_info(ctl, ci) < 0 || strcmp(snd_ctl_card_info_get_driver(ci), OZZY_ALSA_DRIVER)) {
+		if (!is_ozzy(ctl, ci)) {
 			snd_ctl_close(ctl);
 			continue;
 		}
@@ -180,5 +192,130 @@ int ozzyctl_backend_set(const struct ozzyctl_device *dev, unsigned int id, unsig
 			snd_strerror(err));
 		return -1;
 	}
+	return 0;
+}
+
+/* The watch (ozzyctl_backend_watch): one thread, waiting on inotify and each card's events */
+struct watch {
+	void (*changed)(void *ctx);
+	void *ctx;
+	int inotify;
+	snd_ctl_t *ctls[OZZYCTL_MAX_DEVICES];
+	int nctls;
+};
+
+/* Event-subscribed control handles of our cards, after closing the previous ones */
+static void watch_open(struct watch *w)
+{
+	int card = -1, i;
+
+	for (i = 0; i < w->nctls; i++)
+		snd_ctl_close(w->ctls[i]);
+	w->nctls = 0;
+	while (w->nctls < OZZYCTL_MAX_DEVICES && snd_card_next(&card) >= 0 && card >= 0) {
+		snd_ctl_card_info_t *ci;
+		snd_ctl_t *ctl;
+		char hw[16];
+
+		snprintf(hw, sizeof(hw), "hw:%d", card);
+		if (snd_ctl_open(&ctl, hw, SND_CTL_NONBLOCK) < 0)
+			continue;
+		snd_ctl_card_info_alloca(&ci);
+		if (!is_ozzy(ctl, ci) || snd_ctl_subscribe_events(ctl, 1) < 0) {
+			snd_ctl_close(ctl);
+			continue;
+		}
+		w->ctls[w->nctls++] = ctl;
+	}
+}
+
+/* Whether the inotify events waiting are about a card's control device (controlC<n>) */
+static bool watch_read_inotify(int fd)
+{
+	char buf[4096] __attribute__((aligned(__alignof__(struct inotify_event))));
+	bool cards = false;
+	ssize_t len;
+
+	while ((len = read(fd, buf, sizeof(buf))) > 0) {
+		char *p;
+
+		for (p = buf; p < buf + len; p += sizeof(struct inotify_event) + ((struct inotify_event *)p)->len) {
+			const struct inotify_event *ev = (const struct inotify_event *)p;
+
+			if (ev->len && !strncmp(ev->name, "controlC", 8))
+				cards = true;
+			if (ev->mask & IN_Q_OVERFLOW)
+				cards = true;
+		}
+	}
+	return cards;
+}
+
+static void *watch_thread(void *arg)
+{
+	struct watch *w = arg;
+	struct pollfd fds[1 + OZZYCTL_MAX_DEVICES * 4];
+	int owner[1 + OZZYCTL_MAX_DEVICES * 4];
+
+	for (;;) {
+		bool reopen = false, changed = false;
+		int nfds = 1, i, k;
+
+		fds[0].fd = w->inotify;
+		fds[0].events = POLLIN;
+		owner[0] = -1;
+		for (i = 0; i < w->nctls; i++) {
+			int n = snd_ctl_poll_descriptors(w->ctls[i], &fds[nfds], (unsigned int)(sizeof(fds) / sizeof(fds[0]) - nfds));
+
+			for (k = 0; k < n; k++)
+				owner[nfds + k] = i;
+			nfds += n > 0 ? n : 0;
+		}
+		if (poll(fds, (nfds_t)nfds, -1) < 0)
+			continue;
+
+		if (fds[0].revents & POLLIN)
+			reopen = watch_read_inotify(w->inotify);
+		for (k = 1; k < nfds; k++) {
+			snd_ctl_event_t *ev;
+
+			if (!fds[k].revents)
+				continue;
+			if (fds[k].revents & (POLLERR | POLLHUP | POLLNVAL)) {
+				reopen = true;   /* the card is going away */
+				continue;
+			}
+			snd_ctl_event_alloca(&ev);
+			while (snd_ctl_read(w->ctls[owner[k]], ev) > 0)
+				changed = true;
+		}
+		if (reopen)
+			watch_open(w);
+		if (reopen || changed)
+			w->changed(w->ctx);
+	}
+	return NULL;
+}
+
+int ozzyctl_backend_watch(void (*changed)(void *ctx), void *ctx)
+{
+	static struct watch w;
+	pthread_t thread;
+
+	w.changed = changed;
+	w.ctx = ctx;
+	/* A card's control device appears and goes; udev then gives it its group (IN_ATTRIB) */
+	w.inotify = inotify_init1(IN_NONBLOCK | IN_CLOEXEC);
+	if (w.inotify < 0 || inotify_add_watch(w.inotify, "/dev/snd", IN_CREATE | IN_DELETE | IN_ATTRIB) < 0) {
+		perror("inotify on /dev/snd");
+		return -1;
+	}
+	/* Subscribed before returning: a change right after is heard */
+	watch_open(&w);
+	if (pthread_create(&thread, NULL, watch_thread, &w)) {
+		fprintf(stderr, "can't start the watch thread\n");
+		return -1;
+	}
+	pthread_detach(thread);
 	return 0;
 }

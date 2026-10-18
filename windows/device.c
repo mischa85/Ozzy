@@ -177,6 +177,7 @@ static NTSTATUS wdev_evt_d0_entry(WDFDEVICE device, WDF_POWER_DEVICE_STATE previ
         kbus_stop_io(&ctx->bus);
     }
     WdfWaitLockRelease(ctx->lock);
+    if (ctx->started) wsettings_changed(ctx);
     return ctx->started ? STATUS_SUCCESS : STATUS_DEVICE_NOT_READY;
 }
 
@@ -197,6 +198,7 @@ static NTSTATUS wdev_evt_d0_exit(WDFDEVICE device, WDF_POWER_DEVICE_STATE target
 NTSTATUS wdev_stream_rate(struct wdev* dev, bool render, uint32_t rate) {
     PAGED_CODE();
     NTSTATUS status = STATUS_SUCCESS;
+    bool restarted = false;
 
     WdfWaitLockAcquire(dev->lock, NULL);
     if (!dev->engine || !dev->shm) {
@@ -208,7 +210,9 @@ NTSTATUS wdev_stream_rate(struct wdev* dev, bool render, uint32_t rate) {
         if (change == OZZY_SETTING_INVALID) status = STATUS_NOT_SUPPORTED;
         else if (change == OZZY_SETTING_RESTART && dev->started && !(dev->started = ozzy_engine_restart(dev->engine)))
             status = STATUS_DEVICE_NOT_READY;
+        restarted = change == OZZY_SETTING_RESTART && dev->started;
     }
     WdfWaitLockRelease(dev->lock);
+    if (restarted) wsettings_changed(dev);
     return status;
 }

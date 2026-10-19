@@ -223,6 +223,7 @@ int main(int argc, char** argv) {
 
     if (!wbus_configure(&bus)) return 1;
     ozzy_engine_attach(engine, &bus.bus, shm);
+    ozzy_engine_set_anchors(engine, true);   /* the clock statistics and the input reader below */
     if (!ozzy_engine_start(engine)) {
         fprintf(stderr, "engine start failed\n");
         ozzy_engine_stop(engine);

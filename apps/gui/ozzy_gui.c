@@ -73,6 +73,7 @@ static const struct {
 	[OZZY_SETTING_PCM_IN_FRAMES]  = { GUI_SECTION_STREAM, "In transfer" },
 	[OZZY_SETTING_PCM_OUT_QUEUE]  = { GUI_SECTION_STREAM, "Out queue" },
 	[OZZY_SETTING_PCM_IN_QUEUE]   = { GUI_SECTION_STREAM, "In queue" },
+	[OZZY_SETTING_IO_BUFFER_MAX]  = { GUI_SECTION_HOST, "Largest IO buffer" },
 };
 
 /* One setting's row: its combobox */
@@ -159,7 +160,7 @@ static void gui_note(void)
 		device_settings |= ozzy_setting_descs[gui.rows[i].id].kind == OZZY_SETTING_DEVICE;
 	uiLabelSetText(gui.note, gui.busy ? "Applying; the device's audio restarts for a moment..." :
 			       !gui.nrows ? "This device has no settings." :
-			       device_settings ? "Clock, S/PDIF and transfer changes restart the device's audio for a moment." : "");
+			       device_settings ? "Clock, S/PDIF, transfer and IO buffer changes restart the device's audio for a moment." : "");
 }
 
 static void gui_set_enabled(bool enabled)
@@ -449,6 +450,11 @@ static void gui_refresh(void)
 		else
 			gui.content = gui_build();
 		uiBoxAppend(gui.root, uiControl(gui.content), 1);
+		/* The window grows by itself when the new content needs more room, but doesn't shrink:
+		 * ask for the least and let the toolkit stop at what the content needs (Cocoa's layout
+		 * constraints, Win32's minimum track size, GTK's natural size). Only on a rebuild, so a
+		 * size the user chose stays otherwise. */
+		uiWindowSetContentSize(gui.win, 1, 1);
 	}
 	if (gui.current >= 0)
 		gui_update();

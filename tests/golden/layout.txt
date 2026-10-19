@@ -36,7 +36,7 @@ audio.safety_offset_frames         19944
 audio.input_safety_offset_frames   19948
 audio.settings                     19952
 audio.settings.value               19956
-audio.settings.clock_locked        19968
+audio.settings.clock_locked        19969
 audio.settings.lock_rate           19972
 audio.timestamp.sequence           19976
 audio.timestamp.sample_time        19984

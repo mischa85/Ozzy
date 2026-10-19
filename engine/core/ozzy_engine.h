@@ -230,6 +230,7 @@ struct ozzy_engine_report {
  * @report:       the family's part of ozzy_info, from its last start()
  * @usb_speed:    enum ozzy_usb_speed, as the platform found it (ozzy_engine_set_usb_speed)
  * @driver_version: the platform's build (OZZY_GIT_VERSION), NULL if it didn't say
+ * @anchors:      the platform reads the clock anchors (ozzy_engine_set_anchors)
  * @starts:       starts that succeeded since ozzy_engine_attach
  */
 struct ozzy_engine {
@@ -251,6 +252,7 @@ struct ozzy_engine {
 	struct ozzy_engine_report report;
 	uint8_t usb_speed;
 	const char *driver_version;
+	bool anchors;
 	uint32_t starts;
 };
 
@@ -332,6 +334,17 @@ bool ozzy_engine_start(struct ozzy_engine *e);
 static inline void ozzy_engine_set_usb_speed(struct ozzy_engine *e, enum ozzy_usb_speed speed)
 {
 	e->usb_speed = (uint8_t)speed;
+}
+
+/*
+ * Whether the platform reads the clock anchors (shm audio.timestamp; macOS: the HAL's zero
+ * timestamps, and the WinUSB harness). Without them (Linux, the Windows driver: they report the
+ * position per transfer) the families write none and don't offer OZZY_SETTING_IO_BUFFER_MAX.
+ * Before starting.
+ */
+static inline void ozzy_engine_set_anchors(struct ozzy_engine *e, bool anchors)
+{
+	e->anchors = anchors;
 }
 
 /* The driver's build (OZZY_GIT_VERSION, which only the platform's own files get): a string

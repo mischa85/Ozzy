@@ -103,11 +103,12 @@ static void demo_transfers(struct ozzy_control_device *d)
 		in->transfer_frames[0] = ozzy_pcm_frames(false, d->settings.value[OZZY_SETTING_PCM_OUT_FRAMES]);
 		in->safety_offset_frames = out_queue * in->transfer_frames[0];
 		in->pipes[OZZY_INFO_PIPE_PCM_OUT].in_flight = (uint8_t)out_queue;
-		in->timestamp_frames = (3200 + in->transfer_frames[0] - 1) / in->transfer_frames[0] * in->transfer_frames[0];
 	}
+	in->timestamp_frames = ozzy_anchor_frames(d->settings.value[OZZY_SETTING_IO_BUFFER_MAX],
+						  isoc ? 1 : in->transfer_frames[0]);
+	d->host.timestamp_period = in->timestamp_frames;
 	d->host.safety_offset[0] = in->safety_offset_frames;
 	d->host.safety_offset[1] = in->input_safety_offset_frames;
-	d->host.timestamp_period = in->timestamp_frames;
 }
 
 static void demo_pipe(struct ozzy_info_pipe *p, uint8_t address, uint8_t type, uint16_t max_packet, uint8_t interval,
@@ -211,7 +212,8 @@ static void demo_init(void)
 			if (ozzy_setting_values(m->quirks | (m->family == OZZY_FAMILY_PLOYTEC_ISOC ?
 						OZZY_QUIRK_PCM_IN_FRAMES | OZZY_QUIRK_PCM_IN_QUEUE :
 						OZZY_QUIRK_PCM_IN_FRAMES | OZZY_QUIRK_PCM_OUT_FRAMES |
-						OZZY_QUIRK_PCM_IN_QUEUE | OZZY_QUIRK_PCM_OUT_QUEUE),
+						OZZY_QUIRK_PCM_IN_QUEUE | OZZY_QUIRK_PCM_OUT_QUEUE) |
+						OZZY_QUIRK_CLOCK_ANCHORS,   /* as on macOS */
 						m->in_channels, m->out_channels, id))
 				d->available |= 1u << id;
 		if (m->family == OZZY_FAMILY_PLOYTEC_ISOC)

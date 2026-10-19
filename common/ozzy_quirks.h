@@ -130,6 +130,13 @@ enum ozzy_quirk {
 	 */
 	OZZY_QUIRK_PCM_OUT_QUEUE = 1u << 16,
 	OZZY_QUIRK_PCM_IN_QUEUE = 1u << 17,
+
+	/*
+	 * The clock anchors' spacing (OZZY_SETTING_IO_BUFFER_MAX), added by the engine family only
+	 * where the platform reads the anchors (ozzy_engine_set_anchors: the macOS kext, the WinUSB
+	 * harness); Linux and Windows report positions per transfer instead.
+	 */
+	OZZY_QUIRK_CLOCK_ANCHORS = 1u << 18,
 };
 
 #endif /* OZZY_QUIRKS_H */

@@ -28,7 +28,7 @@ extern "C" {
  * struct ozzy_isoc_output_config
  * @frame_bytes:    bytes per plain frame (channels * 3)
  * @ring_frames:    frames in the output ring
- * @anchor_frames:  timestamp anchor spacing (the HAL's zero timestamp period)
+ * @anchor_frames:  timestamp anchor spacing (the HAL's zero timestamp period), 0: none
  * @out_max_packet: bytes per service interval
  * @fb_addr:        0: no feedback endpoint, nominal rate
  * @ring:           the plain frame ring OUT packets point into (the HAL writes it on macOS)

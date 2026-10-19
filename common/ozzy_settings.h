@@ -51,6 +51,7 @@ enum ozzy_setting {
 	OZZY_SETTING_PCM_IN_FRAMES,   /* frames per PCM in transfer (Ploytec) */
 	OZZY_SETTING_PCM_OUT_QUEUE,   /* PCM out transfers in flight (Ploytec bulk / interrupt) */
 	OZZY_SETTING_PCM_IN_QUEUE,    /* PCM in transfers in flight (Ploytec bulk / interrupt) */
+	OZZY_SETTING_IO_BUFFER_MAX,   /* the largest IO buffer the host may use: the clock anchors' spacing */
 	OZZY_NUM_SETTINGS
 };
 
@@ -113,6 +114,31 @@ static inline uint32_t ozzy_pcm_queue(unsigned int value)
 	return value < OZZY_NUM_PCM_QUEUES ? value + 1 : OZZY_NUM_PCM_QUEUES;
 }
 
+/*
+ * OZZY_SETTING_IO_BUFFER_MAX values: the largest IO buffer a host that reads the engine's clock
+ * anchors (macOS: CoreAudio's zero timestamps) may use, which sets how far apart the anchors
+ * are. CoreAudio caps the IO buffer at 3/8 of the anchors' spacing (measured: 640 -> 240
+ * frames), so the spacing is 8/3 of the buffer, rounded up to whole out transfers: anchors close
+ * together cap the apps' buffer, anchors far apart leave the host's clock running on its own
+ * longer between them. The default, 1200 (anchors every 3200 frames), is what ran before the
+ * setting. Only offered where the platform reads the anchors (ozzy_engine_set_anchors).
+ */
+#define OZZY_NUM_IO_BUFFERS 4
+
+static inline uint32_t ozzy_io_buffer_frames(unsigned int value)
+{
+	return 300u << (value < OZZY_NUM_IO_BUFFERS ? value : 2);
+}
+
+/* The anchors' spacing for value @value, in whole transfers of @unit frames (0: 1) */
+static inline uint32_t ozzy_anchor_frames(unsigned int value, uint32_t unit)
+{
+	uint32_t spacing = ozzy_io_buffer_frames(value) * 8 / 3;
+
+	unit = unit ? unit : 1;
+	return (spacing + unit - 1) / unit * unit;
+}
+
 /* The frames of value @value of the out (@in false) or in setting; out of range: the default */
 static inline uint32_t ozzy_pcm_frames(bool in, unsigned int value)
 {
@@ -165,6 +191,8 @@ static const char *const ozzy_pcm_in_frames_names[OZZY_NUM_PCM_IN_FRAMES] = {
 
 static const char *const ozzy_pcm_queue_names[OZZY_NUM_PCM_QUEUES] = {
 	"1 transfer", "2 transfers", "3 transfers", "4 transfers" };
+static const char *const ozzy_io_buffer_names[OZZY_NUM_IO_BUFFERS] = {
+	"300 frames", "600 frames", "1200 frames", "2400 frames" };
 
 static const struct ozzy_setting_desc ozzy_setting_descs[OZZY_NUM_SETTINGS] = {
 	/* Positional: the macOS kext compiles this as C++11 */
@@ -193,6 +221,8 @@ static const struct ozzy_setting_desc ozzy_setting_descs[OZZY_NUM_SETTINGS] = {
 	  OZZY_QUIRK_PCM_OUT_QUEUE, OZZY_SETTING_DEVICE, 0 },
 	{ "PCM Capture Queue", ozzy_pcm_queue_names, OZZY_NUM_PCM_QUEUES, OZZY_NUM_PCM_QUEUES - 1,
 	  OZZY_QUIRK_PCM_IN_QUEUE, OZZY_SETTING_DEVICE, 0 },
+	{ "Largest IO Buffer", ozzy_io_buffer_names, OZZY_NUM_IO_BUFFERS, 2,
+	  OZZY_QUIRK_CLOCK_ANCHORS, OZZY_SETTING_DEVICE, 0 },
 };
 
 /*

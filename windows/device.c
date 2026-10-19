@@ -120,6 +120,7 @@ static NTSTATUS wdev_evt_prepare_hardware(WDFDEVICE device, WDFCMRESLIST resourc
             ozzy_engine_set_usb_speed(ctx->engine, (usb_info.Traits & WDF_USB_DEVICE_TRAIT_AT_HIGH_SPEED) ?
                                       OZZY_USB_SPEED_HIGH : OZZY_USB_SPEED_FULL);
         ozzy_engine_set_driver_version(ctx->engine, OZZY_GIT_VERSION);
+        /* No clock anchors: WaveRT reads the position each transfer moves (wstream_progress) */
         if (!ozzy_engine_alloc_memory(ctx->engine, &ctx->bus.allocator)) return STATUS_INSUFFICIENT_RESOURCES;
         wsettings_restore(ctx, device);
         ctx->configured = true;

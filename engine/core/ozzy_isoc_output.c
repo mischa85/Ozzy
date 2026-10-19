@@ -129,8 +129,8 @@ static void publish_timestamps(struct ozzy_isoc_output *out, const struct ozzy_i
 
 	for (p = 0; p < t->count; p++) {
 		out->played_frames += t->frames[p];
-		if (out->played_frames < out->next_anchor)
-			continue;
+		if (!out->config.anchor_frames || out->played_frames < out->next_anchor)
+			continue;   /* no anchors (the platform doesn't read them), or not yet */
 
 		ozzy_timestamp_write(&out->shm->audio.timestamp, out->next_anchor,
 				     t->packets[p].time ? t->packets[p].time : ozzy_bus_time(out->bus));

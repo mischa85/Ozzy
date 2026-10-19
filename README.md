@@ -206,7 +206,7 @@ The settings window, **ozzy**, works on Linux too (needs GTK 3 as well: `libgtk-
 meson setup apps/gui/build apps/gui && meson compile -C apps/gui/build
 ./apps/gui/build/ozzy
 ```
-**Latency:** on the Xone family (DB2, DB4, 4D, ESU1808, ...) the PCM transfer size is a setting per direction, from 10 frames out and 8 in (one USB sub-packet) up to 200, and so is how many transfers are in flight (1 to 4). The latency on USB is the two multiplied, which the app shows next to them; the defaults are 80 frames and 4 in flight each way. `ozzy-cli set pcm-playback-transfer 10 pcm-capture-transfer 8 pcm-playback-queue 1 pcm-capture-queue 1` sets the lowest. Lower is faster but leaves less margin when the computer is busy.
+**Latency:** on the Xone family (DB2, DB4, 4D, ESU1808, ...) the PCM transfer size is a setting per direction, from 10 frames out and 8 in (one USB sub-packet) up to 200, and so is how many transfers are in flight (1 to 4). The latency on USB is the two multiplied, which the app shows next to them; the defaults are 80 frames and 4 in flight each way. `ozzy-cli set pcm-playback-transfer 10 pcm-capture-transfer 8 pcm-playback-queue 1 pcm-capture-queue 1` sets the lowest. Lower is faster but leaves less margin when the computer is busy. On macOS the app also offers the **largest IO buffer** apps may use (300 to 2400 frames, 1200 by default), which sets how often the driver gives CoreAudio its clock.
 
 Without a device: `meson setup apps/gui/build-demo apps/gui -Ddemo=true` builds it with two made-up devices; `OZZY_DEMO_EVENTS=1 ./apps/gui/build-demo/ozzy` plugs them in, changes the clock and unplugs one.
 

@@ -223,6 +223,7 @@ bool OzzyKext::start(IOService* provider) {
         }
     }
     ozzy_engine_set_driver_version(mEngine, OZZY_GIT_VERSION);
+    ozzy_engine_set_anchors(mEngine, true);   // OzzyHAL's zero timestamps
     
     if (!ozzy_engine_start(mEngine)) {
         ozzy_log("engine start failed");

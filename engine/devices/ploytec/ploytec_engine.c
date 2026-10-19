@@ -111,7 +111,8 @@ static bool ploytec_start(struct ozzy_engine *e)
 		return false;
 
 	/* 0. The transfer sizes for this run (a change takes a restart), laid out in the rings; the
-	 * clock anchors every whole number of out transfers near OZZY_TIMESTAMP_FRAMES */
+	 * clock anchors (where the platform reads them) every whole number of out transfers, 8/3 of
+	 * the largest IO buffer setting */
 	pe->out_frames = ozzy_pcm_frames(false, e->settings.value[OZZY_SETTING_PCM_OUT_FRAMES]);
 	pe->in_frames = ozzy_pcm_frames(true, e->settings.value[OZZY_SETTING_PCM_IN_FRAMES]);
 	pe->out_queue = ozzy_pcm_queue(e->settings.value[OZZY_SETTING_PCM_OUT_QUEUE]);
@@ -122,7 +123,7 @@ static bool ploytec_start(struct ozzy_engine *e)
 		ploytec_log("PCM transfers of %u / %u frames don't fit", pe->out_frames, pe->in_frames);
 		return false;
 	}
-	pe->anchor_frames = (OZZY_TIMESTAMP_FRAMES + pe->out_frames - 1) / pe->out_frames * pe->out_frames;
+	pe->anchor_frames = e->anchors ? ozzy_anchor_frames(e->settings.value[OZZY_SETTING_IO_BUFFER_MAX], pe->out_frames) : 0;
 
 	/* 1. The format, as the HAL reads it (the platform has set the device names) */
 	shm->audio.device_flags = (bulk ? OZZY_DEVICE_FLAG_PLOYTEC_BULK : 0) |
@@ -290,13 +291,13 @@ static void encode_pcm_out(struct ploytec_engine *pe, uint32_t t)
 /*
  * update_timestamp - The device's clock: a transfer's frames played. Every anchor_frames an
  * anchor (ozzy_timestamp_write; reader: OzzyHAL::GetZeroTimeStamp), a whole number of
- * transfers, so the clock lands on it.
+ * transfers, so the clock lands on it; none where the platform doesn't read them (0).
  */
 static void update_timestamp(struct ploytec_engine *pe)
 {
 	volatile struct ozzy_shared_memory *shm = pe->base.shm;
 
-	if (!shm->audio.driver_ready)
+	if (!shm->audio.driver_ready || !pe->anchor_frames)
 		return;
 	pe->hw_sample_time += pe->out_frames;
 	if (ozzy_mod_u64(pe->hw_sample_time, pe->anchor_frames))
@@ -342,7 +343,8 @@ static uint32_t ploytec_setting_quirks(const struct ozzy_engine *e)
 {
 	const struct ploytec_engine *pe = (const struct ploytec_engine *)e;
 	uint32_t quirks = e->model->quirks | OZZY_QUIRK_PCM_OUT_FRAMES | OZZY_QUIRK_PCM_IN_FRAMES |
-			  OZZY_QUIRK_PCM_OUT_QUEUE | OZZY_QUIRK_PCM_IN_QUEUE;
+			  OZZY_QUIRK_PCM_OUT_QUEUE | OZZY_QUIRK_PCM_IN_QUEUE |
+			  (e->anchors ? OZZY_QUIRK_CLOCK_ANCHORS : 0);
 
 	return pe->out_layout == PLOYTEC_OUT_LAYOUT_BULK ? quirks : (quirks & ~(uint32_t)OZZY_QUIRK_SPDIF_MIRROR);
 }
@@ -386,7 +388,7 @@ void ploytec_engine_init(struct ploytec_engine *pe, const struct ozzy_device *mo
 	pe->out_frames = ozzy_pcm_frames(false, ozzy_engine_setting_default(&pe->base, OZZY_SETTING_PCM_OUT_FRAMES));
 	pe->in_frames = ozzy_pcm_frames(true, ozzy_engine_setting_default(&pe->base, OZZY_SETTING_PCM_IN_FRAMES));
 	pe->out_queue = pe->in_queue = ozzy_pcm_queue(OZZY_NUM_PCM_QUEUES - 1);
-	pe->anchor_frames = OZZY_TIMESTAMP_FRAMES;
+	pe->anchor_frames = 0;   /* start() sets it, where the platform reads anchors */
 
 	p->interface_count = PLOYTEC_NUM_INTERFACES;
 	p->interfaces[0] = 0;

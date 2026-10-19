@@ -55,6 +55,8 @@ static void fill_in(struct fake_xfer *x, void *arg)
 		x->buf[i] = (uint8_t)(st->counter++ * 37 + 11);
 }
 
+static int run_io_buffer = -1;   /* OZZY_SETTING_IO_BUFFER_MAX for run(), -1: the default */
+
 static void run(uint16_t vid, uint16_t pid, uint16_t out_max_packet, unsigned int out_value, unsigned int in_value,
 		unsigned int queue_value, struct result *res)
 {
@@ -84,6 +86,7 @@ static void run(uint16_t vid, uint16_t pid, uint16_t out_max_packet, unsigned in
 	ozzy_engine_set_endpoint(e, OZZY_PIPE_PCM_IN, PCM_IN, 2, 512, 0);
 	ozzy_engine_set_endpoint(e, OZZY_PIPE_MIDI_IN, 0x83, 3, 64, 1);
 	ozzy_engine_attach(e, &fb.bus, &shm);
+	ozzy_engine_set_anchors(e, true);   /* as the macOS kext */
 	CHECK(ozzy_engine_has_setting(e, OZZY_SETTING_PCM_OUT_FRAMES) &&
 	      ozzy_engine_has_setting(e, OZZY_SETTING_PCM_IN_FRAMES), "%s: no transfer size settings", model->name);
 	CHECK(ozzy_engine_change_setting(e, OZZY_SETTING_PCM_OUT_FRAMES, out_value) != OZZY_SETTING_INVALID &&
@@ -92,6 +95,9 @@ static void run(uint16_t vid, uint16_t pid, uint16_t out_max_packet, unsigned in
 	CHECK(ozzy_engine_change_setting(e, OZZY_SETTING_PCM_OUT_QUEUE, queue_value) != OZZY_SETTING_INVALID &&
 	      ozzy_engine_change_setting(e, OZZY_SETTING_PCM_IN_QUEUE, queue_value) != OZZY_SETTING_INVALID,
 	      "%s: queues refused", model->name);
+	if (run_io_buffer >= 0)
+		CHECK(ozzy_engine_change_setting(e, OZZY_SETTING_IO_BUFFER_MAX, (unsigned int)run_io_buffer) !=
+		      OZZY_SETTING_INVALID, "%s: IO buffer refused", model->name);
 	for (k = 0; k < sizeof(midi); k++)
 		midi[k] = (uint8_t)(0x80 | k);
 	ozzy_midi_ring_push(&shm.midi_out, midi, sizeof(midi));
@@ -177,6 +183,16 @@ static void compare(const char *name, uint16_t vid, uint16_t pid, uint16_t out_m
 		      "%s %u/%u: clock anchor at %llu, every %u", name, out_frames, in_frames,
 		      (unsigned long long)got.anchor, got.anchor_frames);
 	}
+	/* The largest IO buffer sets the anchors: 8/3 of it in whole out transfers (here 30 frames:
+	 * 300 -> 810, 600 -> 1620, 1200 -> 3210, 2400 -> 6420), at sizes 30 / 24 */
+	for (v = 0; v < OZZY_NUM_IO_BUFFERS; v++) {
+		run_io_buffer = (int)v;
+		run(vid, pid, out_max_packet, 2, 2, OZZY_NUM_PCM_QUEUES - 1, &got);
+		CHECK(got.anchor_frames == ozzy_anchor_frames(v, 30) && got.anchor_frames % 30 == 0 &&
+		      got.anchor && got.anchor % got.anchor_frames == 0, "%s IO buffer %u: anchors every %u, at %llu",
+		      name, ozzy_io_buffer_frames(v), got.anchor_frames, (unsigned long long)got.anchor);
+	}
+	run_io_buffer = -1;
 	for (v = 0; v < OZZY_NUM_PCM_QUEUES; v++) {
 		uint32_t q = ozzy_pcm_queue(v);
 

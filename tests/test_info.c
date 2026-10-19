@@ -27,6 +27,7 @@ int main(void)
 	ozzy_engine_set_endpoint(e, OZZY_PIPE_PCM_IN, 0x86, 3, 1024, 1);
 	ozzy_engine_set_endpoint(e, OZZY_PIPE_MIDI_IN, 0x83, 3, 64, 1);
 	ozzy_engine_attach(e, &fb.bus, &shm);
+	ozzy_engine_set_anchors(e, true);   /* as the macOS kext */
 	ozzy_engine_set_usb_speed(e, OZZY_USB_SPEED_HIGH);
 	ozzy_engine_set_driver_version(e, "test-1234");
 	CHECK(info->version == 0, "info before the first start");
@@ -74,6 +75,26 @@ int main(void)
 	CHECK(info->sample_rate == 44100 && info->starts == 2, "after the restart: %u Hz, %u starts", info->sample_rate,
 	      info->starts);
 
+	ozzy_engine_stop(e);
+
+	/* A platform that doesn't read the anchors (Linux, the Windows driver): none written, none
+	 * published, the IO buffer setting not offered */
+	memset(&shm, 0, sizeof(shm));
+	fake_bus_init(&fb, &shm, true, NULL);
+	ozzy_engine_attach(e, &fb.bus, &shm);
+	ozzy_engine_set_anchors(e, false);
+	CHECK(!ozzy_engine_has_setting(e, OZZY_SETTING_IO_BUFFER_MAX), "IO buffer setting without anchors");
+	CHECK(ozzy_engine_start(e), "start without anchors");
+	{
+		struct fake_xfer x;
+		unsigned int n;
+
+		for (n = 0; n < 400 && fake_bus_pop(&fb, &x); n++)
+			fake_bus_complete(&fb, e, &x, NULL, NULL);
+	}
+	CHECK(shm.audio.timestamp.sequence == 0 && shm.audio.timestamp_frames == 0 && info->timestamp_frames == 0,
+	      "anchors without a reader: sequence %u, every %u", shm.audio.timestamp.sequence,
+	      shm.audio.timestamp_frames);
 	ozzy_engine_stop(e);
 	free(e);
 	return CHECK_DONE("info");

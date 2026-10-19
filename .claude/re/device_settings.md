@@ -267,6 +267,18 @@ end to end, the clock anchors on a whole number of transfers; at 80 / 80 the gol
 the engine before the setting (offsets aside). The app shows the result as "USB latency" in its
 Stream section, under the two settings.
 
+**Clock anchors** (2026-10-19, untested on hardware). Only CoreAudio reads them: the HAL hands
+them out as its zero timestamps, and CoreAudio extrapolates the device's position between them.
+ALSA and WaveRT read the position each transfer moves instead (`ozzy_pcm_progress`,
+`wstream_progress`), so every transfer is their anchor. The platform now says whether it reads
+them (`ozzy_engine_set_anchors`: the kext and the WinUSB harness yes, Linux and the Windows driver
+no); without, the families write none and publish no spacing. Where they're read, their spacing is
+a setting, framed as what it allows: `OZZY_SETTING_IO_BUFFER_MAX`, the largest IO buffer, 300 /
+600 / 1200 / 2400 frames (default 1200), anchors every 8/3 of it in whole out transfers (800 /
+1600 / 3200 / 6400 at 10-frame transfers; 3200 at the default, as before). The 3/8 cap is the one
+measurement we have (640 -> 240 frames); the user knows CoreAudio dislikes anchors too close and
+too far apart, the lower and upper bound are to be found on hardware.
+
 **ozzy, the app** (`apps/gui/`, 2026-10-18): one libui-ng window (C, native widgets: Cocoa, Win32, GTK 3),
 built with meson; libui-ng is a meson wrap pinned to 43ba1ef with a patch (its macOS flags as
 project arguments, since meson refuses global ones in a subproject), linked in statically; on

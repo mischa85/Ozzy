@@ -228,7 +228,7 @@ void ozzy_engine_publish_info(struct ozzy_engine *e)
 	info.safety_offset_frames = shm->audio.safety_offset_frames;
 	info.input_safety_offset_frames = model->in_channels ? (shm->audio.input_safety_offset_frames ?
 				shm->audio.input_safety_offset_frames : shm->audio.safety_offset_frames) : 0;
-	info.timestamp_frames = model->out_channels || model->in_channels ? shm->audio.timestamp_frames : 0;
+	info.timestamp_frames = e->anchors && (model->out_channels || model->in_channels) ? shm->audio.timestamp_frames : 0;
 	if (e->driver_version)
 		ozzy_strlcpy(info.driver_version, e->driver_version, sizeof(info.driver_version));
 	for (i = 0; i < OZZY_PIPE_ROLES; i++) {

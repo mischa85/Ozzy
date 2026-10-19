@@ -68,6 +68,7 @@ int main(void)
 	ozzy_engine_set_endpoint(e, OZZY_PIPE_PCM_IN, 0x86, 2, 512, 1);
 	ozzy_engine_set_endpoint(e, OZZY_PIPE_FEEDBACK, 0x81, 1, 3, 4);
 	ozzy_engine_attach(e, &fb.bus, &shm);
+	ozzy_engine_set_anchors(e, true);   /* as the macOS kext */
 	ozzy_engine_set_setting(e, OZZY_SETTING_OUT_ROUTE_1, 1);   /* outputs 1-2 from playback 3-4 */
 	ozzy_engine_set_setting(e, OZZY_SETTING_IN_ROUTE_1, 1);    /* capture 1-2 from inputs 3-4 */
 	ozzy_engine_set_pcm_ring(e, OZZY_PCM_OUT, &ro);

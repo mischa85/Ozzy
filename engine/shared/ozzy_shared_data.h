@@ -70,13 +70,14 @@ typedef std::atomic<bool>     ozzy_atomic_bool;
 #define OZZY_PCM_RING_BYTES             (1024 * 1024)
 
 /*
- * The engine publishes a timestamp anchor about every OZZY_TIMESTAMP_FRAMES frames (exactly:
- * audio.timestamp_frames, a whole number of transfers); the HAL reports that spacing as the
- * zero timestamp period. CoreAudio caps the IO buffer size at 3/8 of the period (measured: 640
- * frames -> 240 frames max, too small for 256+ buffers), so 3200 frames allows buffers up to
- * 1200 frames. Must stay well below the rings' frames.
+ * Where the platform reads them (ozzy_engine_set_anchors), the engine publishes a timestamp
+ * anchor every audio.timestamp_frames (a whole number of transfers, set by
+ * OZZY_SETTING_IO_BUFFER_MAX); the HAL reports that spacing as the zero timestamp period.
+ * CoreAudio caps the IO buffer size at 3/8 of the period (measured: 640 frames -> 240 frames
+ * max), so the default, 3200 frames, allows buffers up to 1200 frames. The largest, 6400, stays
+ * well below the rings' frames (at least 10240).
  */
-#define OZZY_TIMESTAMP_FRAMES           3200
+#define OZZY_TIMESTAMP_FRAMES           3200   /* the default spacing */
 
 /* The isochronous family's plain output ring, in frames (OZZY_DEVICE_FLAG_PLAIN_OUTPUT) */
 #define OZZY_PLAIN_RING_FRAMES          10240
@@ -92,8 +93,8 @@ typedef std::atomic<bool>     ozzy_atomic_bool;
 #define OZZY_MIDI_RING_SIZE             1024
 #define OZZY_MIDI_RING_MASK             (OZZY_MIDI_RING_SIZE - 1)
 
-/* The device's clock: an anchor every audio.timestamp_frames, as a seqlock (odd sequence while
- * the engine writes) */
+/* The device's clock: an anchor every audio.timestamp_frames (0: none, the platform doesn't read
+ * them), as a seqlock (odd sequence while the engine writes) */
 struct ozzy_timestamp {
 	ozzy_atomic_u32 sequence;
 	ozzy_atomic_u64 sample_time;     /* frames */

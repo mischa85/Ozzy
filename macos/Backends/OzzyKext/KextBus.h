@@ -56,6 +56,14 @@ private:
     IOUSBHostPipe* mPipeByAddress[kPipeSlots];
 
     IOUSBHostPipe* FindPipe(uint8_t address);
+    IOMemoryDescriptor* IsocFrameSlice(uint8_t pipeID, void* buffer, uint32_t bufferSize,
+                                       const struct ozzy_isoc_packet* packets, uint32_t count,
+                                       IODirection dir);
+    uint64_t IsocFrameNumber(IOUSBHostPipe* pipe, uint8_t pipeID, uint32_t count);
+
+    // The 1 ms frame each pipe's next isochronous transfer starts on, the first this far ahead
+    static constexpr uint64_t kIsocStartFrames = 10;
+    uint64_t mIsocNextFrame[kPipeSlots];
 
     // Bus timer: a thread call re-armed on an absolute deadline every interval (no drift)
     static void TimerFired(thread_call_param_t bus, thread_call_param_t);

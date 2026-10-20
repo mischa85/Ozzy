@@ -88,7 +88,7 @@ echo "======================================================"
 echo ""
 echo "Choose installation type:"
 echo ""
-echo "  1) Legacy Kext Driver (macOS 10.15 - 15.x)"
+echo "  1) Legacy Kext Driver (macOS 10.11 or later)"
 echo "     • Kernel Extension (requires SIP modification)"
 echo "     • HAL Audio Driver"
 echo "     • MIDI Driver"
@@ -167,6 +167,10 @@ fi
 # Detect signing identity
 echo "🔍 Finding Apple Developer Identity..."
 IDENTITY_LINE="$(security find-identity -v -p codesigning | grep "Apple Development" | head -n 1)"
+# Xcode before 11 names the free certificate "Mac Developer"
+if [ -z "$IDENTITY_LINE" ]; then
+    IDENTITY_LINE="$(security find-identity -v -p codesigning | grep "Mac Developer" | head -n 1)"
+fi
 if [ -z "$IDENTITY_LINE" ]; then
     IDENTITY_LINE="$(security find-identity -v -p codesigning | grep "Developer ID Application" | head -n 1)"
 fi
@@ -225,23 +229,30 @@ GIT_VERSION=$(git -C "$DIR" describe --always --dirty 2>/dev/null || echo unknow
 echo "   🏷️  Build: $GIT_VERSION"
 KERNEL_HEADERS="$SDKROOT/System/Library/Frameworks/Kernel.framework/Headers"
 
+# Built for the macOS it is installed on (or the SDK's, if older), never below 10.11
+# (IOUSBHostFamily); on older targets the SDK switches os_log to its 10.11 calls, which newer
+# systems no longer support
+MIN_MACOS=$(printf '%s\n%s\n' "$(sw_vers -productVersion)" "$(xcrun --sdk macosx --show-sdk-version)" |
+    awk -F. '{ v = $1 * 100 + $2; if (NR == 1 || v < m) { m = v; s = $1 "." $2 } } END { print s }')
+case "$MIN_MACOS" in 10.[0-9]|10.10) MIN_MACOS="10.11" ;; esac
+
 # Devices to leave out (keys from common/ozzy_devices.def), e.g. OZZY_DISABLE="ReloopDJ2" ./install.command.
 # Applied to the kext and to its generated personalities alike.
 DISABLE_FLAGS=""
 for KEY in $OZZY_DISABLE; do DISABLE_FLAGS="$DISABLE_FLAGS -DOZZY_DISABLE_$KEY"; done
 if [ -n "$DISABLE_FLAGS" ]; then echo "   🚫 Left out:$DISABLE_FLAGS"; fi
 
-CFLAGS="-x c++ -arch $KEXT_ARCH -std=c++11 -O2 -DKERNEL -D__KERNEL__ -mkernel \
+CFLAGS="-x c++ -arch $KEXT_ARCH -mmacosx-version-min=$MIN_MACOS -std=c++11 -O2 -DKERNEL -D__KERNEL__ -mkernel \
 -fno-builtin -fno-exceptions -fno-rtti -fno-common -fno-use-cxa-atexit \
 -Wno-deprecated-declarations -Wno-inconsistent-missing-override \
 -nostdinc -I. -I$KERNEL_HEADERS -include Backends/OzzyKext/SdkCompat.h -DOZZY_GIT_VERSION=\"$GIT_VERSION\"$DISABLE_FLAGS"
 
 # The engine and common/ are C
-CFLAGS_C="-x c -arch $KEXT_ARCH -std=gnu11 -O2 -DKERNEL -D__KERNEL__ -mkernel \
+CFLAGS_C="-x c -arch $KEXT_ARCH -mmacosx-version-min=$MIN_MACOS -std=gnu11 -O2 -DKERNEL -D__KERNEL__ -mkernel \
 -fno-builtin -fno-common -Wno-deprecated-declarations -Wno-implicit-int-conversion \
 -nostdinc -I. -I$KERNEL_HEADERS -include Backends/OzzyKext/SdkCompat.h -DOZZY_GIT_VERSION=\"$GIT_VERSION\"$DISABLE_FLAGS"
 
-LDFLAGS="-arch $KEXT_ARCH -Xlinker -kext -nostdlib -lkmod -lcc_kext"
+LDFLAGS="-arch $KEXT_ARCH -mmacosx-version-min=$MIN_MACOS -Xlinker -kext -nostdlib -lkmod -lcc_kext"
 
 echo "   🧹 Cleaning build directory..."
 # Use sudo to remove if it has root permissions from previous install
@@ -255,9 +266,8 @@ for SRC in "${SOURCES[@]}"; do
     OBJ="$BUILD_DIR/$FLAT_NAME.o"
     
     if [[ "$SRC" == *.c ]]; then FLAGS="$CFLAGS_C"; else FLAGS="$CFLAGS"; fi
-    clang++ $FLAGS -c "$SRC" -o "$OBJ" 2>&1 | grep -v "warning:" || true
-    
-    if [ $? -ne 0 ]; then
+    if ! clang++ $FLAGS -c "$SRC" -o "$OBJ" 2> "$BUILD_DIR/compile.log"; then
+        grep -v "warning:" "$BUILD_DIR/compile.log"
         echo "❌ Compilation Failed: $SRC"
         exit 1
     fi
@@ -265,9 +275,7 @@ for SRC in "${SOURCES[@]}"; do
 done
 
 echo "   🔗 Linking kext..."
-clang++ $LDFLAGS "${OBJECTS[@]}" -o "$BUILD_DIR/$KEXT_NAME.kext/Contents/MacOS/$KEXT_NAME"
-
-if [ $? -ne 0 ]; then
+if ! clang++ $LDFLAGS "${OBJECTS[@]}" -o "$BUILD_DIR/$KEXT_NAME.kext/Contents/MacOS/$KEXT_NAME"; then
     echo "❌ Linking Failed"
     exit 1
 fi
@@ -295,38 +303,49 @@ echo "✅ Kernel Extension compiled and signed"
 # Compile HAL
 echo ""
 echo "🔨 [2/4] Compiling HAL Driver..."
-xcodebuild -project "Ozzy.xcodeproj" \
+if ! xcodebuild -project "Ozzy.xcodeproj" \
            -scheme "OzzyHAL" \
            -configuration Release \
            -arch "$SYSTEM_ARCH" \
            SYMROOT="$DIR/Build" \
+           MACOSX_DEPLOYMENT_TARGET="$MIN_MACOS" \
            GCC_PREPROCESSOR_DEFINITIONS="\$(inherited) OZZY_GIT_VERSION=\\\"$GIT_VERSION\\\"" \
            OTHER_LDFLAGS="-framework IOKit -framework CoreFoundation" \
-           build > /dev/null
+           build > "$BUILD_DIR/hal.log" 2>&1; then
+    grep -E "error:" "$BUILD_DIR/hal.log" || tail -n 20 "$BUILD_DIR/hal.log"
+    echo "❌ Error: building the HAL driver failed (full log: $BUILD_DIR/hal.log)"
+    exit 1
+fi
 
 HAL_PATH="$DIR/Build/Release/OzzyHAL.driver"
-codesign --sign "$CODE_SIGN_IDENTITY" --force --options runtime "$HAL_PATH"
+# codesign before 10.14 has no hardened runtime option
+codesign --sign "$CODE_SIGN_IDENTITY" --force --options runtime "$HAL_PATH" 2>/dev/null || codesign --sign "$CODE_SIGN_IDENTITY" --force "$HAL_PATH"
 echo "✅ HAL Driver compiled and signed"
 
 # Compile MIDI
 echo ""
 echo "🔨 [3/4] Compiling MIDI Driver..."
-xcodebuild -project "Ozzy.xcodeproj" \
+if ! xcodebuild -project "Ozzy.xcodeproj" \
            -scheme "OzzyMIDI" \
            -configuration Release \
            -arch "$SYSTEM_ARCH" \
            SYMROOT="$DIR/Build" \
+           MACOSX_DEPLOYMENT_TARGET="$MIN_MACOS" \
            OTHER_LDFLAGS="-framework IOKit -framework CoreFoundation -framework CoreMIDI" \
-           build > /dev/null
+           build > "$BUILD_DIR/midi.log" 2>&1; then
+    grep -E "error:" "$BUILD_DIR/midi.log" || tail -n 20 "$BUILD_DIR/midi.log"
+    echo "❌ Error: building the MIDI driver failed (full log: $BUILD_DIR/midi.log)"
+    exit 1
+fi
 
 MIDI_PATH="$DIR/Build/Release/OzzyMIDI.plugin"
-codesign --sign "$CODE_SIGN_IDENTITY" --force --options runtime "$MIDI_PATH"
+codesign --sign "$CODE_SIGN_IDENTITY" --force --options runtime "$MIDI_PATH" 2>/dev/null || codesign --sign "$CODE_SIGN_IDENTITY" --force "$MIDI_PATH"
 echo "✅ MIDI Driver compiled and signed"
 
 # Compile ozzyctl (settings from the command line)
 echo ""
 echo "🔨 [4/4] Compiling ozzyctl..."
-if ! make -s -C "$DIR/../ozzyctl" > /dev/null; then
+if ! make -s -C "$DIR/../ozzyctl" MACOSX_DEPLOYMENT_TARGET="$MIN_MACOS" > /dev/null; then
     echo "❌ Error: building ozzyctl failed"
     exit 1
 fi
@@ -344,8 +363,17 @@ echo ""
 KEXT_PATH="Build/OzzyKext.kext"
 INSTALL_PATH="/Library/Extensions/OzzyKext.kext"
 
+# kmutil came with macOS 11; older systems load with kextload and list with kextstat
+if command -v kmutil > /dev/null 2>&1; then
+    kext_loaded() { kmutil showloaded 2>/dev/null | grep -q "OzzyKext"; }
+    KEXT_LOAD=(kmutil load -p)
+else
+    kext_loaded() { kextstat 2>/dev/null | grep -q "OzzyKext"; }
+    KEXT_LOAD=(/sbin/kextload)
+fi
+
 # Unload existing kext if loaded
-if kmutil showloaded 2>/dev/null | grep -q "OzzyKext"; then
+if kext_loaded; then
     echo "🔄 Unloading currently running kext..."
     sudo killall -9 coreaudiod 2>/dev/null || true
     sleep 1
@@ -379,6 +407,10 @@ if [ ! -f "$PLIST_SOURCE" ]; then
 fi
 
 sudo cp "$PLIST_SOURCE" "$PLIST_PATH"
+if [ "${KEXT_LOAD[0]}" != "kmutil" ]; then
+    sudo /usr/libexec/PlistBuddy -c "Delete :ProgramArguments" -c "Add :ProgramArguments array" \
+        -c "Add :ProgramArguments:0 string /sbin/kextload" -c "Add :ProgramArguments:1 string $INSTALL_PATH" "$PLIST_PATH"
+fi
 sudo chown root:wheel "$PLIST_PATH"
 sudo chmod 644 "$PLIST_PATH"
 sudo launchctl load "$PLIST_PATH" 2>/dev/null || true
@@ -423,14 +455,14 @@ sudo killall MIDIServer 2>/dev/null || true
 # Verify kext is loaded
 sleep 2
 KEXT_LOADED=false
-if kmutil showloaded 2>/dev/null | grep -q "OzzyKext"; then
+if kext_loaded; then
     echo "✅ Kernel Extension is loaded and running!"
     KEXT_LOADED=true
 else
     echo "⚠️  Attempting to load Kernel Extension..."
-    sudo kmutil load -p "$INSTALL_PATH"
+    sudo "${KEXT_LOAD[@]}" "$INSTALL_PATH" || true
     sleep 1
-    if kmutil showloaded 2>/dev/null | grep -q "OzzyKext"; then
+    if kext_loaded; then
         echo "✅ Kernel Extension loaded successfully!"
         KEXT_LOADED=true
     else

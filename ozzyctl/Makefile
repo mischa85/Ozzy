@@ -6,6 +6,7 @@ CFLAGS += -std=gnu11 -Wall -Wextra   # gnu: POSIX (usleep, realpath) and alsa-li
 UNAME := $(shell uname -s)
 ifeq ($(UNAME),Darwin)
 BACKEND := backend_macos.c
+CFLAGS  += -mmacosx-version-min=$(or $(MACOSX_DEPLOYMENT_TARGET),10.11)
 LDLIBS  += -framework CoreAudio -framework CoreFoundation
 else ifeq ($(UNAME),Linux)
 BACKEND := backend_linux.c

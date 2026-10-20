@@ -31,7 +31,12 @@ echo "-----------------------------------------------------" >> "$LOGFILE"
 echo "OZZY DEBUG LOG - $(date)" >> "$LOGFILE"
 echo "HISTORY (Start - Last 2h)" >> "$LOGFILE"
 
-log show --style compact --info --debug --last 2h --no-signpost --predicate "$PREDICATE" >> "$LOGFILE"
+# log show came with 10.12; 10.11 writes the kernel and plugin lines to system.log
+if command -v log > /dev/null 2>&1; then
+    log show --style compact --info --debug --last 2h --no-signpost --predicate "$PREDICATE" >> "$LOGFILE"
+else
+    grep -E "\[(Ozzy|OzzyKext|Ploytec|UsbMidi|OzzyHAL|OzzyMIDI)\]" /var/log/system.log >> "$LOGFILE"
+fi
 
 echo "HISTORY (End)" >> "$LOGFILE"
 echo "-----------------------------------------------------" >> "$LOGFILE"

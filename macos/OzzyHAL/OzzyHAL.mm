@@ -701,7 +701,7 @@ void OzzyHAL::ScanServices() {
     CFRelease(props);
 
     io_iterator_t it = IO_OBJECT_NULL;
-    if (IOServiceGetMatchingServices(kIOMainPortDefault, matching, &it) != KERN_SUCCESS) return;
+    if (IOServiceGetMatchingServices(MACH_PORT_NULL, matching, &it) != KERN_SUCCESS) return;
     io_service_t service;
     while ((service = IOIteratorNext(it))) {
         uint64_t registryID = 0;

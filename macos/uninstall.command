@@ -48,7 +48,7 @@ if [ -f "/usr/local/bin/Ozzy" ]; then
 fi
 
 # Unload and remove Kernel Extension
-if kmutil showloaded 2>/dev/null | grep -q "OzzyKext"; then
+if { kmutil showloaded 2>/dev/null || kextstat 2>/dev/null; } | grep -q "OzzyKext"; then
     echo "🔄 Unloading Kernel Extension..."
     sudo killall -9 coreaudiod 2>/dev/null || true
     sleep 1

@@ -9,7 +9,6 @@
 #include <pthread.h>
 #include <atomic>
 #include <IOKit/IOKitLib.h>
-#include <os/lock.h>
 
 /*
  * One port per OzzyKext instance (a DB4 and a Xone:1D can be connected at the same time).
@@ -68,7 +67,7 @@ static MIDIDriverRef gDriverRef = nullptr;
 
 // Held around every use of a port's shared memory and pending MIDI out by Send and the poll
 // thread, and while the main thread maps or unmaps it. Never held across a CoreMIDI call.
-static os_unfair_lock gPortLock = OS_UNFAIR_LOCK_INIT;
+static pthread_mutex_t gPortLock = PTHREAD_MUTEX_INITIALIZER;
 
 static std::atomic<bool> gThreadShouldRun{false};
 static pthread_t gPollThread = nullptr;
@@ -106,7 +105,7 @@ static void SetPortDevice(OzzyMidiPort* port, const ozzy_shared_memory* shm) {
 
 /* Close the port's kext connection; no CoreMIDI calls */
 static void UnmapPort(OzzyMidiPort* port) {
-	os_unfair_lock_lock(&gPortLock);
+	pthread_mutex_lock(&gPortLock);
 	IOConnectUnmapMemory(port->connect, 0, mach_task_self(), port->mapAddress);
 	IOServiceClose(port->connect);
 	port->connect = IO_OBJECT_NULL;
@@ -115,7 +114,7 @@ static void UnmapPort(OzzyMidiPort* port) {
 	port->shm = nullptr;
 	port->registryID = 0;
 	port->pendingHead = port->pendingTail = 0;
-	os_unfair_lock_unlock(&gPortLock);
+	pthread_mutex_unlock(&gPortLock);
 }
 
 static void DisconnectPort(OzzyMidiPort* port) {
@@ -176,7 +175,7 @@ static void ConnectService(io_service_t service, uint64_t registryID) {
 
 	SetPortDevice(port, shm);
 
-	os_unfair_lock_lock(&gPortLock);
+	pthread_mutex_lock(&gPortLock);
 	port->registryID = registryID;
 	port->locationID = OzzyUSBLocationID(service);
 	port->connect = connect;
@@ -185,7 +184,7 @@ static void ConnectService(io_service_t service, uint64_t registryID) {
 	port->sessionID = shm->session_id;
 	port->generation++;
 	port->shm = shm;
-	os_unfair_lock_unlock(&gPortLock);
+	pthread_mutex_unlock(&gPortLock);
 	LogOzzyMIDI("connected to '%{public}s' (session: 0x%{public}08X)", port->name, port->sessionID);
 }
 
@@ -201,7 +200,7 @@ static void ScanDevices() {
 	}
 
 	io_iterator_t it = IO_OBJECT_NULL;
-	if (IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching("OzzyKext"), &it) != KERN_SUCCESS) return;
+	if (IOServiceGetMatchingServices(MACH_PORT_NULL, IOServiceMatching("OzzyKext"), &it) != KERN_SUCCESS) return;
 	io_service_t service;
 	while ((service = IOIteratorNext(it))) {
 		uint64_t registryID = 0;
@@ -238,7 +237,7 @@ static bool DrainInput(OzzyMidiPort* port, OzzyMidiParser* parser) {
 	uint32_t count = 0;
 
 	// Copy the ring out under the lock, so the main thread can't unmap it meanwhile
-	os_unfair_lock_lock(&gPortLock);
+	pthread_mutex_lock(&gPortLock);
 	ozzy_shared_memory* shm = port->shm;
 	MIDIEndpointRef source = port->source;
 	uint32_t generation = port->generation;
@@ -251,7 +250,7 @@ static bool DrainInput(OzzyMidiPort* port, OzzyMidiParser* parser) {
 		}
 		std::atomic_store_explicit(&shm->midi_in.read_index, r, std::memory_order_release);
 	}
-	os_unfair_lock_unlock(&gPortLock);
+	pthread_mutex_unlock(&gPortLock);
 
 	if (parser->generation != generation) {
 		*parser = OzzyMidiParser{};
@@ -332,14 +331,14 @@ static bool QueueMidiOut(OzzyMidiPort* port, const Byte* data, uint32_t length) 
 static bool FlushMidiOut(OzzyMidiPort* port) {
 	uint32_t dropped = 0;
 
-	os_unfair_lock_lock(&gPortLock);
+	pthread_mutex_lock(&gPortLock);
 	bool moved = port->shm && port->pendingHead != port->pendingTail && QueueMidiOut(port, nullptr, 0);
 	if (moved) IOConnectCallScalarMethod(port->connect, OZZY_METHOD_MIDI_OUT_PENDING, NULL, 0, NULL, NULL);
 	if (port->pendingHead == port->pendingTail) {
 		dropped = port->dropped;
 		port->dropped = 0;
 	}
-	os_unfair_lock_unlock(&gPortLock);
+	pthread_mutex_unlock(&gPortLock);
 
 	if (dropped) LogOzzyMIDIError("'%{public}s': MIDI out queue drained, %{public}u bytes were dropped", port->name, dropped);
 	return moved;
@@ -416,9 +415,9 @@ static OSStatus Send(MIDIDriverRef self, const MIDIPacketList *pktlist, void *de
 	OzzyMidiPort* port = (OzzyMidiPort*)destRefCon1;
 	if (!port) return kMIDINoConnection;
 
-	os_unfair_lock_lock(&gPortLock);
+	pthread_mutex_lock(&gPortLock);
 	if (!port->shm) {
-		os_unfair_lock_unlock(&gPortLock);
+		pthread_mutex_unlock(&gPortLock);
 		return kMIDINoConnection;
 	}
 
@@ -430,7 +429,7 @@ static OSStatus Send(MIDIDriverRef self, const MIDIPacketList *pktlist, void *de
 	}
 	IOConnectCallScalarMethod(port->connect, OZZY_METHOD_MIDI_OUT_PENDING, NULL, 0, NULL, NULL);
 	bool startedDropping = droppedBefore == 0 && port->dropped != 0;
-	os_unfair_lock_unlock(&gPortLock);
+	pthread_mutex_unlock(&gPortLock);
 
 	if (startedDropping) LogOzzyMIDIError("'%{public}s': MIDI out queue full (64 KB), dropping", port->name);
 	return noErr;

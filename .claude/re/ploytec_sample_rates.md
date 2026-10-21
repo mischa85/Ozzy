@@ -176,6 +176,18 @@ ASIO driver reports buffer size 4096 frames only (min = max = preferred) and lat
 1286 out frames at 48 kHz. The Windows Update package (2.9.96.6) has the same kernel drivers
 without the ASIO driver, so it can't change the rate: WDM-KS clients at another rate get silence.
 
+What the package's kernel drivers are (DB4 2.9.91.0, DriverVer 02/07/2018, x64_Win10; import
+tables and INFs, 2026-10-22): three classic WDM drivers, no KMDF (no WdfVersionBind / Wdf01000):
+- `XONE_DB4.sys` (USB\VID_0A4A&PID_FFDB, class USB): the USB function driver, IRPs and URBs by
+  hand (USBD_CreateConfigurationRequestEx, IoAllocateIrp), and a bus driver for the other two
+  (IoCreateDevice, IoInvalidateDeviceRelations, a device interface). Carries registry paths of
+  other Ploytec products (`US366`, `ParametersXCorpio`): one code base built per brand.
+- `XONEDB4W.sys` (MEDIA\XONE_DB4AUDIOADAPTER, the child): PortCls, WaveCyclic + Topology ports
+  (ks.inf, wdmaudio.inf). WaveCyclic: the audio engine copies to and from the driver's buffer
+  each period, one buffer more than WaveRT; and its KS filters are the WDM-KS endpoint.
+- `XONEDB4M.sys` (USB\VID_0A4A&PID_FFDB&MI_00): PortCls with a DMus (DirectMusic) port, finding
+  the USB driver through IoGetDeviceInterfaces.
+
 ## 6. The DB2 can't carry more than 48 kHz anyway
 
 Interrupt endpoints with bInterval 1 move one packet per 125 µs microframe:

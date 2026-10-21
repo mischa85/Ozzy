@@ -14,6 +14,8 @@ struct wstream {
     struct wdev* dev;
     bool render;
     uint32_t block_align;
+    uint32_t rate;                    /* the format's */
+    bool holding;                     /* running: counted in the device's holding[] */
 
     /* The packets: one allocation, the data contiguous from buffer + data_offset */
     uint8_t* buffer;

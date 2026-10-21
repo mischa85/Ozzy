@@ -341,22 +341,30 @@ static NTSTATUS wdev_evt_d0_exit(WDFDEVICE device, WDF_POWER_DEVICE_STATE target
     return STATUS_SUCCESS;
 }
 
-NTSTATUS wdev_stream_rate(struct wdev* dev, bool render, uint32_t rate) {
+NTSTATUS wdev_stream_rate(struct wdev* dev, bool render, uint32_t rate, bool apply) {
     PAGED_CODE();
     NTSTATUS status = STATUS_SUCCESS;
     bool restarted = false;
+    uint32_t rates[OZZY_MAX_RATES];
+    unsigned int i, n;
 
     WdfWaitLockAcquire(dev->lock, NULL);
     if (!dev->engine || !dev->shm) {
         status = STATUS_DEVICE_NOT_READY;
-    } else if (dev->shm->audio.sample_rate != rate && dev->streams[render ? OZZY_PCM_IN : OZZY_PCM_OUT]) {
-        status = STATUS_DEVICE_BUSY;
+    } else if (dev->shm->audio.sample_rate != rate && (dev->holding[OZZY_PCM_OUT] || dev->holding[OZZY_PCM_IN])) {
+        status = STATUS_DEVICE_BUSY;   /* a prepared stream runs at the current rate */
+    } else if (!apply) {
+        n = ozzy_engine_host_rates(dev->engine, rates);
+        for (i = 0; i < n && rates[i] != rate; i++) {}
+        if (i == n) status = STATUS_NOT_SUPPORTED;
     } else {
         enum ozzy_setting_change change = ozzy_engine_change_rate(dev->engine, rate);
         if (change == OZZY_SETTING_INVALID) status = STATUS_NOT_SUPPORTED;
         else if (change == OZZY_SETTING_RESTART && dev->started && !(dev->started = ozzy_engine_restart(dev->engine)))
             status = STATUS_DEVICE_NOT_READY;
         restarted = change == OZZY_SETTING_RESTART;   /* failed too: clients see the device stopped */
+        /* Held from here, under the same lock, so no other stream moves it in between */
+        if (NT_SUCCESS(status)) dev->holding[render ? OZZY_PCM_OUT : OZZY_PCM_IN]++;
     }
     WdfWaitLockRelease(dev->lock);
     if (restarted) wsettings_changed(dev);

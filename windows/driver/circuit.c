@@ -95,7 +95,7 @@ NTSTATUS wcircuit_create(WDFDEVICE device, bool render, ACXCIRCUIT* out) {
     /* A format per rate, the highest (the engine's default) first, with no speaker layout (stereo:
      * left/right); then the same with the standard layout for the channel count, for clients that
      * ask for one (WASAPI exclusive matches the mask exactly). A stream at another rate restarts
-     * the engine at it (wdev_stream_rate). */
+     * the engine at it once it runs (wdev_stream_rate). */
     ACXDATAFORMATLIST formats = AcxPinGetRawDataFormatList(pins[0]);
     if (!formats) return STATUS_INSUFFICIENT_RESOURCES;
     uint32_t rates[OZZY_MAX_RATES];

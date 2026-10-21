@@ -23,6 +23,15 @@ static void wstream_detach(struct wstream* s) {
     s->attached = false;
 }
 
+/* The stream no longer holds the device's rate (wdev_stream_rate) */
+static void wstream_release_rate(struct wstream* s) {
+    if (!s->holding) return;
+    WdfWaitLockAcquire(s->dev->lock, NULL);
+    s->dev->holding[wstream_dir(s)]--;
+    s->holding = false;
+    WdfWaitLockRelease(s->dev->lock);
+}
+
 /* Also cleans up after a failed allocation (@packets NULL) */
 static VOID wstream_free_rt_packets(ACXSTREAM stream, PACX_RTPACKET packets, ULONG count) {
     PAGED_CODE();
@@ -81,16 +90,25 @@ static NTSTATUS wstream_allocate_rt_packets(ACXSTREAM stream, ULONG count, ULONG
     }
     s->packet_count = count;
     s->packet_frames = size / s->block_align;
+    kbus_log("[Ozzy] %s stream at %u Hz: %u packets of %u frames", s->render ? "render" : "capture", s->rate,
+             (unsigned)count, (unsigned)s->packet_frames);
     *out = packets;
     return STATUS_SUCCESS;
 }
 
 /* Hand the ring to the engine, continuing from where the stream stopped: the engine picks it
- * up with its next packet and reports every packet from then on */
+ * up with its next packet and reports every packet from then on. First the device moves to the
+ * stream's rate, which the stream holds from now until it pauses: Windows creates and prepares a
+ * stream of every format to try them when the device arrives, but runs none of them. */
 static NTSTATUS wstream_run(ACXSTREAM stream) {
     PAGED_CODE();
     struct wstream* s = wstream_get(stream);
     if (!s->dev->engine || !s->buffer) return STATUS_DEVICE_NOT_READY;
+    if (!s->holding) {
+        NTSTATUS status = wdev_stream_rate(s->dev, s->render, s->rate, true);
+        if (!NT_SUCCESS(status)) return status;
+        s->holding = true;   /* counted in holding[] by wdev_stream_rate */
+    }
 
     uint64_t pos = wstream_pos(s);
     s->ring.base = s->buffer + s->data_offset;
@@ -112,6 +130,7 @@ static NTSTATUS wstream_pause(ACXSTREAM stream) {
     PAGED_CODE();
     struct wstream* s = wstream_get(stream);
     wstream_detach(s);
+    wstream_release_rate(s);
     wsettings_changed(s->dev);
     return STATUS_SUCCESS;
 }
@@ -223,13 +242,15 @@ static NTSTATUS wstream_prepare_hardware(ACXSTREAM stream) {
 }
 
 static NTSTATUS wstream_release_hardware(ACXSTREAM stream) {
-    UNREFERENCED_PARAMETER(stream);
+    PAGED_CODE();
+    wstream_release_rate(wstream_get(stream));
     return STATUS_SUCCESS;
 }
 
 static VOID wstream_destroy(WDFOBJECT object) {
     struct wstream* s = wstream_get((ACXSTREAM)object);
     wstream_detach(s);
+    if (s->dev) wstream_release_rate(s);
     if (s->dev && s->dev->streams[wstream_dir(s)] == s) s->dev->streams[wstream_dir(s)] = NULL;
 }
 
@@ -242,8 +263,9 @@ NTSTATUS wstream_evt_create(WDFDEVICE device, ACXCIRCUIT circuit, ACXPIN pin, PA
     bool render = wcircuit_get(circuit)->render;
     struct wdev* dev = wdev_get(device);
 
-    /* The engine at the format's rate (a restart if it runs at another) */
-    NTSTATUS status = wdev_stream_rate(dev, render, AcxDataFormatGetSampleRate(format));
+    /* A rate the device can take now; it moves to it once the stream is prepared */
+    uint32_t rate = AcxDataFormatGetSampleRate(format);
+    NTSTATUS status = wdev_stream_rate(dev, render, rate, false);
     if (!NT_SUCCESS(status)) return status;
 
     ACX_STREAM_CALLBACKS callbacks;
@@ -293,6 +315,7 @@ NTSTATUS wstream_evt_create(WDFDEVICE device, ACXCIRCUIT circuit, ACXPIN pin, PA
     s->dev = dev;
     s->render = render;
     s->block_align = AcxDataFormatGetBlockAlign(format);
+    s->rate = rate;
     dev->streams[wstream_dir(s)] = s;
     return STATUS_SUCCESS;
 }

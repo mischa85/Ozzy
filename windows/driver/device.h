@@ -22,6 +22,7 @@ struct wdev {
     WDFWAITLOCK lock;                  /* engine restarts (rates, settings) and D0 transitions */
     bool started;                      /* the engine streams (D0) */
     struct wstream* streams[OZZY_PCM_DIRS];   /* each direction's stream, NULL if none */
+    unsigned int holding[OZZY_PCM_DIRS];      /* running streams, which hold the rate (under lock) */
     struct kmdf_bus bus;
     struct ozzy_engine* engine;        /* ozzy_engine_size(model) bytes of nonpaged pool */
     struct ozzy_shared_memory* shm;
@@ -56,9 +57,12 @@ EVT_WDF_DRIVER_DEVICE_ADD wdev_evt_add;
 /* circuit.c: the render (@render) or capture circuit with an S24_3LE format per rate */
 NTSTATUS wcircuit_create(WDFDEVICE device, bool render, ACXCIRCUIT* circuit);
 
-/* PASSIVE_LEVEL: a new stream's rate (ozzy_engine_change_rate); a new rate restarts the engine,
- * which a stream of the other direction would not survive, so that refuses it */
-NTSTATUS wdev_stream_rate(struct wdev* dev, bool render, uint32_t rate);
+/* PASSIVE_LEVEL: a stream's rate. Created (@apply false): whether the device can take it now;
+ * run (@apply true): the engine at it (ozzy_engine_change_rate), a restart for a new rate, which
+ * a running stream would not survive, so one of those refuses it; on success the stream holds
+ * the rate (holding[], which it gives back when it pauses). Windows creates and prepares streams
+ * of every format to try them; only a running one moves the device or holds its rate. */
+NTSTATUS wdev_stream_rate(struct wdev* dev, bool render, uint32_t rate, bool apply);
 
 /* settings.c: the control property set (windows/driver/ozzy_ksproperty.h) on a circuit, and the settings
  * the registry keeps, into the engine (PrepareHardware, after ozzy_engine_attach) */

@@ -78,7 +78,8 @@ install.cmd -Build       build it first with the EWDK (a mounted one, or C:\ewdk
 
 It turns test signing on (a restart the first time), trusts the certificate the package is signed
 with, adds the package to the driver store and switches every connected supported device to Ozzy,
-also from the manufacturer's driver or WinUSB. `uninstall.cmd` removes the driver again
+also from the manufacturer's driver or WinUSB. Over a running Ozzy (an update) it stops Windows'
+audio services for the switch, so the old driver unloads without a restart. `uninstall.cmd` removes the driver again
 (`-All`: also the certificate, and test signing off).
 
 Log output: DebugView (Capture Kernel) or WinDbg. It prints `[Ozzy]` / `[Ploytec]` lines under

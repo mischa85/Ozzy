@@ -104,12 +104,15 @@ static NTSTATUS wstream_run(ACXSTREAM stream) {
     kbus_set_stream(&s->dev->bus, wstream_dir(s), s);
     ozzy_engine_set_pcm_ring(s->dev->engine, wstream_dir(s), &s->ring);
     s->attached = true;
+    wsettings_changed(s->dev);   /* "in use" for ozzy-cli and the ozzy app */
     return STATUS_SUCCESS;
 }
 
 static NTSTATUS wstream_pause(ACXSTREAM stream) {
     PAGED_CODE();
-    wstream_detach(wstream_get(stream));
+    struct wstream* s = wstream_get(stream);
+    wstream_detach(s);
+    wsettings_changed(s->dev);
     return STATUS_SUCCESS;
 }
 

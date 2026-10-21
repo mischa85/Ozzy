@@ -33,17 +33,19 @@ enum ozzy_ksproperty_id {
 	{ 0x1fd13819, 0x4ef9, 0x40f0, { 0xbd, 0xf3, 0x69, 0x5f, 0x65, 0x89, 0xd6, 0x59 } }
 
 enum ozzy_ksevent_id {
-	OZZY_KSEVENT_CHANGED = 0,      /* a setting, the rate or the clock lock changed: get the status */
+	OZZY_KSEVENT_CHANGED = 0,      /* a setting, the rate, the clock lock or a stream's run state
+	                                * changed: get the status */
 };
 
 /* Bump when struct ozzy_ksproperty_status changes */
-#define OZZY_KSPROPERTY_VERSION 2   /* 2: the PCM transfer size settings (value[] grew) */
+#define OZZY_KSPROPERTY_VERSION 3   /* 2: the PCM transfer size settings (value[] grew); 3: running */
 
 /*
  * struct ozzy_ksproperty_status - The device as the engine has it.
  * @available:    bit (1 << enum ozzy_setting) per setting the device has
  * @value:        each setting's value (what the next handshake sends, for device settings)
  * @clock_locked: locked to S/PDIF at the last handshake, at @lock_rate Hz
+ * @running:      bit (1 << enum ozzy_pcm_dir) per direction a client streams now (its stream runs)
  */
 struct ozzy_ksproperty_status {
 	uint32_t version;
@@ -54,6 +56,7 @@ struct ozzy_ksproperty_status {
 	uint8_t value[OZZY_NUM_SETTINGS];
 	uint8_t clock_locked;
 	uint32_t lock_rate;
+	uint32_t running;
 };
 
 /*

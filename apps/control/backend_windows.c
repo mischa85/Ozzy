@@ -137,6 +137,7 @@ static int find_devices(struct ozzy_control_device *devs, int max, wchar_t (*fou
 				d->settings.value[id] = st.value[id];
 		d->has_clock = (st.available & (1u << OZZY_SETTING_CLOCK_SOURCE)) != 0;
 		d->clock.locked = st.clock_locked != 0;
+		d->host.running = st.running != 0;   /* a stream runs in either direction */
 		d->clock.lock_rate = st.clock_locked ? st.lock_rate : 0;
 		snprintf(d->host.driver, sizeof(d->host.driver), "Ozzy (ACX)");
 		{

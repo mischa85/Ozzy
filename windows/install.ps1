@@ -111,6 +111,17 @@ public static extern bool UpdateDriverForPlugAndPlayDevicesW(IntPtr hwnd, string
 $ids = Select-String -Path $inf -Pattern "USB\\VID_[0-9A-F]{4}&PID_[0-9A-F]{4}" -AllMatches | ForEach-Object { $_.Matches.Value } | Sort-Object -Unique
 $present = Get-PnpDevice -PresentOnly | Where-Object { $_.InstanceId -match "^USB\\VID_[0-9A-F]{4}&PID_[0-9A-F]{4}\\" }
 $bound = 0
+# Ozzy already running a device (an update): Windows' audio services hold its endpoints open, so the
+# old driver couldn't unload before a restart. Stopped for the switch, it can (a few seconds of
+# no sound on every device).
+$ozzyInfs = (pnputil /enum-drivers | Out-String) -split "(?=Published Name:)" |
+            Where-Object { $_ -match "Original Name:\s+ozzy\.inf" -and $_ -match "Published Name:\s+(oem\d+\.inf)" } | ForEach-Object { $Matches[1] }
+$updating = $present | Where-Object {
+    (Get-PnpDeviceProperty -InstanceId $_.InstanceId -KeyName DEVPKEY_Device_DriverInfPath -ErrorAction SilentlyContinue).Data -in $ozzyInfs }
+if ($updating) {
+    Say "Updating a running Ozzy: Windows' audio stops for a few seconds."
+    Stop-Service AudioEndpointBuilder -Force   # Audiosrv depends on it and stops too
+}
 foreach ($id in $ids) {
     $dev = $present | Where-Object { $_.InstanceId -like "$id\*" } | Select-Object -First 1
     if (-not $dev) { continue }
@@ -123,6 +134,7 @@ foreach ($id in $ids) {
         Say "  $($dev.FriendlyName) ($id): not switched (error $([Runtime.InteropServices.Marshal]::GetLastWin32Error()))"
     }
 }
+if ($updating) { Start-Service AudioEndpointBuilder, Audiosrv }
 if ($bound -eq 0) { Say "No supported device is connected now: it gets Ozzy when you plug it in." }
 
 Say ""

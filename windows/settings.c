@@ -1,5 +1,6 @@
 #include "device.h"
 #include "ozzy_ksproperty.h"
+#include "stream.h"
 
 /* The control property set (ozzy_ksproperty.h) on each circuit's filter: the settings as the engine
  * has them, and a change, which the engine checks and applies (ozzy_engine_change_setting).
@@ -69,6 +70,8 @@ static void wsettings_status(const struct wdev* dev, struct ozzy_ksproperty_stat
         st->clock_locked = dev->shm->audio.settings.clock_locked;
         st->lock_rate = dev->shm->audio.settings.lock_rate;
     }
+    for (unsigned int dir = 0; dir < OZZY_PCM_DIRS; dir++)
+        if (dev->streams[dir] && dev->streams[dir]->attached) st->running |= 1u << dir;
 }
 
 /* OZZY_KSPROPERTY_STATUS (get) */

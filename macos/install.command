@@ -301,6 +301,24 @@ rm -f "$GEN" "$BUILD_DIR/personalities.xml"
 
 echo "   🔑 Signing kext..."
 codesign --force --sign - "$BUILD_DIR/$KEXT_NAME.kext" > /dev/null 2>&1
+
+# macOS links a kext only when it loads, from the LaunchDaemon where nobody sees the error. So check
+# here that every symbol comes from a library kext of this macOS, and none from the private KPI
+# (third-party kexts may not link it). kmutil came with macOS 11; older systems skip the check.
+if command -v kmutil > /dev/null 2>&1; then
+    echo "   🔍 Checking the kext links against this macOS..."
+    KEXT_BIN="$BUILD_DIR/$KEXT_NAME.kext/Contents/MacOS/$KEXT_NAME"
+    FOUND="$(kmutil libraries -p "$BUILD_DIR/$KEXT_NAME.kext" --onedef-symbols 2>/dev/null
+             kmutil libraries -p "$BUILD_DIR/$KEXT_NAME.kext" --multdef-symbols 2>/dev/null)"
+    MISSING="$(nm -u "$KEXT_BIN" | sort -u | comm -23 - <(echo "$FOUND" | awk '$2 == "in" { print $1 }' | sort -u))"
+    PRIVATE="$(echo "$FOUND" | awk '$2 == "in" && /com\.apple\.kpi\.private/ { print $1 }' | sort -u)"
+    if [ -n "$MISSING" ] || [ -n "$PRIVATE" ]; then
+        [ -n "$MISSING" ] && echo "   Not exported by any kext:" && echo "$MISSING" | sed 's/^/      /'
+        [ -n "$PRIVATE" ] && echo "   Only in the private KPI:" && echo "$PRIVATE" | sed 's/^/      /'
+        echo "❌ Error: the kext would not load on this macOS"
+        exit 1
+    fi
+fi
 echo "✅ Kernel Extension compiled and signed"
 
 # Compile HAL
@@ -455,23 +473,34 @@ echo "🔄 Restarting audio services..."
 sudo killall coreaudiod 2>/dev/null || true
 sudo killall MIDIServer 2>/dev/null || true
 
-# Verify kext is loaded
+# Verify the kext we just installed is the one running: a loaded older build doesn't count
 sleep 2
+KEXT_UUID=$(dwarfdump --uuid "$INSTALL_PATH/Contents/MacOS/$KEXT_NAME" 2>/dev/null | awk '{ print $2; exit }')
+kext_current() {
+    { kmutil showloaded 2>/dev/null || kextstat 2>/dev/null; } | grep "OzzyKext" | grep -qi "${KEXT_UUID:-no-uuid}"
+}
 KEXT_LOADED=false
-if kext_loaded; then
-    echo "✅ Kernel Extension is loaded and running!"
+KEXT_OLD=false
+if kext_current; then
+    echo "✅ Kernel Extension $GIT_VERSION is loaded and running!"
     KEXT_LOADED=true
 else
-    echo "⚠️  Attempting to load Kernel Extension..."
-    sudo "${KEXT_LOAD[@]}" "$INSTALL_PATH" || true
-    sleep 1
     if kext_loaded; then
-        echo "✅ Kernel Extension loaded successfully!"
+        echo "⚠️  An older build of the Kernel Extension is still running"
+        KEXT_OLD=true
+    fi
+    echo "⚠️  Attempting to load Kernel Extension..."
+    LOAD_LOG=$(mktemp)
+    sudo "${KEXT_LOAD[@]}" "$INSTALL_PATH" > "$LOAD_LOG" 2>&1 || true
+    sleep 1
+    if kext_current; then
+        echo "✅ Kernel Extension $GIT_VERSION loaded successfully!"
         KEXT_LOADED=true
     else
-        echo "❌ Failed to load kext. Check logs: cat /tmp/ozzy-kext-load.err"
-        KEXT_LOADED=false
+        echo "❌ The new Kernel Extension did not load. ${KEXT_LOAD[0]##*/} said:"
+        grep -v "^No variant specified" "$LOAD_LOG" | sed 's/^/      /'
     fi
+    rm -f "$LOAD_LOG"
 fi
 
 echo ""
@@ -499,6 +528,11 @@ else
     echo "   • Kernel Extension"
     echo "   • HAL Driver"
     echo "   • MIDI Driver"
+    echo ""
+    echo "If macOS asks, allow the extension in System Settings > Privacy & Security first."
+    echo "After the reboot, this should list the kext with UUID $KEXT_UUID:"
+    echo "   kmutil showloaded | grep OzzyKext"
+    echo "If it doesn't, the reason is in /tmp/ozzy-kext-load.err"
     echo ""
     read -p "Reboot now? (y/N): " -n 1 -r
     echo

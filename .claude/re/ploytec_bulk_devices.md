@@ -163,6 +163,25 @@ go into one USB transfer, and how many transfers are queued, is up to the host:
   `OZZY_PCM_N_URBS`; before that the engine kept 2. It is a setting now too
   (`OZZY_SETTING_PCM_OUT_QUEUE` / `_IN_QUEUE`, 1-4, default 4).
 
+**Measured round trip** (DB4 fw 1.4.1, Linux, PipeWire's JACK layer, 2026-10-21): a one-sample
+click on output 5, found again on input 5 (the DB4 loops each USB return to its USB send),
+sample-exact in JACK time; every click of a run gave the same number. 48 kHz unless noted:
+
+| Transfers (out/in, queued) | PipeWire quantum | Round trip |
+|---|---|---|
+| 20/16, 1 | 1024 (44.1 kHz) | 2239 frames (50.8 ms) |
+| 20/16, 1 | 256 / 128 | 560 / 460 frames (11.7 / 9.6 ms) |
+| 20/16, 1 | 64 | 327-338 frames (6.8-7.0 ms) |
+| 20/16, 1 | 32 | 272-300 frames (5.7-6.3 ms) |
+| 20/16, 2 | 64 / 32 | 348 / 292 frames |
+| 80/80, 4 (main's fixed sizes) | 64 | 780 frames (16.3 ms) |
+| 80/80, 4 | 32 | 699-870 frames, varying, and 1284 xruns on the input node |
+
+Above 2 quanta, about 200-240 frames (4-5 ms) are fixed: the driver's 36 (20 out + 16 in), the
+rest PipeWire's ALSA side and the DB4's own buffer and mixer, not separated (that needs a raw
+ALSA measurement with PipeWire off the device). The numbers move by ~10-30 frames between
+restarts (the phase of the transfers to the graph's cycle).
+
 So the host's latency is transfers in flight × transfer size, in steps of one packet each way
 (DB4: 20 frames out, 16 in)
 (plus the device's own buffer, which the host can't see). MIDI out

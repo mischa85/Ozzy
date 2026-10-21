@@ -153,6 +153,14 @@ survive, #86) nor restarts straight after aborting (the engine's way, which the 
 stalls for ~100 ms: the handshake retry, 6feeec5): it waits, unconfigures and reconfigures the
 device, and only then talks to it. A candidate for the engine's restart and the 4D.
 
+The engine now waits too (4044527, PLOYTEC_RESTART_QUIET_MS = 120 ms before the handshake of a
+restart, not on attach), keeping the retry as a fallback; it doesn't unconfigure the device.
+Measured on the DB4 fw 1.4.1, 2026-10-22: Linux, three rate changes without one stalled request
+(before: 'V' sent 2 ms after the suspend stalled every time and was answered on the second
+attempt, ~115 ms in); macOS (XHC0 capture), two rate changes, 'V' 120 / 121 ms after the last PCM
+completion, all 24 control requests answered at once. On Linux the one short IN transfer counted
+at each start went away with it.
+
 Its attach (`official_attach2.pcap`, a replug; times from the first request after enumeration):
 GET_DESCRIPTOR (device); +172 ms 'V' (firmware, 3 bytes); the configuration descriptors and the
 device descriptor again; SET_CONFIGURATION 1; +50 ms 'I' read, GET_CUR (EP 0); SET_CUR 48000 to

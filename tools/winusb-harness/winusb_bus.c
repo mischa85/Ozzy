@@ -318,6 +318,16 @@ bool wbus_configure(struct winusb_bus* wb) {
         wb->pipe_intf[slot] = bound[role]->handle;
         wb->pipe_addr[slot] = bound[role]->address;
     }
+    /* PCM in with RAW_IO: without it WinUSB hands the host controller one read at a time, and the
+     * device overflows between them (the DB4 lost ~5% of its input). RAW_IO wants whole packets,
+     * which the PCM transfers are (ozzy_pcm_step). */
+    if (bound[OZZY_PIPE_PCM_IN] && (bound[OZZY_PIPE_PCM_IN]->attributes & 3) != 1) {
+        UCHAR on = TRUE;
+        if (!WinUsb_SetPipePolicy(bound[OZZY_PIPE_PCM_IN]->handle, bound[OZZY_PIPE_PCM_IN]->address, RAW_IO,
+                                  sizeof(on), &on))
+            fprintf(stderr, "RAW_IO on pipe 0x%02x failed (%lu)\n", bound[OZZY_PIPE_PCM_IN]->address,
+                    GetLastError());
+    }
     return true;
 }
 

@@ -7,9 +7,10 @@
  * each direction hears about it (wstream_progress), so the real-time work happens in the
  * completion path. */
 
-#include <ntddk.h>
+#include <ntifs.h>   /* ntddk.h and the process/virtual memory calls midi.c uses */
 #include <wdf.h>
 #include <usb.h>
+#include <usbdlib.h>   /* GET_ISO_URB_SIZE, USBD_CLIENT_CONTRACT_VERSION_602 */
 #include <wdfusb.h>
 #include "../engine/core/ozzy_engine.h"
 

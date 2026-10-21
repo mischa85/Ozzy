@@ -1,7 +1,7 @@
 #ifndef WDEV_H
 #define WDEV_H
 
-#include <ntddk.h>
+#include <ntifs.h>   /* ntddk.h and the process/virtual memory calls midi.c uses */
 #include <wdf.h>
 #include <acx.h>
 #include <windef.h>

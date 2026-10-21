@@ -3,7 +3,7 @@
 
 #include <mutex>
 #include <CoreAudio/AudioServerPlugIn.h>
-#include <CoreAudioTypes/CoreAudioBaseTypes.h>
+#include <CoreAudio/CoreAudioTypes.h>
 #include <CoreFoundation/CoreFoundation.h>
 #include <IOKit/IOKitLib.h> // Required for Kext Communication
 #include <os/log.h>
@@ -13,6 +13,11 @@
 #include "../../engine/shared/ozzy_shared_data.h"
 #include "../../common/ozzy_devices.h"
 #include "PloytecCodec.h"   // the codec function pointer types
+
+/* The macOS 12 SDK renamed kAudioObjectPropertyElementMaster; older SDKs only have that name */
+#ifndef __MAC_12_0
+#define kAudioObjectPropertyElementMain kAudioObjectPropertyElementMaster
+#endif
 
 // One audio device per OzzyKext instance with audio. Device slot i owns four object IDs:
 // the device (kOzzyObjectIDBase + 4i), its input stream (+1), its output stream (+2) and its

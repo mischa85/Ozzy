@@ -10,6 +10,7 @@ BACKEND := ../control/backend_demo.c
 LDLIBS  += -pthread
 else ifeq ($(UNAME),Darwin)
 BACKEND := ../control/backend_macos.c
+CFLAGS  += -mmacosx-version-min=$(or $(MACOSX_DEPLOYMENT_TARGET),10.11)
 LDLIBS  += -framework CoreAudio -framework CoreFoundation
 else ifeq ($(UNAME),Linux)
 BACKEND := ../control/backend_linux.c

@@ -21,9 +21,11 @@
 		<key>com.apple.iokit.IOUSBHostFamily</key>
 		<string>1.0.1</string>
 		<key>com.apple.kpi.iokit</key>
-		<string>16.0</string>
+		<string>15.0</string>
 		<key>com.apple.kpi.libkern</key>
-		<string>16.0</string>
+		<string>15.0</string>
+		<key>com.apple.kpi.mach</key>
+		<string>15.0</string>
 	</dict>
 </dict>
 </plist>

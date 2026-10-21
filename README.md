@@ -108,7 +108,7 @@ Flexible architecture supporting three backend implementations:
 * **Audio:** up to 16 in / 16 out, per device, via CoreAudio HAL
 * **MIDI:** Full CoreMIDI support with lock-free ring buffers
 * **Latency:** Sub-millisecond performance via zero-copy ring buffers
-* **Requirements:** macOS 11+, SIP modified for kext loading (`csrutil enable --without kext`)
+* **Requirements:** macOS 10.11+ (Apple Silicon: 11+), SIP modified for kext loading (`csrutil enable --without kext`)
 * **Status:** ✅ Fully implemented and stable
 
 **Planned: DriverKit Extension (Dext)**
@@ -162,7 +162,7 @@ The installer automatically:
 - ✅ Starts drivers immediately
 
 **Requirements:**
-- macOS 11+ (Big Sur or later)
+- macOS 10.11 El Capitan or later on Intel, 11 Big Sur or later on Apple Silicon
 - SIP modification: Run `csrutil enable --without kext` in Recovery Mode
 - Apple Developer certificate in Keychain (free Apple ID works)
 

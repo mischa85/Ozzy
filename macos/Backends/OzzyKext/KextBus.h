@@ -58,6 +58,14 @@ private:
     IOUSBHostPipe* mPipeByAddress[kPipeSlots];
 
     IOUSBHostPipe* FindPipe(uint8_t address);
+    IOMemoryDescriptor* IsocFrameSlice(uint8_t pipeID, void* buffer, uint32_t bufferSize,
+                                       const struct ozzy_isoc_packet* packets, uint32_t count,
+                                       IODirection dir);
+    uint64_t IsocFrameNumber(IOUSBHostPipe* pipe, uint8_t pipeID, uint32_t count);
+
+    // The 1 ms frame each pipe's next isochronous transfer starts on, the first this far ahead
+    static constexpr uint64_t kIsocStartFrames = 10;
+    uint64_t mIsocNextFrame[kPipeSlots];
 
     // Bus timer: a thread call re-armed on an absolute deadline every interval (no drift)
     static void TimerFired(thread_call_param_t bus, thread_call_param_t);
@@ -65,4 +73,9 @@ private:
     uint64_t mTimerInterval = 0;     // absolute time units
     uint64_t mTimerDeadline = 0;
     volatile bool mTimerOn = false;
+    // StopTimer waits on these, as thread_call_cancel_wait is private KPI: armed while a call is
+    // queued, busy while one runs. A call clears armed after setting busy and re-arms before
+    // clearing busy, so one of them is set from enter to return.
+    volatile bool mTimerArmed = false;
+    volatile bool mTimerBusy = false;
 };

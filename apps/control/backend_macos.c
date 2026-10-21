@@ -20,6 +20,11 @@
 
 #include "ozzy_control.h"
 
+/* The macOS 12 SDK renamed kAudioObjectPropertyElementMaster; older SDKs only have that name */
+#ifndef __MAC_12_0
+#define kAudioObjectPropertyElementMain kAudioObjectPropertyElementMaster
+#endif
+
 /* Same values as engine/shared/ozzy_shared_data.h (its client side is C++, for the HAL) */
 #define OZZY_PROPERTY_SETTING 'ozst'
 #define OZZY_PROPERTY_INFO 'ozin'

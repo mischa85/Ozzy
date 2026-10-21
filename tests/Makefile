@@ -4,6 +4,7 @@
 CC       ?= cc
 CFLAGS   ?= -std=gnu11 -O1 -g -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers
 CPPFLAGS += -DOZZY_USER_ENGINE -I..
+LDLIBS   += -lm    # the float codecs (fminf, fmaxf); on macOS libm is part of libSystem
 BUILD    := build
 ENGINE   := ../engine/core/ozzy_engine.c ../engine/core/ozzy_isoc_output.c \
             ../engine/devices/ploytec/ploytec_engine.c ../engine/devices/ploytec/ploytec_io.c \
@@ -19,7 +20,7 @@ $(BUILD):
 	mkdir -p $@
 
 $(BUILD)/%: %.c fake_bus.c $(ENGINE) $(HEADERS) | $(BUILD)
-	$(CC) $(CPPFLAGS) $(CFLAGS) -o $@ $< fake_bus.c $(ENGINE)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -o $@ $< fake_bus.c $(ENGINE) $(LDLIBS)
 
 check: all
 	@./run.sh $(BUILD)

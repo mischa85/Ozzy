@@ -557,6 +557,7 @@ bool OzzyHALDevice::UpdateConnectionState(AudioServerPlugInHostRef host) {
         LogOzzyHAL("device %{public}u: auto-stopped I/O due to disconnect", mSlot);
         std::lock_guard<std::mutex> lock(mClientLock);
         for (int k = 0; k < mClientCount; k++) mClients[k].io = false;
+        mIOCount = 0;
     }
 
     mConnected = currentlyConnected;
@@ -577,6 +578,7 @@ void OzzyHALDevice::AddClient(const AudioServerPlugInClientInfo* info) {
     c->pid = info->mProcessID;
     if (!info->mBundleID || !CFStringGetCString(info->mBundleID, c->bundle, sizeof(c->bundle), kCFStringEncodingUTF8))
         c->bundle[0] = 0;
+    LogOzzyHAL("device %{public}u: client %{public}u added (pid %{public}d)", mSlot, c->id, (int)c->pid);
 }
 
 void OzzyHALDevice::RemoveClient(UInt32 clientID) {
@@ -584,6 +586,7 @@ void OzzyHALDevice::RemoveClient(UInt32 clientID) {
     for (int i = 0; i < mClientCount; i++) {
         if (mClients[i].id != clientID) continue;
         mClients[i] = mClients[--mClientCount];
+        LogOzzyHAL("device %{public}u: client %{public}u removed", mSlot, clientID);
         return;
     }
 }
@@ -596,27 +599,20 @@ void OzzyHALDevice::NotifyClients(AudioServerPlugInHostRef host) {
 
 /* A client starts IO; the device's IO starts with the first */
 kern_return_t OzzyHALDevice::StartIO(AudioServerPlugInHostRef host, UInt32 clientID) {
-    bool first = false;
+    bool first;
+    int count;
     {
         std::lock_guard<std::mutex> lock(mClientLock);
-        int i, running = 0;
-        for (i = 0; i < mClientCount && mClients[i].id != clientID; i++) {}
-        if (i == mClientCount && mClientCount < kMaxClients) {
-            memset(&mClients[i], 0, sizeof(mClients[i]));   /* one the host didn't announce */
-            mClients[i].id = clientID;
-            mClients[i].pid = -1;
-            mClientCount++;
-        }
-        for (int k = 0; k < mClientCount; k++) running += mClients[k].io;
-        if (i < mClientCount) {
-            if (mClients[i].io) return kIOReturnSuccess;
-            mClients[i].io = true;
-        }
-        first = running == 0;
+        first = mIOCount++ == 0;
+        count = mIOCount;
+        for (int k = 0; k < mClientCount; k++)
+            if (mClients[k].id == clientID) mClients[k].io = true;
     }
+    LogOzzyHAL("device %{public}u: client %{public}u starts IO (%{public}d started)", mSlot, clientID, count);
     kern_return_t result = first ? StartDeviceIO() : kIOReturnSuccess;
     if (result != kIOReturnSuccess) {
         std::lock_guard<std::mutex> lock(mClientLock);
+        mIOCount--;
         for (int k = 0; k < mClientCount; k++)
             if (mClients[k].id == clientID) mClients[k].io = false;
         return result;
@@ -627,21 +623,18 @@ kern_return_t OzzyHALDevice::StartIO(AudioServerPlugInHostRef host, UInt32 clien
 
 /* A client stops IO; the device's IO stops with the last */
 kern_return_t OzzyHALDevice::StopIO(AudioServerPlugInHostRef host, UInt32 clientID) {
-    bool last = false, was = false;
+    bool last = false;
+    int count;
     {
         std::lock_guard<std::mutex> lock(mClientLock);
-        int running = 0;
-        for (int k = 0; k < mClientCount; k++) {
-            if (mClients[k].id == clientID && mClients[k].io) {
-                mClients[k].io = false;
-                was = true;
-            }
-            running += mClients[k].io;
-        }
-        last = was && running == 0;
+        if (mIOCount > 0) last = --mIOCount == 0;
+        count = mIOCount;
+        for (int k = 0; k < mClientCount; k++)
+            if (mClients[k].id == clientID || last) mClients[k].io = false;
     }
+    LogOzzyHAL("device %{public}u: client %{public}u stops IO (%{public}d started)", mSlot, clientID, count);
     if (last) StopDeviceIO();
-    if (was) NotifyClients(host);
+    NotifyClients(host);
     return kIOReturnSuccess;
 }
 
@@ -649,13 +642,13 @@ CFArrayRef OzzyHALDevice::CopyClientsArray() const {
     CFMutableArrayRef array = CFArrayCreateMutable(NULL, 0, &kCFTypeArrayCallBacks);
     std::lock_guard<std::mutex> lock(mClientLock);
     for (int i = 0; array && i < mClientCount; i++) {
-        if (!mClients[i].io) continue;
-        CFMutableDictionaryRef dict = CFDictionaryCreateMutable(NULL, 2, &kCFTypeDictionaryKeyCallBacks,
+        CFMutableDictionaryRef dict = CFDictionaryCreateMutable(NULL, 3, &kCFTypeDictionaryKeyCallBacks,
                                                                 &kCFTypeDictionaryValueCallBacks);
         if (!dict) continue;
         SInt32 pid = mClients[i].pid;
         CFNumberRef number = CFNumberCreate(NULL, kCFNumberSInt32Type, &pid);
         if (number) { CFDictionarySetValue(dict, CFSTR("pid"), number); CFRelease(number); }
+        CFDictionarySetValue(dict, CFSTR("io"), mClients[i].io ? kCFBooleanTrue : kCFBooleanFalse);
         if (mClients[i].bundle[0]) {
             CFStringRef bundle = CFStringCreateWithCString(NULL, mClients[i].bundle, kCFStringEncodingUTF8);
             if (bundle) { CFDictionarySetValue(dict, CFSTR("bundle"), bundle); CFRelease(bundle); }

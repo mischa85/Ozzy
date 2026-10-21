@@ -72,10 +72,12 @@ typedef std::atomic<bool>     ozzy_atomic_bool;
  */
 #define OZZY_PROPERTY_STATS             'ozss'
 /*
- * OzzyHAL device property with the clients doing IO on the device: a custom property, get only:
- * CFArray of CFDictionary, each "pid" (CFNumber) and "bundle" (CFString, may be absent), as
- * CoreAudio told the plug-in of them (AddDeviceClient); the caller releases it. Notified when a
- * client starts or stops IO.
+ * OzzyHAL device property with the device's clients: a custom property, get only: CFArray of
+ * CFDictionary, each "pid" (CFNumber), "bundle" (CFString, may be absent), as CoreAudio told the
+ * plug-in of them (AddDeviceClient), and "io" (CFBoolean): it started IO, as far as the plug-in
+ * knows (coreaudiod sends StartIO only for the first client, so a later one shows false; CoreAudio's
+ * process objects, macOS 14 and later, tell which clients run); the caller releases it. Notified
+ * when IO starts or stops.
  */
 #define OZZY_PROPERTY_CLIENTS           'ozcl'
 #define OZZY_AUDIO_PROPERTY_KEY         "OzzyAudio"  /* registry: true if the device has audio channels */

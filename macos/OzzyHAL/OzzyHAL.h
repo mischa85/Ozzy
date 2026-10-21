@@ -48,8 +48,10 @@ public:
     // CoreAudio state
     bool IsConnected() const { return mConnected; }
     bool IsRunning() const { return mIOStarted; }
-    // Clients (AddDeviceClient / RemoveDeviceClient) and their IO: StartIO and StopIO come per
-    // client, and the device runs IO while at least one client has started it
+    // Clients (AddDeviceClient / RemoveDeviceClient) and their IO. The device runs IO from the
+    // first StartIO to the StopIO that balances it: AudioServerPlugIn.h has them come per client,
+    // but coreaudiod (macOS 26) counts its clients itself, sending StartIO for the first and
+    // StopIO, with the last one's ID, for the last; so the calls are counted, not matched by ID
     void AddClient(const AudioServerPlugInClientInfo* info);
     void RemoveClient(UInt32 clientID);
     kern_return_t StartIO(AudioServerPlugInHostRef host, UInt32 clientID);
@@ -166,8 +168,9 @@ private:
         UInt32 id;
         pid_t pid;
         char bundle[128];
-        bool io;                 // started IO
+        bool io;                 // started IO (where the host says so per client)
     };
+    int mIOCount = 0;            // StartIOs not yet balanced by a StopIO (mClientLock)
     static constexpr int kMaxClients = 64;
     Client mClients[kMaxClients] = {};
     int mClientCount = 0;

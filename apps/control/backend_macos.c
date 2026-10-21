@@ -213,7 +213,10 @@ static void finish_clients(char *list, size_t size, unsigned int count, bool hog
 			 count > 1 ? ", mixed by CoreAudio" : ", CoreAudio");
 }
 
-/* The clients doing IO (OzzyHAL's OZZY_PROPERTY_CLIENTS), each way when CoreAudio says which */
+/*
+ * The clients doing IO, from OzzyHAL's OZZY_PROPERTY_CLIENTS: each way as CoreAudio's process
+ * objects say (macOS 14 and later); without them, the ones the plug-in saw start IO, either way
+ */
 static void read_clients(AudioObjectID dev, struct ozzy_control_host *h)
 {
 	AudioObjectPropertyAddress a = addr(OZZY_PROPERTY_CLIENTS, kAudioObjectPropertyScopeGlobal);
@@ -235,6 +238,7 @@ static void read_clients(AudioObjectID dev, struct ozzy_control_host *h)
 		CFDictionaryRef c = CFArrayGetValueAtIndex(clients, i);
 		CFNumberRef number;
 		CFStringRef bundle;
+		CFBooleanRef io;
 		char name[128] = "";
 		SInt32 pid = -1;
 		int dir, uses[2];
@@ -252,6 +256,9 @@ static void read_clients(AudioObjectID dev, struct ozzy_control_host *h)
 		uses[0] = pid > 0 ? process_uses(dev, pid, true) : -1;
 		uses[1] = pid > 0 ? process_uses(dev, pid, false) : -1;
 		if (uses[0] < 0 || uses[1] < 0) {
+			io = CFDictionaryGetValue(c, CFSTR("io"));
+			if (io && CFGetTypeID(io) == CFBooleanGetTypeID() && !CFBooleanGetValue(io))
+				continue;
 			add_client(h->clients, sizeof(h->clients), &undirected, name, pid);
 			hog_any |= pid == hog;
 			continue;
@@ -408,6 +415,70 @@ static void listen(AudioObjectID id, bool on)
 	}
 }
 
+/*
+ * CoreAudio's process objects (macOS 14 and later) and when each starts or stops running input or
+ * output: what tells of a client joining a device's IO, which the plug-in doesn't hear of
+ * (read_clients). Every process, not just a device's clients: it changes as rarely, and a change
+ * only means a fresh read. Guarded by state_lock as the devices are.
+ */
+#define PROCS_MAX 256
+
+static AudioObjectID procs[PROCS_MAX];
+static int nprocs;
+
+static const AudioObjectPropertySelector process_props[] = {
+	kAudioProcessPropertyIsRunningInput,
+	kAudioProcessPropertyIsRunningOutput,
+};
+
+static void listen_process(AudioObjectID id, bool on)
+{
+	unsigned int p;
+
+	for (p = 0; p < sizeof(process_props) / sizeof(process_props[0]); p++) {
+		AudioObjectPropertyAddress pa = addr(process_props[p], kAudioObjectPropertyScopeGlobal);
+
+		if (on)
+			AudioObjectAddPropertyListener(id, &pa, on_property, NULL);
+		else
+			AudioObjectRemovePropertyListener(id, &pa, on_property, NULL);
+	}
+}
+
+/* Listen to processes that came, forget those that left: as watch_devices */
+static void watch_processes(void)
+{
+	AudioObjectPropertyAddress a = addr(kAudioHardwarePropertyProcessObjectList, kAudioObjectPropertyScopeGlobal);
+	AudioObjectID now[PROCS_MAX], add[PROCS_MAX], drop[PROCS_MAX];
+	UInt32 sz = sizeof(now);
+	int nnow = 0, nadd = 0, ndrop = 0, i, k;
+
+	if (AudioObjectGetPropertyData(kAudioObjectSystemObject, &a, 0, NULL, &sz, now) == noErr)
+		nnow = (int)(sz / sizeof(AudioObjectID));
+
+	pthread_mutex_lock(&state_lock);
+	for (i = 0; i < nnow; i++) {
+		for (k = 0; k < nprocs && procs[k] != now[i]; k++)
+			;
+		if (k == nprocs)
+			add[nadd++] = now[i];
+	}
+	for (k = 0; k < nprocs; k++) {
+		for (i = 0; i < nnow && now[i] != procs[k]; i++)
+			;
+		if (i == nnow)
+			drop[ndrop++] = procs[k];
+	}
+	memcpy(procs, now, sizeof(now[0]) * (size_t)nnow);
+	nprocs = nnow;
+	pthread_mutex_unlock(&state_lock);
+
+	for (k = 0; k < ndrop; k++)
+		listen_process(drop[k], false);
+	for (i = 0; i < nadd; i++)
+		listen_process(add[i], true);
+}
+
 static bool same_device(const struct watched *a, const struct watched *b)
 {
 	return a->id == b->id && !strcmp(a->uid, b->uid);
@@ -462,11 +533,15 @@ static void watch_devices(void)
 
 static OSStatus on_property(AudioObjectID obj, UInt32 count, const AudioObjectPropertyAddress *addrs, void *ctx)
 {
-	(void)count;
-	(void)addrs;
+	UInt32 i;
+
 	(void)ctx;
-	if (obj == kAudioObjectSystemObject)
-		watch_devices();
+	for (i = 0; obj == kAudioObjectSystemObject && i < count; i++) {
+		if (addrs[i].mSelector == kAudioHardwarePropertyProcessObjectList)
+			watch_processes();
+		else
+			watch_devices();
+	}
 	pthread_mutex_lock(&callback_lock);
 	watch_changed(watch_ctx);
 	pthread_mutex_unlock(&callback_lock);
@@ -477,6 +552,7 @@ int ozzy_control_backend_watch(void (*changed)(void *ctx), void *ctx)
 {
 	AudioObjectPropertyAddress loop = addr(kAudioHardwarePropertyRunLoop, kAudioObjectPropertyScopeGlobal);
 	AudioObjectPropertyAddress devices = addr(kAudioHardwarePropertyDevices, kAudioObjectPropertyScopeGlobal);
+	AudioObjectPropertyAddress processes = addr(kAudioHardwarePropertyProcessObjectList, kAudioObjectPropertyScopeGlobal);
 	CFRunLoopRef none = NULL;
 	OSStatus st;
 
@@ -491,5 +567,9 @@ int ozzy_control_backend_watch(void (*changed)(void *ctx), void *ctx)
 		return -1;
 	}
 	watch_devices();
+	/* Which processes run IO (macOS 14 and later: read_clients) */
+	if (AudioObjectHasProperty(kAudioObjectSystemObject, &processes) &&
+	    AudioObjectAddPropertyListener(kAudioObjectSystemObject, &processes, on_property, NULL) == noErr)
+		watch_processes();
 	return 0;
 }

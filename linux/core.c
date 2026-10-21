@@ -76,7 +76,13 @@ int ozzy_chip_restart(struct ozzy_chip *chip)
 		return -ENODEV;
 	chip->running = ozzy_engine_restart(chip->engine);
 	ozzy_controls_handshake(chip);   /* failed too: clients see the device stopped */
-	return chip->running ? 0 : -EIO;
+	if (chip->running)
+		return 0;
+	/* The restart left the device unusable: reset it, as the pre-engine driver did on every
+	 * rate change. Queued, as pre_reset takes chip->lock; post_reset brings the engine back. */
+	chip_err(chip, "restart failed, resetting the device");
+	usb_queue_reset_device(chip->intf[0]);
+	return -EIO;
 }
 
 /* Claim the profile's interfaces (the probed one is interface 0) and select its alternate setting */

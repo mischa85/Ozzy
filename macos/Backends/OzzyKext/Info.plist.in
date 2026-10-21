@@ -24,6 +24,8 @@
 		<string>15.0</string>
 		<key>com.apple.kpi.libkern</key>
 		<string>15.0</string>
+		<key>com.apple.kpi.mach</key>
+		<string>15.0</string>
 	</dict>
 </dict>
 </plist>

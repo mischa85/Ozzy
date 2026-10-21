@@ -71,4 +71,9 @@ private:
     uint64_t mTimerInterval = 0;     // absolute time units
     uint64_t mTimerDeadline = 0;
     volatile bool mTimerOn = false;
+    // StopTimer waits on these, as thread_call_cancel_wait is private KPI: armed while a call is
+    // queued, busy while one runs. A call clears armed after setting busy and re-arms before
+    // clearing busy, so one of them is set from enter to return.
+    volatile bool mTimerArmed = false;
+    volatile bool mTimerBusy = false;
 };

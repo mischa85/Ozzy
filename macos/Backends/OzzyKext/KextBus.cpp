@@ -183,34 +183,55 @@ KextBus::~KextBus() {
 }
 
 bool KextBus::StartTimer(uint32_t intervalUs) {
-    if (!mTimer) mTimer = thread_call_allocate_with_priority(&KextBus::TimerFired, this, THREAD_CALL_PRIORITY_HIGH);
+    // _with_priority is private KPI, _with_options is public (com.apple.kpi.mach)
+    if (!mTimer) mTimer = thread_call_allocate_with_options(&KextBus::TimerFired, this, THREAD_CALL_PRIORITY_HIGH, 0);
     if (!mTimer) return false;
     nanoseconds_to_absolutetime((uint64_t)intervalUs * 1000, &mTimerInterval);
     mTimerDeadline = mach_absolute_time() + mTimerInterval;
     mTimerOn = true;
+    mTimerArmed = true;
+    __atomic_thread_fence(__ATOMIC_SEQ_CST);
     thread_call_enter_delayed(mTimer, mTimerDeadline);
     return true;
 }
 
 void KextBus::StopTimer() {
     mTimerOn = false;
+    __atomic_thread_fence(__ATOMIC_SEQ_CST);
     if (!mTimer) return;
-    // The first wait lets a running call finish; it may have re-armed before it saw mTimerOn,
-    // so cancel once more. Later calls see mTimerOn false and don't re-arm.
-    thread_call_cancel_wait(mTimer);
-    thread_call_cancel_wait(mTimer);
+    // A cancelled call never runs; one already dequeued runs, sees mTimerOn false and doesn't
+    // re-arm. Wait until neither is left.
+    for (;;) {
+        if (thread_call_cancel(mTimer)) mTimerArmed = false;
+        __atomic_thread_fence(__ATOMIC_SEQ_CST);
+        if (!mTimerArmed && !mTimerBusy) break;
+        IOSleep(1);
+    }
 }
 
 void KextBus::TimerFired(thread_call_param_t param, thread_call_param_t) {
     KextBus* bus = (KextBus*)param;
-    if (!bus->mTimerOn) return;
+    bus->mTimerBusy = true;
+    __atomic_thread_fence(__ATOMIC_SEQ_CST);
+    bus->mTimerArmed = false;
+    if (!bus->mTimerOn) {
+        __atomic_thread_fence(__ATOMIC_SEQ_CST);
+        bus->mTimerBusy = false;
+        return;
+    }
     if (bus->mEngine) ozzy_engine_timer(bus->mEngine);
 
     // Next deadline from the last one; if we fell behind, skip to the next one ahead
     uint64_t now = mach_absolute_time();
     bus->mTimerDeadline += bus->mTimerInterval;
     if (bus->mTimerDeadline <= now) bus->mTimerDeadline = now + bus->mTimerInterval;
-    if (bus->mTimerOn) thread_call_enter_delayed(bus->mTimer, bus->mTimerDeadline);
+    if (bus->mTimerOn) {
+        bus->mTimerArmed = true;
+        __atomic_thread_fence(__ATOMIC_SEQ_CST);
+        thread_call_enter_delayed(bus->mTimer, bus->mTimerDeadline);
+    }
+    __atomic_thread_fence(__ATOMIC_SEQ_CST);
+    bus->mTimerBusy = false;
 }
 
 /* Index pipes by endpoint address so SubmitUSBPacket finds them without searching */

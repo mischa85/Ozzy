@@ -5,10 +5,22 @@
 static const GUID render_component = { 0x87e5b7f1, 0xc03a, 0x4350, { 0xaf, 0x68, 0x72, 0x29, 0x07, 0x66, 0x7a, 0x9a } };
 static const GUID capture_component = { 0x4b712dd5, 0x1ce4, 0x4d50, { 0xb5, 0xf0, 0x68, 0xa3, 0x27, 0x23, 0xa7, 0xae } };
 
+/* The standard speaker layout for @channels, for clients that want one (PortAudio asks for 8
+ * channels as 7.1, and an exact-match format list refuses it otherwise); 0: none */
+static DWORD speaker_mask(uint32_t channels) {
+    switch (channels) {
+    case 2: return KSAUDIO_SPEAKER_STEREO;
+    case 4: return KSAUDIO_SPEAKER_QUAD;
+    case 6: return KSAUDIO_SPEAKER_5POINT1_SURROUND;
+    case 8: return KSAUDIO_SPEAKER_7POINT1_SURROUND;
+    default: return 0;
+    }
+}
+
 /* A direction's format at @rate: the model's channels, packed 24-bit (S24_3LE, what the frame
- * codecs take). Stereo gets a speaker mask, more channels
- * none (direct out: a mixer's channels aren't surround speakers). */
-static void fill_format(KSDATAFORMAT_WAVEFORMATEXTENSIBLE* f, uint32_t channels, uint32_t rate) {
+ * codecs take), with channel mask @mask (KSAUDIO_SPEAKER_DIRECTOUT: a mixer's channels aren't
+ * surround speakers). */
+static void fill_format(KSDATAFORMAT_WAVEFORMATEXTENSIBLE* f, uint32_t channels, uint32_t rate, DWORD mask) {
     RtlZeroMemory(f, sizeof(*f));
     f->DataFormat.FormatSize = sizeof(*f);
     f->DataFormat.MajorFormat = KSDATAFORMAT_TYPE_AUDIO;
@@ -24,7 +36,7 @@ static void fill_format(KSDATAFORMAT_WAVEFORMATEXTENSIBLE* f, uint32_t channels,
     w->Format.wBitsPerSample = 24;
     w->Format.cbSize = sizeof(WAVEFORMATEXTENSIBLE) - sizeof(WAVEFORMATEX);
     w->Samples.wValidBitsPerSample = 24;
-    w->dwChannelMask = channels == 2 ? KSAUDIO_SPEAKER_STEREO : KSAUDIO_SPEAKER_DIRECTOUT;
+    w->dwChannelMask = mask;
     w->SubFormat = KSDATAFORMAT_SUBTYPE_PCM;
 }
 
@@ -80,15 +92,20 @@ NTSTATUS wcircuit_create(WDFDEVICE device, bool render, ACXCIRCUIT* out) {
     status = AcxPinCreate(circuit, &attributes, &pin, &pins[1]);
     if (!NT_SUCCESS(status)) return status;
 
-    /* A format per rate, the highest (the engine's default) first. A stream at another rate
-     * restarts the engine at it (wdev_stream_rate). */
+    /* A format per rate, the highest (the engine's default) first, with no speaker layout (stereo:
+     * left/right); then the same with the standard layout for the channel count, for clients that
+     * ask for one (WASAPI exclusive matches the mask exactly). A stream at another rate restarts
+     * the engine at it (wdev_stream_rate). */
     ACXDATAFORMATLIST formats = AcxPinGetRawDataFormatList(pins[0]);
     if (!formats) return STATUS_INSUFFICIENT_RESOURCES;
     uint32_t rates[OZZY_MAX_RATES];
+    uint32_t channels = render ? dev->model->out_channels : dev->model->in_channels;
     unsigned int n = ozzy_device_rates(dev->model, rates);
-    for (unsigned int i = 0; i < n; i++) {
+    unsigned int layouts = channels == 2 || !speaker_mask(channels) ? 1 : 2;
+    for (unsigned int i = 0; i < n * layouts; i++) {
         KSDATAFORMAT_WAVEFORMATEXTENSIBLE* f = &ctx->formats[i];
-        fill_format(f, render ? dev->model->out_channels : dev->model->in_channels, rates[n - 1 - i]);
+        DWORD mask = channels == 2 ? KSAUDIO_SPEAKER_STEREO : i < n ? KSAUDIO_SPEAKER_DIRECTOUT : speaker_mask(channels);
+        fill_format(f, channels, rates[n - 1 - i % n], mask);
         ACX_DATAFORMAT_CONFIG format_config;
         ACX_DATAFORMAT_CONFIG_INIT_KS(&format_config, f);
         ACXDATAFORMAT format;

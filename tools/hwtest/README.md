@@ -11,6 +11,7 @@ DB4 also feeds inputs 7-8 from outputs 1-2.
 | `rtlat.c` | JACK, or PipeWire through `pw-jack` | `cc -O2 -o rtlat rtlat.c -ljack -lm` |
 | `ca_rate.c` | macOS | `cc -O2 -o ca_rate ca_rate.c -framework CoreAudio -framework CoreFoundation` |
 | `asio_probe.c` | Windows: another driver's ASIO side (info, rate, its control panel) | `cl /O2 asio_probe.c ole32.lib advapi32.lib user32.lib` |
+| `wasapi_probe.c` | Windows: which formats an endpoint takes in WASAPI exclusive mode, by channel mask and rate | `cl /O2 wasapi_probe.c ole32.lib` |
 | `midi_listen.c` | macOS (Linux: `amidi -l`, `amidi -p hw:N,0 -d`) | `cc -O2 -o midi_listen midi_listen.c -framework CoreMIDI -framework CoreFoundation` |
 
 ## Play and record

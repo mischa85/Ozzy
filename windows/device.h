@@ -42,7 +42,7 @@ WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(wdev, wdev_get)
 struct wcircuit {
     bool render;
     ACXEVENT changed;                  /* OZZY_KSEVENT_CHANGED (settings.c), NULL if none */
-    KSDATAFORMAT_WAVEFORMATEXTENSIBLE formats[OZZY_MAX_RATES];
+    KSDATAFORMAT_WAVEFORMATEXTENSIBLE formats[2 * OZZY_MAX_RATES];   /* direct out, then a speaker layout */
 };
 typedef struct wcircuit wcircuit;
 WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(wcircuit, wcircuit_get)

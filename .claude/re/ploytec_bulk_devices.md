@@ -171,7 +171,9 @@ go into one USB transfer, and how many transfers are queued, is up to the host:
   The length is rounded down to whole packets each way (20 frames out, 16 in at 48 kHz); the
   number of buffers sets only the OUT queue, IN always keeps 4. **Changes apply live**: no control
   request, no restart, at most a 5 ms gap between OUT completions while the sizes switch (Ozzy
-  restarts the engine for each). Its smallest: 40 frames out x 2, 48 in x 4.
+  restarts the engine for each). Its smallest: 40 frames out x 2, 48 in x 4. "Number of USB buffers"
+  doesn't offer 1 (the user checked the list): the official driver never runs one OUT transfer in
+  flight, the case that starves the DB4 on macOS.
 - Ozzy offers only whole-packet sizes (`ozzy_pcm_step`, from the endpoints in the driver's info):
   the engine refuses the rest and rounds a kept value up at start.
 - **One transfer in flight ("no queue") works on Linux, not on macOS** (DB4, 2026-10-21).

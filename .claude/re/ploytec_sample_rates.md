@@ -153,6 +153,14 @@ survive, #86) nor restarts straight after aborting (the engine's way, which the 
 stalls for ~100 ms: the handshake retry, 6feeec5): it waits, unconfigures and reconfigures the
 device, and only then talks to it. A candidate for the engine's restart and the 4D.
 
+Its attach (`official_attach2.pcap`, a replug; times from the first request after enumeration):
+GET_DESCRIPTOR (device); +172 ms 'V' (firmware, 3 bytes); the configuration descriptors and the
+device descriptor again; SET_CONFIGURATION 1; +50 ms 'I' read, GET_CUR (EP 0); SET_CUR 48000 to
+86 / 05 / 86 / 05 / 86 (5); GET_CUR 86; 'I' read; 'I' write 0xFFB2; then ~610 ms later
+ABORT_PIPE + SYNC_RESET_PIPE_AND_CLEAR_STALL on 0x86 and 0x05, and streaming. The rate change
+above is this sequence with SET_CONFIGURATION 0 in front. On the unplug it aborts its pipes and
+tries SET_CONFIGURATION 0 (fails: the device is gone).
+
 The same package streams continuously from attach, also with no client: 4 transfers in flight
 each way, OUT 11568 bytes (12 x 964 = 240 frames), IN 8192 bytes (8 x 1024 = 128 frames), all
 whole packets (`official1.pcap`). A client starting or stopping sends no control request. Its

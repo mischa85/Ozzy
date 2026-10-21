@@ -144,7 +144,7 @@ static inline uint32_t ozzy_anchor_frames(unsigned int value, uint32_t unit)
 /* The frames of value @value of the out (@in false) or in setting; out of range: the default */
 static inline uint32_t ozzy_pcm_frames(bool in, unsigned int value)
 {
-	if (value >= (in ? OZZY_NUM_PCM_IN_FRAMES : OZZY_NUM_PCM_OUT_FRAMES))
+	if (value >= (in ? OZZY_NUM_PCM_IN_FRAMES : OZZY_NUM_PCM_OUT_FRAMES) + 0u)
 		value = in ? 9 : 7;
 	return (value + 1) * (in ? 8 : 10);
 }

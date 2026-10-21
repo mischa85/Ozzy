@@ -104,7 +104,11 @@
   </ItemGroup>
   <ItemGroup>
     <!-- Generated before the build from ozzy.inf.in (OzzyGenerateInf) -->
-    <Inf Include="$(IntDir)ozzy.inf" />
+    <Inf Include="$(IntDir)ozzy.inf">
+      <!-- DriverVer's date: today in UTC, which inf2cat checks it against (the default, stampinf's
+           local date, is "in the future" for it after midnight east of UTC, error 22.9.7) -->
+      <DateStamp>$([System.DateTime]::UtcNow.ToString('MM/dd/yyyy'))</DateStamp>
+    </Inf>
   </ItemGroup>
   <ItemGroup>
     <!-- The driver next to the INF in the package (windows\build\x64\Release\ozzy\), where inf2cat and pnputil look -->

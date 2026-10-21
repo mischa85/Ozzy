@@ -254,17 +254,17 @@ DISABLE_FLAGS=""
 for KEY in $OZZY_DISABLE; do DISABLE_FLAGS="$DISABLE_FLAGS -DOZZY_DISABLE_$KEY"; done
 if [ -n "$DISABLE_FLAGS" ]; then echo "   🚫 Left out:$DISABLE_FLAGS"; fi
 
-CFLAGS="-x c++ -arch $KEXT_ARCH -mmacosx-version-min=$MIN_MACOS -std=c++11 -O2 -DKERNEL -D__KERNEL__ -mkernel \
+KEXT_CFLAGS="-x c++ -arch $KEXT_ARCH -mmacosx-version-min=$MIN_MACOS -std=c++11 -O2 -DKERNEL -D__KERNEL__ -mkernel \
 -fno-builtin -fno-exceptions -fno-rtti -fno-common -fno-use-cxa-atexit \
 -Wno-deprecated-declarations -Wno-inconsistent-missing-override \
 -nostdinc -I. -I$KERNEL_HEADERS -include Backends/OzzyKext/SdkCompat.h -DOZZY_GIT_VERSION=\"$GIT_VERSION\"$DISABLE_FLAGS"
 
 # The engine and common/ are C
-CFLAGS_C="-x c -arch $KEXT_ARCH -mmacosx-version-min=$MIN_MACOS -std=gnu11 -O2 -DKERNEL -D__KERNEL__ -mkernel \
+KEXT_CFLAGS_C="-x c -arch $KEXT_ARCH -mmacosx-version-min=$MIN_MACOS -std=gnu11 -O2 -DKERNEL -D__KERNEL__ -mkernel \
 -fno-builtin -fno-common -Wno-deprecated-declarations -Wno-implicit-int-conversion \
 -nostdinc -I. -I$KERNEL_HEADERS -include Backends/OzzyKext/SdkCompat.h -DOZZY_GIT_VERSION=\"$GIT_VERSION\"$DISABLE_FLAGS"
 
-LDFLAGS="-arch $KEXT_ARCH -mmacosx-version-min=$MIN_MACOS -Xlinker -kext -nostdlib -lkmod -lcc_kext"
+KEXT_LDFLAGS="-arch $KEXT_ARCH -mmacosx-version-min=$MIN_MACOS -Xlinker -kext -nostdlib -lkmod -lcc_kext"
 
 echo "   🧹 Cleaning build directory..."
 # Use sudo to remove if it has root permissions from previous install
@@ -277,7 +277,7 @@ for SRC in "${SOURCES[@]}"; do
     FLAT_NAME=$(basename "${SRC%.*}")
     OBJ="$BUILD_DIR/$FLAT_NAME.o"
     
-    if [[ "$SRC" == *.c ]]; then FLAGS="$CFLAGS_C"; else FLAGS="$CFLAGS"; fi
+    if [[ "$SRC" == *.c ]]; then FLAGS="$KEXT_CFLAGS_C"; else FLAGS="$KEXT_CFLAGS"; fi
     if ! clang++ $FLAGS -c "$SRC" -o "$OBJ" 2> "$BUILD_DIR/compile.log"; then
         grep -v "warning:" "$BUILD_DIR/compile.log"
         echo "❌ Compilation Failed: $SRC"
@@ -287,7 +287,7 @@ for SRC in "${SOURCES[@]}"; do
 done
 
 echo "   🔗 Linking kext..."
-if ! clang++ $LDFLAGS "${OBJECTS[@]}" -o "$BUILD_DIR/$KEXT_NAME.kext/Contents/MacOS/$KEXT_NAME"; then
+if ! clang++ $KEXT_LDFLAGS "${OBJECTS[@]}" -o "$BUILD_DIR/$KEXT_NAME.kext/Contents/MacOS/$KEXT_NAME"; then
     echo "❌ Linking Failed"
     exit 1
 fi
@@ -384,8 +384,9 @@ echo "✅ ozzy-cli compiled"
 # Compile the ozzy app and make it Ozzy.app. Meson builds it (and fetches libui-ng); without a
 # meson and ninja of the system's, pinned ones go into a Python environment of the build's own
 # (meson 1.11: the last for the Command Line Tools' Python 3.9). Xcode's clang named, so meson
-# doesn't add a ccache it finds (a broken Homebrew one fails the build). The drivers don't need
-# the app: if it doesn't build, they install without it.
+# doesn't add a ccache it finds (a broken Homebrew one fails the build), and no compiler flags
+# from the environment (a shell profile's, e.g. Homebrew's LDFLAGS). The drivers don't need the
+# app: if it doesn't build, they install without it.
 echo ""
 echo "🔨 [5/5] Compiling the ozzy app..."
 APP_PATH="$BUILD_DIR/Ozzy.app"
@@ -398,6 +399,7 @@ build_app() {
         fi
         PATH="$venv/bin:$PATH"
     fi
+    unset CFLAGS CPPFLAGS CXXFLAGS OBJCFLAGS LDFLAGS
     if [ -f "$gui_build/build.ninja" ]; then
         CC=clang OBJC=clang MACOSX_DEPLOYMENT_TARGET="$MIN_MACOS" meson setup --reconfigure "$gui_build" "$DIR/../apps/gui" || return 1
     else

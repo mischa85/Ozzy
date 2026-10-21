@@ -103,6 +103,7 @@ static int find_devices(struct ozzy_control_device *devs, int max, wchar_t (*fou
 		}
 		memset(d, 0, sizeof(*d));
 		to_utf8(instance, d->id, sizeof(d->id));
+		d->id_internal = true;   /* the device instance path: no use to look at */
 		for (k = 0; k < n; k++)
 			dup |= !strcmp(devs[k].id, d->id);
 		if (dup) {

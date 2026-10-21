@@ -91,6 +91,27 @@
   <!-- ozzy.inf: the template with one model line per supported device in common/ozzy_devices.def.
        GenInf.c is compiled for the host with the Visual Studio install's own compiler (vcvarsall),
        so this works from the IDE as well as a developer prompt. -->
+  <!-- The commit for the driver's record and log (common/ozzy_version.h): git describe, or
+       /p:OzzyGitVersion=... (a build from a copy without .git says "unknown") -->
+  <Target Name="OzzyGitVersion" BeforeTargets="ClCompile">
+    <Exec Command="git -C &quot;$(MSBuildThisFileDirectory)..&quot; describe --always --dirty" Condition="'$(OzzyGitVersion)' == ''"
+          ConsoleToMSBuild="true" IgnoreExitCode="true" StandardOutputImportance="low" StandardErrorImportance="low" EchoOff="true">
+      <Output TaskParameter="ConsoleOutput" PropertyName="OzzyGitVersion" />
+      <Output TaskParameter="ExitCode" PropertyName="OzzyGitExit" />
+    </Exec>
+    <PropertyGroup>
+      <OzzyGitVersion Condition="'$(OzzyGitExit)' != '' and '$(OzzyGitExit)' != '0'"></OzzyGitVersion>
+    </PropertyGroup>
+    <!-- A header the compiler force-includes: a quoted string doesn't survive PreprocessorDefinitions -->
+    <MakeDir Directories="$(MSBuildProjectDirectory)\$(IntDir)" />
+    <WriteLinesToFile File="$(MSBuildProjectDirectory)\$(IntDir)ozzy_git_version.h" Lines="#define OZZY_GIT_VERSION &quot;$(OzzyGitVersion)&quot;" Overwrite="true"
+                      WriteOnlyWhenDifferent="true" Condition="'$(OzzyGitVersion)' != ''" />
+    <ItemGroup Condition="'$(OzzyGitVersion)' != ''">
+      <ClCompile>
+        <ForcedIncludeFiles>$(MSBuildProjectDirectory)\$(IntDir)ozzy_git_version.h;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      </ClCompile>
+    </ItemGroup>
+  </Target>
   <Target Name="OzzyGenerateInf" BeforeTargets="PrepareForBuild"
           Inputs="ozzy.inf.in;GenInf.c;..\common\ozzy_devices.def;..\common\ozzy_devices.h" Outputs="$(IntDir)ozzy.inf">
     <MakeDir Directories="$(IntDir)GenInf" />

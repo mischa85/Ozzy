@@ -57,6 +57,7 @@ struct ozzy_control_host {
  * @settings:      their values
  * @has_clock:     @clock is valid (the device has the clock source; lock_rate 0: unknown)
  * @has_info:      @info is the driver's record (a driver from before it had one: false)
+ * @id_internal:   @id only finds the device again (Windows' device instance path), not shown
  * @host:          what the OS's audio stack says
  * @handle:        backend-private
  */
@@ -71,6 +72,7 @@ struct ozzy_control_device {
 	bool has_clock;
 	struct ozzy_clock_status clock;
 	bool has_info;
+	bool id_internal;
 	struct ozzy_info info;
 	struct ozzy_control_host host;
 	uintptr_t handle;

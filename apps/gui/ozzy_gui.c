@@ -278,8 +278,14 @@ static void gui_on_pick(uiCombobox *box, void *data)
 	uiQueueMain(gui_on_change_main, NULL);
 }
 
-/* A combobox for setting @id of @d, with its values, in @form */
-static void gui_add_setting(uiForm *form, const struct ozzy_control_device *d, unsigned int id)
+/* A label in column 0 of @grid's row @top, aligned against its value as @valign */
+static void gui_grid_label(uiGrid *grid, int top, const char *text, uiAlign valign)
+{
+	uiGridAppend(grid, uiControl(uiNewLabel(text)), 0, top, 1, 1, 0, uiAlignStart, 0, valign);
+}
+
+/* A combobox for setting @id of @d, with its values, in row @top of @grid */
+static void gui_add_setting(uiGrid *grid, int top, const struct ozzy_control_device *d, unsigned int id)
 {
 	struct gui_row *row = &gui.rows[gui.nrows++];
 	unsigned int n = ozzy_control_values(d, id), v;
@@ -294,7 +300,8 @@ static void gui_add_setting(uiForm *form, const struct ozzy_control_device *d, u
 		uiComboboxAppend(row->box, ozzy_setting_descs[id].value_names[v]);
 	}
 	uiComboboxOnSelected(row->box, gui_on_setting, row);
-	uiFormAppend(form, gui_settings[id].label, uiControl(row->box), 0);
+	gui_grid_label(grid, top, gui_settings[id].label, uiAlignCenter);
+	uiGridAppend(grid, uiControl(row->box), 1, top, 1, 1, 1, uiAlignFill, 0, uiAlignFill);
 }
 
 static uiBox *gui_build_empty(const char *text)
@@ -310,9 +317,11 @@ static uiBox *gui_build_empty(const char *text)
 static uiGroup *gui_build_section(const struct ozzy_control_device *d, enum gui_section s)
 {
 	uiGroup *group = NULL;
-	uiForm *form = NULL;
+	/* A grid, not a uiForm: the form lines its labels up for edit-box-high controls, so on Windows
+	 * a label next to a text value sat lower than the value */
+	uiGrid *grid = NULL;
 	unsigned int id;
-	int i;
+	int i, top = 0;
 
 	for (id = 0; id <= OZZY_NUM_SETTINGS; id++) {
 		bool setting = id < OZZY_NUM_SETTINGS;
@@ -326,15 +335,16 @@ static uiGroup *gui_build_section(const struct ozzy_control_device *d, enum gui_
 			if (!group) {
 				group = uiNewGroup(gui_section_titles[s]);
 				uiGroupSetMargined(group, 1);
-				form = uiNewForm();
-				uiFormSetPadded(form, 1);
-				uiGroupSetChild(group, uiControl(form));
+				grid = uiNewGrid();
+				uiGridSetPadded(grid, 1);
+				uiGroupSetChild(group, uiControl(grid));
 			}
 			if (setting) {
-				gui_add_setting(form, d, id);
+				gui_add_setting(grid, top++, d, id);
 			} else {
 				gui.fact_values[i] = uiNewLabel(gui.facts[i].value);
-				uiFormAppend(form, gui.facts[i].label, uiControl(gui.fact_values[i]), 0);
+				gui_grid_label(grid, top, gui.facts[i].label, uiAlignStart);
+				uiGridAppend(grid, uiControl(gui.fact_values[i]), 1, top++, 1, 1, 1, uiAlignFill, 0, uiAlignStart);
 			}
 		}
 	}

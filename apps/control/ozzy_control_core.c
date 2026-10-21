@@ -310,7 +310,8 @@ int ozzy_control_facts(const struct ozzy_control_device *dev, struct ozzy_contro
 	if (h->driver[0] || (dev->has_info && in->driver_version[0]))
 		fact(&f, "Driver", "%s%s%s", h->driver, h->driver[0] && dev->has_info && in->driver_version[0] ? ", build " : "",
 		     dev->has_info ? in->driver_version : "");
-	fact(&f, "Driver ID", "%s", dev->id);
+	if (!dev->id_internal)
+		fact(&f, "Driver ID", "%s", dev->id);
 
 	/* Audio */
 	f.group = OZZY_CONTROL_GROUP_AUDIO;
@@ -323,7 +324,7 @@ int ozzy_control_facts(const struct ozzy_control_device *dev, struct ozzy_contro
 			     in->clock_locked ? " (locked to S/PDIF)" : "");
 	}
 	if (dev->has_info && in->boot_rate)
-		fact(&f, "Rate at power-on", "%s", khz(in->boot_rate, a, sizeof(a)));
+		fact(&f, "Rate when attached", "%s", khz(in->boot_rate, a, sizeof(a)));
 	if (dev->in_channels || dev->out_channels)
 		fact(&f, "Channels", "%u in / %u out", dev->in_channels, dev->out_channels);
 	if (dev->has_clock && dev->clock.locked && dev->clock.lock_rate)

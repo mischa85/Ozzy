@@ -35,6 +35,7 @@ struct ploytec_engine {
 	uint32_t sample_rate;
 	uint32_t default_rate;
 	volatile bool running;
+	bool streamed;         /* has streamed since attach: a start is a restart */
 	bool pcm_in_int1024;
 	struct ploytec_midi midi;
 	ploytec_frame_fn encode;

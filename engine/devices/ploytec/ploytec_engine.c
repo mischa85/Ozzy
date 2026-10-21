@@ -16,12 +16,18 @@
 #define EP_PCM_IN    (PLOYTEC_EP_PCM_IN | 0x80)
 #define EP_MIDI_IN   (PLOYTEC_EP_MIDI_IN | 0x80)
 
+/* After the streaming transfers stop, no request for this long: the official Windows driver's
+ * ~100 ms of silence before it talks to the DB4 again (ploytec_sample_rates.md §5), which then
+ * stalls nothing; the engine's first request came 2 ms in and stalled until ~115 ms */
+#define PLOYTEC_RESTART_QUIET_MS 120
+
 /* --- Host services for the shared handshake (common/devices/ploytec/ploytec_handshake.c) --- */
 
 /* Right after a restart killed the streaming transfers, the DB4 (fw 1.4.1) stalls whichever
  * request comes in the next few ms (usbmon: 'V' at 1 ms, 'I' at 5 ms) and answers again about
- * 100 ms later. A stall on endpoint 0 ends with the next setup packet, and every handshake request
- * is a plain read or write, so ask again: up to 10 times, 20 ms apart. */
+ * 100 ms later. ploytec_start waits that out (PLOYTEC_RESTART_QUIET_MS); should a request still
+ * stall: a stall on endpoint 0 ends with the next setup packet, and every handshake request is a
+ * plain read or write, so ask again: up to 10 times, 20 ms apart. */
 static int host_control(void *ctx, uint8_t type, uint8_t req, uint16_t val, uint16_t idx, void *data, uint16_t len)
 {
 	const struct ozzy_bus *bus = (const struct ozzy_bus *)ctx;
@@ -184,7 +190,10 @@ static bool ploytec_start(struct ozzy_engine *e)
 	ploytec_log("model: %s, %u in / %u out, transfers of %u frames out, %u in", model->name, model->in_channels,
 		    model->out_channels, pe->out_frames, pe->in_frames);
 
-	/* 2. The handshake, with the settings; locked to S/PDIF it sets the lock rate */
+	/* 2. The handshake, with the settings; locked to S/PDIF it sets the lock rate. A restart
+	 * first lets the device settle from the transfers just stopped */
+	if (pe->streamed)
+		e->bus->ops->sleep_ms(e->bus->ctx, PLOYTEC_RESTART_QUIET_MS);
 	memset(&hs, 0, sizeof(hs));
 	if (ploytec_handshake(&xone_host_ops, (void *)e->bus, ozzy_engine_start_rate(e, pe->default_rate), model->quirks,
 			      &e->settings, &hs) < 0)
@@ -225,6 +234,7 @@ static bool ploytec_start(struct ozzy_engine *e)
 
 	/* 5. in_queue / out_queue transfers in flight per PCM pipe, PLOYTEC_MIDI_IN_XFERS MIDI IN reads */
 	pe->running = true;
+	pe->streamed = true;
 	for (i = 0; i < pe->in_queue || i < pe->out_queue; i++) {
 		if (i < pe->in_queue && !ploytec_submit_pcm_in(e, EP_PCM_IN, pe->in_frames, i))
 			ploytec_log("input submission failed (idx: %u)", i);
@@ -433,6 +443,7 @@ void ploytec_engine_init(struct ploytec_engine *pe, const struct ozzy_device *mo
 	pe->in_frames = ozzy_pcm_frames(true, ozzy_engine_setting_default(&pe->base, OZZY_SETTING_PCM_IN_FRAMES));
 	pe->out_queue = pe->in_queue = ozzy_pcm_queue(OZZY_NUM_PCM_QUEUES - 1);
 	pe->anchor_frames = 0;   /* start() sets it, where the platform reads anchors */
+	pe->streamed = false;
 
 	p->interface_count = PLOYTEC_NUM_INTERFACES;
 	p->interfaces[0] = 0;

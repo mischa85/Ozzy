@@ -165,6 +165,23 @@ static int find_devices(struct ozzy_control_device *devs, int max, wchar_t (*fou
 		d->host.latency[0] = st.fifo_frames[0];
 		d->host.latency[1] = st.fifo_frames[1];
 		d->clock.lock_rate = st.clock_locked ? st.lock_rate : 0;
+		/* Who streams each way, and how (the driver tells from who opened the stream and who has
+		 * its buffer mapped) */
+		for (dir = 0; dir < 2; dir++) {
+			char app[sizeof(st.client[0]) + 1];
+
+			memcpy(app, st.client[dir], sizeof(st.client[dir]));
+			app[sizeof(st.client[dir])] = 0;
+			if (st.client_path[dir] == OZZY_CLIENT_SHARED)
+				snprintf(d->host.client[dir], sizeof(d->host.client[dir]),
+					 "Windows audio engine, shared mode (WASAPI shared, MME, DirectSound)");
+			else if (st.client_path[dir] == OZZY_CLIENT_EXCLUSIVE)
+				snprintf(d->host.client[dir], sizeof(d->host.client[dir]), "%s (pid %u), WASAPI exclusive",
+					 app[0] ? app : "an app", (unsigned)st.client_pid[dir]);
+			else if (st.client_path[dir] == OZZY_CLIENT_KS)
+				snprintf(d->host.client[dir], sizeof(d->host.client[dir]), "%s (pid %u), kernel streaming (WDM-KS)",
+					 app[0] ? app : "an app", (unsigned)st.client_pid[dir]);
+		}
 		snprintf(d->host.driver, sizeof(d->host.driver), "Ozzy (ACX)");
 		{
 			struct ozzy_info info;

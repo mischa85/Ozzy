@@ -2,6 +2,7 @@
 #define WSTREAM_H
 
 #include "device.h"
+#include "ozzy_ksproperty.h"
 
 enum { WSTREAM_MAX_PACKETS = 8 };
 
@@ -16,6 +17,13 @@ struct wstream {
     uint32_t block_align;
     uint32_t rate;                    /* the format's */
     bool holding;                     /* running: counted in the device's holding[] */
+
+    /* Who opened the stream and who has its buffer mapped (enum ozzy_ksproperty_client_path) */
+    struct wstream_process {
+        ULONG pid;
+        bool engine;                  /* Windows' audio engine (audiodg.exe) */
+        char name[32];                /* image name, UTF-8 */
+    } creator, mapper;
 
     /* The packets: one allocation, the data contiguous from buffer + data_offset */
     uint8_t* buffer;
@@ -44,6 +52,9 @@ void wstream_progress(struct wstream* s, uint64_t frames, uint64_t qpc);
 
 /* The latency @s reports to Windows (its hardware FIFO), in frames */
 uint32_t wstream_fifo_frames(const struct wstream* s);
+
+/* How @s reaches the device while it runs, and the app (NULL for the audio engine's) */
+enum ozzy_ksproperty_client_path wstream_client(const struct wstream* s, const struct wstream_process** app);
 
 /* The circuits' EvtAcxCircuitCreateStream */
 EVT_ACX_CIRCUIT_CREATE_STREAM wstream_evt_create;

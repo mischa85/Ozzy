@@ -4,6 +4,39 @@ static enum ozzy_pcm_dir wstream_dir(const struct wstream* s) {
     return s->render ? OZZY_PCM_OUT : OZZY_PCM_IN;
 }
 
+/* PASSIVE_LEVEL: the calling process, for the client path (stream creation, buffer mapping) */
+static void wstream_caller(struct wstream_process* p) {
+    PUNICODE_STRING image = NULL;
+    RtlZeroMemory(p, sizeof(*p));
+    p->pid = (ULONG)(ULONG_PTR)PsGetCurrentProcessId();
+    if (!NT_SUCCESS(SeLocateProcessImageName(PsGetCurrentProcess(), &image)) || !image) return;
+    USHORT n = image->Length / sizeof(WCHAR), start = n;
+    while (start && image->Buffer[start - 1] != L'\\') start--;
+    UNICODE_STRING base = { (USHORT)((n - start) * sizeof(WCHAR)), (USHORT)((n - start) * sizeof(WCHAR)), image->Buffer + start };
+    UNICODE_STRING engine = RTL_CONSTANT_STRING(L"audiodg.exe");
+    p->engine = RtlEqualUnicodeString(&base, &engine, TRUE);
+    ULONG bytes = 0;
+    if (NT_SUCCESS(RtlUnicodeToUTF8N(p->name, sizeof(p->name) - 1, &bytes, base.Buffer, base.Length)))
+        p->name[bytes] = 0;
+    else
+        p->name[0] = 0;
+    ExFreePool(image);
+}
+
+enum ozzy_ksproperty_client_path wstream_client(const struct wstream* s, const struct wstream_process** app) {
+    *app = NULL;
+    if (!s->attached) return OZZY_CLIENT_NONE;
+    if (!s->creator.engine) {
+        *app = &s->creator;
+        return OZZY_CLIENT_KS;
+    }
+    if (s->mapper.pid && !s->mapper.engine) {
+        *app = &s->mapper;
+        return OZZY_CLIENT_EXCLUSIVE;
+    }
+    return OZZY_CLIENT_SHARED;
+}
+
 static uint64_t wstream_pos(struct wstream* s) {
     return (uint64_t)InterlockedCompareExchange64(&s->pos, 0, 0);
 }
@@ -90,6 +123,7 @@ static NTSTATUS wstream_allocate_rt_packets(ACXSTREAM stream, ULONG count, ULONG
     }
     s->packet_count = count;
     s->packet_frames = size / s->block_align;
+    wstream_caller(&s->mapper);   /* the buffer is mapped into the caller */
     kbus_log("[Ozzy] %s stream at %u Hz: %u packets of %u frames", s->render ? "render" : "capture", s->rate,
              (unsigned)count, (unsigned)s->packet_frames);
     *out = packets;
@@ -316,6 +350,7 @@ NTSTATUS wstream_evt_create(WDFDEVICE device, ACXCIRCUIT circuit, ACXPIN pin, PA
     s->render = render;
     s->block_align = AcxDataFormatGetBlockAlign(format);
     s->rate = rate;
+    wstream_caller(&s->creator);
     dev->streams[wstream_dir(s)] = s;
     return STATUS_SUCCESS;
 }

@@ -35,6 +35,8 @@
  * @latency, @safety_offset: what the driver reports to CoreAudio, in frames
  * @timestamp_period: CoreAudio's zero timestamp period, in frames
  * @format:        the stream format as the OS names it ("S24_3LE")
+ * @client:        who streams each way and how, as the backend names it ("python.exe (pid 17452),
+ *                 WASAPI exclusive"); empty where nothing streams or the platform doesn't say
  */
 struct ozzy_control_host {
 	char driver[32];
@@ -45,6 +47,7 @@ struct ozzy_control_host {
 	uint32_t safety_offset[2];
 	uint32_t timestamp_period;
 	char format[64];
+	char client[2][96];
 };
 
 /*

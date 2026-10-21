@@ -432,6 +432,10 @@ int ozzy_control_facts(const struct ozzy_control_device *dev, struct ozzy_contro
 	f.group = OZZY_CONTROL_GROUP_HOST;
 	if (h->driver[0])
 		fact(&f, "In use", "%s", h->running ? "yes, a client streams" : "no");
+	if (h->client[0][0])
+		fact(&f, "Playing", "%s", h->client[0]);
+	if (h->client[1][0])
+		fact(&f, "Recording", "%s", h->client[1]);
 	if (h->format[0])
 		fact(&f, "Format", "%s", h->format);
 	if (h->buffer_frames)

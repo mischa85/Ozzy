@@ -39,7 +39,19 @@ enum ozzy_ksevent_id {
 };
 
 /* Bump when struct ozzy_ksproperty_status changes */
-#define OZZY_KSPROPERTY_VERSION 4   /* 2: transfer size settings (value[] grew); 3: running; 4: streams */
+#define OZZY_KSPROPERTY_VERSION 5   /* 2: transfer size settings (value[] grew); 3: running; 4: streams; 5: clients */
+
+/*
+ * How a running stream reaches the device, from who opened it and who has its buffer mapped:
+ * Windows' audio engine (audiodg) does both for the apps it mixes; it opens one app's exclusive
+ * stream and maps the buffer into that app; an app on the KS pin itself does both.
+ */
+enum ozzy_ksproperty_client_path {
+	OZZY_CLIENT_NONE,
+	OZZY_CLIENT_SHARED,       /* the audio engine, mixing the apps (WASAPI shared, MME, DirectSound) */
+	OZZY_CLIENT_EXCLUSIVE,    /* one app through the audio engine, unmixed (WASAPI exclusive) */
+	OZZY_CLIENT_KS,           /* one app on the kernel streaming pin itself (WDM-KS) */
+};
 
 /*
  * struct ozzy_ksproperty_status - The device as the engine has it.
@@ -51,6 +63,9 @@ enum ozzy_ksevent_id {
  * @packet_frames: the WaveRT packet, the period Windows' audio engine works in
  * @packets:       packets in the stream's buffer
  * @fifo_frames:   the latency the driver reports for it (the FIFO of KSPROPERTY_RTAUDIO_HWLATENCY)
+ * @client_path:   enum ozzy_ksproperty_client_path of its running stream (NONE: not running)
+ * @client_pid/@client: the app of an exclusive or KS stream: its process id and image name
+ *                 (UTF-8, terminated); 0 / empty for the audio engine's
  */
 struct ozzy_ksproperty_status {
 	uint32_t version;
@@ -65,6 +80,10 @@ struct ozzy_ksproperty_status {
 	uint32_t packet_frames[2];
 	uint32_t packets[2];
 	uint32_t fifo_frames[2];
+	uint8_t client_path[2];
+	uint8_t reserved[2];
+	uint32_t client_pid[2];
+	char client[2][32];
 };
 
 /*

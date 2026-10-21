@@ -77,6 +77,12 @@ static void wsettings_status(const struct wdev* dev, struct ozzy_ksproperty_stat
         st->packet_frames[dir] = s->packet_frames;
         st->packets[dir] = s->packet_count;
         st->fifo_frames[dir] = wstream_fifo_frames(s);
+        const struct wstream_process* app;
+        st->client_path[dir] = (uint8_t)wstream_client(s, &app);
+        if (app) {
+            st->client_pid[dir] = app->pid;
+            RtlCopyMemory(st->client[dir], app->name, sizeof(st->client[dir]));
+        }
     }
 }
 

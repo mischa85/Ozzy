@@ -18,7 +18,8 @@
 # Copyright (C) 2024 Marcel Bierling <marcel@hackerman.art>
 
 param(
-    [string]$GitVersion   # the commit to stamp the driver with (default: git describe, if git is there)
+    [string]$GitVersion,   # the commit to stamp the driver with (default: git describe, if git is there)
+    [string]$Disable       # devices to leave out, keys from common\ozzy_devices.def: "TascamUS144,NumarkNS7"
 )
 
 $ErrorActionPreference = "Stop"
@@ -115,6 +116,13 @@ if (-not $GitVersion -and (Get-Command git -ErrorAction SilentlyContinue)) {
 }
 $props = @("/p:Configuration=Release", "/p:Platform=x64")
 if ($GitVersion) { $props += "/p:OzzyGitVersion=$GitVersion" }
+if (-not $Disable) { $Disable = $env:OZZY_DISABLE }
+if ($Disable) {
+    # Spaces between the keys: /p: takes ; and , as the end of the property
+    $keys = $Disable -split "[\s,;]+" | Where-Object { $_ }
+    $props += "/p:OzzyDisable=$($keys -join ' ')"
+    Say "Leaving out: $($keys -join ', ')"
+}
 Say "Building the driver..."
 Invoke-Logged $msbuild (Join-Path $windows "driver\ozzy.vcxproj") /nologo /m /v:minimal @props
 if ($LASTEXITCODE -ne 0) {

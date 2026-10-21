@@ -6,6 +6,9 @@
 #   install.cmd                          check, build, install
 #   install.cmd -NoBuild                 install the package already built (windows\build\x64\Release\ozzy\)
 #   install.cmd -Package C:\path\ozzy    install a package from elsewhere (ozzy.inf, ozzy.sys, ozzy.cat)
+#   install.cmd -Disable TascamUS144,NumarkNS7
+#                                        build without those devices (keys from common\ozzy_devices.def),
+#                                        so another driver keeps them
 #
 # Ozzy is test-signed, not signed by Microsoft: Windows loads it only with Secure Boot off and test
 # signing on. The first install turns test signing on and asks for a restart.
@@ -15,6 +18,7 @@
 param(
     [switch]$NoBuild,
     [string]$Package,
+    [string]$Disable,
     [switch]$NoPrompt
 )
 
@@ -70,7 +74,7 @@ Say ""
 
 # 2. Build (fetches the build tools and the WDK the first time)
 if (-not $NoBuild) {
-    try { & (Join-Path $here "build.ps1") } catch { Stop-Install $_.Exception.Message }
+    try { & (Join-Path $here "build.ps1") -Disable $Disable } catch { Stop-Install $_.Exception.Message }
     Say ""
 }
 
@@ -147,7 +151,8 @@ $builtDir = Split-Path -Parent $Package
 New-Item -ItemType Directory -Force $dest | Out-Null
 $app = Join-Path $builtDir "ozzy.exe"
 if (Test-Path $app) {
-    Get-Process ozzy -ErrorAction SilentlyContinue | Where-Object Path -eq (Join-Path $dest "ozzy.exe") | Stop-Process -Force
+    Get-Process ozzy -ErrorAction SilentlyContinue | Where-Object Path -eq (Join-Path $dest "ozzy.exe") |
+        ForEach-Object { $_.Kill(); $_.WaitForExit(5000) | Out-Null }   # an open app holds its file
     Copy-Item $app $dest -Force
     $shell = New-Object -ComObject WScript.Shell
     $lnk = $shell.CreateShortcut((Join-Path $env:ProgramData "Microsoft\Windows\Start Menu\Programs\Ozzy.lnk"))

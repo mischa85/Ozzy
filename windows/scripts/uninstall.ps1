@@ -48,7 +48,8 @@ if (-not $packages) {
 $dest = Join-Path $env:ProgramFiles "Ozzy"
 Remove-Item (Join-Path $env:ProgramData "Microsoft\Windows\Start Menu\Programs\Ozzy.lnk") -ErrorAction SilentlyContinue
 if (Test-Path $dest) {
-    Get-Process ozzy -ErrorAction SilentlyContinue | Where-Object Path -eq (Join-Path $dest "ozzy.exe") | Stop-Process -Force
+    Get-Process ozzy -ErrorAction SilentlyContinue | Where-Object Path -eq (Join-Path $dest "ozzy.exe") |
+        ForEach-Object { $_.Kill(); $_.WaitForExit(5000) | Out-Null }   # an open app holds its file
     Remove-Item -Recurse -Force $dest
     $path = [Environment]::GetEnvironmentVariable("Path", "Machine")
     [Environment]::SetEnvironmentVariable("Path", (($path -split ";") | Where-Object { $_ -and $_ -ne $dest }) -join ";", "Machine")

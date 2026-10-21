@@ -23,11 +23,6 @@ NTSTATUS wdev_evt_add(WDFDRIVER driver, PWDFDEVICE_INIT init) {
 
     const struct ozzy_device* model = lookup_model(init);
     if (!model) return STATUS_NOT_SUPPORTED;
-    /* USB MIDI (the Xone:1D) needs a MIDI port, which comes later */
-    if (model->family == OZZY_FAMILY_USB_MIDI) {
-        DbgPrintEx(DPFLTR_IHVAUDIO_ID, DPFLTR_ERROR_LEVEL, "[Ozzy] %s: not supported on Windows yet\n", model->name);
-        return STATUS_NOT_SUPPORTED;
-    }
 
     ACX_DEVICEINIT_CONFIG device_init_config;
     ACX_DEVICEINIT_CONFIG_INIT(&device_init_config);
@@ -72,8 +67,8 @@ NTSTATUS wdev_evt_add(WDFDRIVER driver, PWDFDEVICE_INIT init) {
         status = wcircuit_create(device, false, &ctx->capture);
         if (!NT_SUCCESS(status)) return status;
     }
-    /* MIDI: every Ploytec device has it (in the PCM packets or on its own endpoints). Audio
-     * works without it. */
+    /* MIDI: every Ploytec device has it (in the PCM packets or on its own endpoints), and it is
+     * all a USB MIDI device (the Xone:1D, no audio circuits) has. Audio works without it. */
     status = wmidi_circuit_create(device, &ctx->midi);
     if (!NT_SUCCESS(status)) {
         DbgPrintEx(DPFLTR_IHVAUDIO_ID, DPFLTR_ERROR_LEVEL, "[Ozzy] no MIDI circuit: 0x%08x\n", status);

@@ -76,14 +76,14 @@ These use the same Ploytec chip. Their channels, rates and setup requests come f
 | **Reloop Jockey 3 Master Edition** | 6 / 4 | 44.1–96 kHz |  |
 | **Reloop Jockey 3 Remix** | 6 / 4 | 44.1–96 kHz |  |
 | **Smyth Research Realiser A16** | 2 / 16 | 44.1 kHz |  |
-| **Tascam US-144** | 4 / 4 | 44.1–96 kHz | macOS only by default: Linux has its own drivers |
-| **Tascam US-144MKII** | 4 / 4 | 44.1–96 kHz | macOS only by default: Linux has its own driver |
+| **Tascam US-144** | 4 / 4 | 44.1–96 kHz | Not in the Linux build by default: Linux has its own drivers |
+| **Tascam US-144MKII** | 4 / 4 | 44.1–96 kHz | Not in the Linux build by default: Linux has its own driver |
 | **Tascam US-200** | 2 / 4 | 44.1–96 kHz |  |
 | **Tascam US-600** | 6 / 4 | 44.1–96 kHz |  |
 | **Tascam US-1800** | 16 / 4 | 44.1–96 kHz |  |
 | **Tascam US-2000** | 16 / 4 | 44.1–96 kHz |  |
 
-**MIDI only:** Allen & Heath Xone:1D, on macOS. On Linux the kernel's own USB MIDI driver handles it, no Ozzy needed.
+**MIDI only:** Allen & Heath Xone:1D, on macOS and Windows. On Linux the kernel's own USB MIDI driver handles it, no Ozzy needed.
 
 ### 🔍 Wanted: devices we need information about
 
@@ -140,7 +140,7 @@ A KMDF + ACX kernel driver on the same engine as the Linux module and the macOS 
 * **Audio:** one output and one input endpoint per device, for every app through WASAPI (shared and exclusive), packed 24-bit at every rate the device has
 * **MIDI:** MIDI 1.0 ports through Windows MIDI Services, for WinMM and WinRT MIDI apps
 * **Requirements:** Windows 11 on x64, Secure Boot off (Ozzy is test-signed, see [Installation](#-windows))
-* **Devices:** the Ploytec bulk/interrupt family (the Xones and their relatives); the isochronous family (Akai EIE Pro, M-Track Quad, Lexicon I-ONIX, ...) is written but not in the driver's INF yet
+* **Devices:** every device in the list above, supported and experimental: the Ploytec bulk/interrupt family (the Xones and their relatives), the isochronous family (Tascam, Akai EIE Pro, M-Track Quad, Lexicon I-ONIX, Numark, ...) and the Xone:1D (MIDI only)
 * **Status:** 🧪 tested on the Xone:DB4. No ASIO driver yet.
 * **Location:** [`windows/`](windows/)
 
@@ -218,6 +218,8 @@ The installer automatically:
 - ✅ Turns test signing on and trusts the certificate the build signed the driver with
 - ✅ Adds the driver and switches every connected supported device to Ozzy, also from the manufacturer's driver or WinUSB (Zadig). Over a running Ozzy (an update) it stops Windows' audio services for a few seconds, so no restart is needed.
 - ✅ Puts the **ozzy app** in the Start menu (**Ozzy**) and `ozzy-cli` on the PATH, both in `C:\Program Files\Ozzy`
+
+**Leaving devices out:** `install.cmd -Disable TascamUS144,NumarkNS7` builds without those devices (names are the keys in [`common/ozzy_devices.def`](common/ozzy_devices.def)), so another driver keeps them. Without it, the installer switches every connected supported device to Ozzy, also one that works with its manufacturer's driver.
 
 `install.cmd -NoBuild` installs the package built before, `install.cmd -Package <folder>` one from elsewhere (`ozzy.inf`, `ozzy.sys`, `ozzy.cat`). With test signing on, Windows shows "Test Mode" on the desktop; that's expected.
 
@@ -412,7 +414,7 @@ One kernel driver, no user-space part: the real-time work happens in the USB com
 - **No float:** the endpoints use packed 24-bit PCM (S24_3LE), and Windows' audio engine converts.
 - **Packet completion:** the ACX stream completes WaveRT packets (`AcxRtStreamNotifyPacketComplete`) from the same path, so the device's USB clock drives everything.
 - **Isochronous devices:** a transfer is one `URB_FUNCTION_ISOCH_TRANSFER` (started ASAP) over a buffer of its own, its packets back to back, so each OUT packet's length is the gap to the next. The URB reports no per-frame times; every packet gets the completion's time.
-- **MIDI:** a MIDI circuit next to the audio ones, the way Microsoft's USB MIDI 2 driver (also ACX) exposes its ports, so Windows MIDI Services (Windows 11, 25H2 for the full API) finds it and makes MIDI 1.0 ports for WinMM and WinRT apps. Each direction is a stream whose ring of UMP messages is mapped into the service (`KSPROPSETID_MidiLoopedStreaming`): MIDI in goes from the engine's ring into it in the USB completion path, MIDI out comes from it on a worker thread into the engine's ring. Not covered: the legacy MIDI stack (Windows MIDI Services switched off, or older Windows), and the Xone:1D (USB MIDI class: Windows' own driver may take it). If ACX doesn't take the MIDI circuit, audio still comes up and the log says so.
+- **MIDI:** a MIDI circuit next to the audio ones, the way Microsoft's USB MIDI 2 driver (also ACX) exposes its ports, so Windows MIDI Services (Windows 11, 25H2 for the full API) finds it and makes MIDI 1.0 ports for WinMM and WinRT apps. Each direction is a stream whose ring of UMP messages is mapped into the service (`KSPROPSETID_MidiLoopedStreaming`): MIDI in goes from the engine's ring into it in the USB completion path, MIDI out comes from it on a worker thread into the engine's ring. The Xone:1D (USB MIDI class) is a device with only this circuit, on the USB MIDI engine. Not covered: the legacy MIDI stack (Windows MIDI Services switched off, or older Windows). If ACX doesn't take the MIDI circuit, audio still comes up and the log says so.
 
 | File | What |
 |---|---|
@@ -427,9 +429,9 @@ One kernel driver, no user-space part: the real-time work happens in the USB com
 | `windows/driver/kmdf_bus.c` | the engine's bus (`ozzy_bus`) on KMDF USB: bulk/interrupt requests and isochronous URBs on the engine's own transfer buffers, control requests |
 | `windows/driver/ozzy.vcxproj` | the build; uses the NuGet WDK in `windows/build/wdk/` when it's there, else the environment's WDK (EWDK, Visual Studio + WDK) |
 | `windows/inf/ozzy.inf.in` | INF template: endpoints, service; the build fills in the devices |
-| `windows/inf/GenInf.c` | writes `ozzy.inf`: one line per supported device in `common/ozzy_devices.def` (compiled and run by `ozzy.vcxproj` before the build, like `GenPersonalities.c` for the kext) |
+| `windows/inf/GenInf.c` | writes `ozzy.inf`: one line per device in `common/ozzy_devices.def`, every family, less the ones left out (compiled and run by `ozzy.vcxproj` before the build, like `GenPersonalities.c` for the kext) |
 
-**Building by hand:** `powershell -ExecutionPolicy Bypass -File windows\scripts\build.ps1` builds without installing (the package lands in `windows\build\x64\Release\ozzy\`: `ozzy.inf`, `ozzy.sys`, `ozzy.cat`, test-signed with the WDK's test certificate, plus `ozzy-cli.exe` and `ozzy.exe`; getting the tools the first time needs administrator rights). Once it has fetched the WDK, `msbuild windows\driver\ozzy.vcxproj /p:Configuration=Release /p:Platform=x64` works from a Visual Studio 2026 developer prompt (with the "Windows Driver Kit Build Tools" component `build.ps1` adds); the EWDK (`SetupBuildEnv.cmd amd64`) or Visual Studio with the WDK work too, without `windows\build\wdk\`.
+**Building by hand:** `powershell -ExecutionPolicy Bypass -File windows\scripts\build.ps1` builds without installing (the package lands in `windows\build\x64\Release\ozzy\`: `ozzy.inf`, `ozzy.sys`, `ozzy.cat`, test-signed with the WDK's test certificate, plus `ozzy-cli.exe` and `ozzy.exe`; getting the tools the first time needs administrator rights). Once it has fetched the WDK, `msbuild windows\driver\ozzy.vcxproj /p:Configuration=Release /p:Platform=x64` works from a Visual Studio 2026 developer prompt (with the "Windows Driver Kit Build Tools" component `build.ps1` adds); the EWDK (`SetupBuildEnv.cmd amd64`) or Visual Studio with the WDK work too, without `windows\build\wdk\`. Devices are left out with `build.ps1 -Disable <keys>`, `msbuild ... /p:OzzyDisable="<keys>"` or the `OZZY_DISABLE` environment variable.
 
 ---
 

@@ -1,12 +1,12 @@
 /* SPDX-License-Identifier: MIT */
 /*
  * Prints ozzy.inf: the template (ozzy.inf.in) with its "; OZZY_DEVICES" line replaced by one
- * model line per device in common/ozzy_devices.def that the Windows driver supports (the
- * Ploytec bulk/interrupt family so far), so the driver matches exactly the devices the code
- * knows. ozzy.vcxproj compiles and runs this on the host before the build; the Windows
- * counterpart of GenPersonalities.c.
+ * model line per device in common/ozzy_devices.def, every family (the driver runs them all), so
+ * the driver matches exactly the devices the code knows. A row left out with
+ * -DOZZY_DISABLE_<key> is left out here too. ozzy.vcxproj compiles and runs this on the host
+ * before the build; the Windows counterpart of GenPersonalities.c.
  *
- *   cl GenInf.c && GenInf ozzy.inf.in > ozzy.inf
+ *   cl [/DOZZY_DISABLE_<key> ...] GenInf.c && GenInf ozzy.inf.in > ozzy.inf
  *
  * Copyright (C) 2024 Marcel Bierling <marcel@hackerman.art>
  */
@@ -23,8 +23,6 @@ static void print_devices(void)
 	for (i = 0; i < OZZY_NUM_DEVICES; i++) {
 		const struct ozzy_device *d = &ozzy_devices[i];
 
-		if (d->family != OZZY_FAMILY_PLOYTEC_XONE)
-			continue;
 		printf("\"%s\" = Ozzy.Device, USB\\VID_%04X&PID_%04X\n", d->name, d->vid, d->pid);
 	}
 }

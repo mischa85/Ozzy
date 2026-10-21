@@ -40,6 +40,15 @@
     <ACX_VERSION_MAJOR>1</ACX_VERSION_MAJOR>
     <ACX_VERSION_MINOR>1</ACX_VERSION_MINOR>
   </PropertyGroup>
+  <!-- Devices to leave out (keys from common/ozzy_devices.def, separated by spaces or commas):
+       /p:OzzyDisable="TascamUS144 NumarkNS7", or the OZZY_DISABLE environment variable. Left out of
+       the INF (GenInf) and of the driver's device table, like -DOZZY_DISABLE_<key> on Linux and macOS. -->
+  <PropertyGroup>
+    <OzzyDisable Condition="'$(OzzyDisable)' == ''">$(OZZY_DISABLE)</OzzyDisable>
+    <OzzyDisableKeys>$([System.Text.RegularExpressions.Regex]::Replace('$(OzzyDisable.Trim())', '[\s,;]+', ';'))</OzzyDisableKeys>
+    <OzzyDisableDefines Condition="'$(OzzyDisableKeys)' != ''">OZZY_DISABLE_$(OzzyDisableKeys.Replace(';', ';OZZY_DISABLE_'))</OzzyDisableDefines>
+    <OzzyDisableFlags Condition="'$(OzzyDisableKeys)' != ''">/DOZZY_DISABLE_$(OzzyDisableKeys.Replace(';', ' /DOZZY_DISABLE_'))</OzzyDisableFlags>
+  </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Label="Configuration">
     <TargetVersion>Windows10</TargetVersion>
@@ -63,7 +72,7 @@
   <ItemDefinitionGroup>
     <ClCompile>
       <AdditionalIncludeDirectories>$(MSBuildThisFileDirectory)kcrt;$(DDK_INC_PATH)\acx\km\$(ACX_VERSION_MAJOR).$(ACX_VERSION_MINOR);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-      <PreprocessorDefinitions>ACX_VERSION_MAJOR=$(ACX_VERSION_MAJOR);ACX_VERSION_MINOR=$(ACX_VERSION_MINOR);KMDF_VERSION_MAJOR=$(KMDF_VERSION_MAJOR);KMDF_VERSION_MINOR=$(KMDF_VERSION_MINOR);%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>$(OzzyDisableDefines);ACX_VERSION_MAJOR=$(ACX_VERSION_MAJOR);ACX_VERSION_MINOR=$(ACX_VERSION_MINOR);KMDF_VERSION_MAJOR=$(KMDF_VERSION_MAJOR);KMDF_VERSION_MINOR=$(KMDF_VERSION_MINOR);%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <LanguageStandard_C>stdc17</LanguageStandard_C>
       <WarningLevel>Level3</WarningLevel>
     </ClCompile>
@@ -129,9 +138,13 @@
   <!-- ozzy.inf: the template with one model line per supported device in common/ozzy_devices.def.
        GenInf.c is compiled for the host with the build's own MSVC and SDK (the UCRT), so this works
        with the NuGet WDK, the EWDK and Visual Studio alike, without a developer prompt. -->
-  <Target Name="OzzyGenerateInf" BeforeTargets="PrepareForBuild"
-          Inputs="..\inf\ozzy.inf.in;..\inf\GenInf.c;..\..\common\ozzy_devices.def;..\..\common\ozzy_devices.h" Outputs="$(IntDir)ozzy.inf">
+  <!-- The devices left out, as a file that changes with them, so the INF is made again -->
+  <Target Name="OzzyDisableStamp" BeforeTargets="OzzyGenerateInf">
     <MakeDir Directories="$(IntDir)GenInf" />
-    <Exec Command="set &quot;INCLUDE=$(VCToolsInstallDir)include;$(UniversalCRT_IncludePath)&quot; &amp;&amp; set &quot;LIB=$(VC_LibraryPath_VC_x64_Desktop);$(UniversalCRT_LibraryPath_x64);$(WindowsSDK_LibraryPath_x64)&quot; &amp;&amp; &quot;$(VC_ExecutablePath_x64_x64)\cl.exe&quot; /nologo /W3 /MT /Fo&quot;$(IntDir)GenInf\\&quot; /Fe&quot;$(IntDir)GenInf\GenInf.exe&quot; &quot;$(MSBuildThisFileDirectory)..\inf\GenInf.c&quot; &gt;nul &amp;&amp; &quot;$(IntDir)GenInf\GenInf.exe&quot; &quot;$(MSBuildThisFileDirectory)..\inf\ozzy.inf.in&quot; &gt; &quot;$(IntDir)ozzy.inf&quot;" />
+    <WriteLinesToFile File="$(IntDir)GenInf\disabled.txt" Lines="$(OzzyDisableKeys)" Overwrite="true" WriteOnlyWhenDifferent="true" />
+  </Target>
+  <Target Name="OzzyGenerateInf" BeforeTargets="PrepareForBuild"
+          Inputs="..\inf\ozzy.inf.in;..\inf\GenInf.c;..\..\common\ozzy_devices.def;..\..\common\ozzy_devices.h;$(IntDir)GenInf\disabled.txt" Outputs="$(IntDir)ozzy.inf">
+    <Exec Command="set &quot;INCLUDE=$(VCToolsInstallDir)include;$(UniversalCRT_IncludePath)&quot; &amp;&amp; set &quot;LIB=$(VC_LibraryPath_VC_x64_Desktop);$(UniversalCRT_LibraryPath_x64);$(WindowsSDK_LibraryPath_x64)&quot; &amp;&amp; &quot;$(VC_ExecutablePath_x64_x64)\cl.exe&quot; /nologo /W3 /MT $(OzzyDisableFlags) /Fo&quot;$(IntDir)GenInf\\&quot; /Fe&quot;$(IntDir)GenInf\GenInf.exe&quot; &quot;$(MSBuildThisFileDirectory)..\inf\GenInf.c&quot; &gt;nul &amp;&amp; &quot;$(IntDir)GenInf\GenInf.exe&quot; &quot;$(MSBuildThisFileDirectory)..\inf\ozzy.inf.in&quot; &gt; &quot;$(IntDir)ozzy.inf&quot;" />
   </Target>
 </Project>

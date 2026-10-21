@@ -18,11 +18,24 @@
 
 /* --- Host services for the shared handshake (common/devices/ploytec/ploytec_handshake.c) --- */
 
+/* Right after a restart killed the streaming transfers, the DB4 (fw 1.4.1) stalls whichever
+ * request comes in the next few ms (usbmon: 'V' at 1 ms, 'I' at 5 ms) and answers again about
+ * 100 ms later. A stall on endpoint 0 ends with the next setup packet, and every handshake request
+ * is a plain read or write, so ask again: up to 10 times, 20 ms apart. */
 static int host_control(void *ctx, uint8_t type, uint8_t req, uint16_t val, uint16_t idx, void *data, uint16_t len)
 {
 	const struct ozzy_bus *bus = (const struct ozzy_bus *)ctx;
+	int attempt;
 
-	return bus->ops->control(bus->ctx, type, req, val, idx, data, len) ? len : -EIO;
+	for (attempt = 1; attempt <= 10; attempt++) {
+		if (bus->ops->control(bus->ctx, type, req, val, idx, data, len)) {
+			if (attempt > 1)
+				ploytec_log("request 0x%02x answered on attempt %d", req, attempt);
+			return len;
+		}
+		bus->ops->sleep_ms(bus->ctx, 20);
+	}
+	return -EIO;
 }
 
 static int host_clear_halt(void *ctx, uint8_t endpoint)

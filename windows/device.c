@@ -135,7 +135,7 @@ static NTSTATUS wdev_evt_prepare_hardware(WDFDEVICE device, WDFCMRESLIST resourc
             NTSTATUS status = AcxDeviceAddCircuit(device, ctx->capture);
             if (!NT_SUCCESS(status)) return status;
         }
-        /* Whether ACX takes a MIDI circuit next to WaveRT ones is untested: audio goes on without */
+        /* ACX takes the MIDI circuit next to the WaveRT ones; if it fails, audio goes on without */
         if (ctx->midi) {
             NTSTATUS status = AcxDeviceAddCircuit(device, ctx->midi);
             ctx->midi_added = NT_SUCCESS(status);

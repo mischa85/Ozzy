@@ -26,6 +26,33 @@ struct wmidi_looped_events {               /* KSMIDILOOPED_EVENT2 */
     HANDLE read_event;
 };
 
+static const GUID kspropsetid_midi2_endpoint_information = { 0x0814552d, 0x2a1e, 0x48fe, { 0x9f, 0xbd, 0x70, 0xac, 0x67, 0x91, 0x07, 0x55 } };
+
+/* What the KS transport asks every pin for. Without a native format it treats the endpoint as
+ * MIDI 2.0 and makes no MIDI 1.0 ports; the rest it can do without. */
+enum wmidi_info_property {
+    WMIDI_INFO_NATIVE_DATA_FORMAT = 0,     /* GUID: KSDATAFORMAT_SUBTYPE_MIDI, a MIDI 1.0 device */
+    WMIDI_INFO_GROUP_TERMINAL_BLOCKS = 1,  /* KSMULTIPLE_ITEM + struct wmidi_gtb each: the ports */
+    WMIDI_INFO_DEVICE_VID = 4,             /* USHORT */
+    WMIDI_INFO_DEVICE_PID = 5,             /* USHORT */
+};
+
+/* A group terminal block (UMP_GROUP_TERMINAL_BLOCK_HEADER), here with an empty name: the
+ * service names the port after the device */
+#pragma pack(push, 1)
+struct wmidi_gtb {
+    USHORT size;                           /* this, name included */
+    UCHAR number;
+    UCHAR direction;                       /* 1: into the device (a MIDI out port), 2: out of it */
+    UCHAR first_group;
+    UCHAR group_count;
+    UCHAR protocol;                        /* 1: MIDI 1.0, up to 64-bit packets */
+    USHORT max_input_bandwidth;            /* 0: unknown */
+    USHORT max_output_bandwidth;
+    WCHAR name[1];
+};
+#pragma pack(pop)
+
 /* Each message in a ring: this header (UMPDATAFORMAT, 16 bytes), then ByteCount bytes of UMP */
 struct wmidi_message_header {
     LONGLONG position;                     /* the time: QPC ticks */
@@ -324,6 +351,67 @@ static VOID wmidi_evt_events(WDFOBJECT object, WDFREQUEST request) {
     wmidi_property(object, request, wmidi_set_events, sizeof(struct wmidi_looped_events));
 }
 
+/* KSPROPSETID_MIDI2_ENDPOINT_INFORMATION: one MIDI 1.0 port each way, on group 1 */
+static VOID wmidi_evt_info(WDFOBJECT object, WDFREQUEST request) {
+    PAGED_CODE();
+    struct wmidi_stream* s = wmidi_stream_get((ACXSTREAM)object);
+    ACX_REQUEST_PARAMETERS params;
+    ACX_REQUEST_PARAMETERS_INIT(&params);
+    AcxRequestGetParameters(request, &params);
+
+    union {
+        GUID format;
+        USHORT id;
+        struct {
+            KSMULTIPLE_ITEM header;
+            struct wmidi_gtb blocks[2];
+        } gtbs;
+    } value;
+    RtlZeroMemory(&value, sizeof(value));
+    ULONG size;
+    switch (params.Parameters.Property.Id) {
+    case WMIDI_INFO_NATIVE_DATA_FORMAT:
+        value.format = KSDATAFORMAT_SUBTYPE_MIDI;
+        size = sizeof(value.format);
+        break;
+    case WMIDI_INFO_GROUP_TERMINAL_BLOCKS:
+        size = sizeof(value.gtbs.header) + sizeof(value.gtbs.blocks);   /* not sizeof(value.gtbs): no padding at the end */
+        value.gtbs.header.Size = size;
+        value.gtbs.header.Count = 2;
+        for (UCHAR i = 0; i < 2; i++) {
+            value.gtbs.blocks[i].size = sizeof(struct wmidi_gtb);
+            value.gtbs.blocks[i].number = i;
+            value.gtbs.blocks[i].direction = i + 1;
+            value.gtbs.blocks[i].group_count = 1;
+            value.gtbs.blocks[i].protocol = 1;
+        }
+        break;
+    case WMIDI_INFO_DEVICE_VID:
+        value.id = s->dev->model->vid;
+        size = sizeof(value.id);
+        break;
+    case WMIDI_INFO_DEVICE_PID:
+        value.id = s->dev->model->pid;
+        size = sizeof(value.id);
+        break;
+    default:
+        WdfRequestCompleteWithInformation(request, STATUS_NOT_SUPPORTED, 0);
+        return;
+    }
+
+    NTSTATUS status = STATUS_SUCCESS;
+    ULONG_PTR info = size;
+    if (params.Parameters.Property.ValueCb == 0) {
+        status = STATUS_BUFFER_OVERFLOW;   /* the caller asks for the size */
+    } else if (params.Parameters.Property.ValueCb < size || !params.Parameters.Property.Value) {
+        status = STATUS_BUFFER_TOO_SMALL;
+        info = 0;
+    } else {
+        RtlCopyMemory(params.Parameters.Property.Value, &value, size);
+    }
+    WdfRequestCompleteWithInformation(request, status, info);
+}
+
 /* --- The stream --- */
 
 static NTSTATUS wmidi_evt_prepare_hardware(ACXSTREAM stream) {
@@ -423,6 +511,14 @@ static NTSTATUS wmidi_evt_create_stream(WDFDEVICE device, ACXCIRCUIT circuit, AC
             .EvtAcxObjectProcessRequest = wmidi_evt_events,
             .ValueCb = sizeof(struct wmidi_looped_events),
         },
+#define WMIDI_INFO_ITEM(id_) \
+        { .Set = &kspropsetid_midi2_endpoint_information, .Id = (id_), .Flags = ACX_PROPERTY_ITEM_FLAG_GET, \
+          .EvtAcxObjectProcessRequest = wmidi_evt_info }
+        WMIDI_INFO_ITEM(WMIDI_INFO_NATIVE_DATA_FORMAT),
+        WMIDI_INFO_ITEM(WMIDI_INFO_GROUP_TERMINAL_BLOCKS),
+        WMIDI_INFO_ITEM(WMIDI_INFO_DEVICE_VID),
+        WMIDI_INFO_ITEM(WMIDI_INFO_DEVICE_PID),
+#undef WMIDI_INFO_ITEM
     };
     NTSTATUS status = AcxStreamInitAssignProperties(init, properties, ARRAYSIZE(properties));
     if (!NT_SUCCESS(status)) return status;
@@ -532,8 +628,11 @@ NTSTATUS wmidi_circuit_create(WDFDEVICE device, ACXCIRCUIT* out) {
         return status;
     }
 
+    /* ACX refuses WDF_NO_OBJECT_ATTRIBUTES here (STATUS_INVALID_PARAMETER) */
+    WDF_OBJECT_ATTRIBUTES attributes;
+    WDF_OBJECT_ATTRIBUTES_INIT(&attributes);
     ACXCIRCUIT circuit;
-    status = AcxCircuitCreate(device, WDF_NO_OBJECT_ATTRIBUTES, &init, &circuit);
+    status = AcxCircuitCreate(device, &attributes, &init, &circuit);
     if (!NT_SUCCESS(status)) {
         AcxCircuitInitFree(init);
         return status;
@@ -550,7 +649,6 @@ NTSTATUS wmidi_circuit_create(WDFDEVICE device, ACXCIRCUIT* out) {
         status = wmidi_pin(circuit, AcxPinTypeSink, AcxPinCommunicationNone, true, &pins[WMIDI_PIN_IN_BRIDGE]);
     if (!NT_SUCCESS(status)) return status;
 
-    WDF_OBJECT_ATTRIBUTES attributes;
     WDF_OBJECT_ATTRIBUTES_INIT(&attributes);
     attributes.ParentObject = circuit;
     ACX_DATAFORMAT_CONFIG format_config;
@@ -567,9 +665,14 @@ NTSTATUS wmidi_circuit_create(WDFDEVICE device, ACXCIRCUIT* out) {
 
     status = AcxCircuitAddPins(circuit, pins, 4);
     if (!NT_SUCCESS(status)) return status;
+    /* Connections name the circuit (or element) at each end, and the pins by id */
     ACX_CONNECTION connections[2];
-    ACX_CONNECTION_INIT(&connections[0], pins[WMIDI_PIN_OUT], pins[WMIDI_PIN_OUT_BRIDGE]);
-    ACX_CONNECTION_INIT(&connections[1], pins[WMIDI_PIN_IN_BRIDGE], pins[WMIDI_PIN_IN]);
+    ACX_CONNECTION_INIT(&connections[0], circuit, circuit);
+    connections[0].FromPin.Id = WMIDI_PIN_OUT;
+    connections[0].ToPin.Id = WMIDI_PIN_OUT_BRIDGE;
+    ACX_CONNECTION_INIT(&connections[1], circuit, circuit);
+    connections[1].FromPin.Id = WMIDI_PIN_IN_BRIDGE;
+    connections[1].ToPin.Id = WMIDI_PIN_IN;
     status = AcxCircuitAddConnections(circuit, connections, 2);
     if (!NT_SUCCESS(status)) return status;
     *out = circuit;

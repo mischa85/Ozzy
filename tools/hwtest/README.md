@@ -13,6 +13,8 @@ DB4 also feeds inputs 7-8 from outputs 1-2.
 | `asio_probe.c` | Windows: another driver's ASIO side (info, rate, its control panel) | `cl /O2 asio_probe.c ole32.lib advapi32.lib user32.lib` |
 | `wasapi_probe.c` | Windows: which formats an endpoint takes in WASAPI exclusive mode, by channel mask and rate | `cl /O2 wasapi_probe.c ole32.lib` |
 | `midi_listen.c` | macOS (Linux: `amidi -l`, `amidi -p hw:N,0 -d`) | `cc -O2 -o midi_listen midi_listen.c -framework CoreMIDI -framework CoreFoundation` |
+| `winmm_midi.py` | Windows: list the MIDI ports, watch one, send messages and sysex (WinMM, so through Windows MIDI Services) | — (Python 3) |
+| `midi_out_check.ps1`, `midi_out_slots.py` | Windows: send MIDI and find the bytes in the PCM out packets, in a USBPcap capture | — (Python 3, USBPcap) |
 
 ## Play and record
 
@@ -45,3 +47,15 @@ pw-metadata -n settings 0 clock.force-quantum 64    # smaller host buffers; 0 un
 Use a channel nothing else plays on. On macOS keep at least 2 PCM transfers in flight: with 1 the
 DB4 runs dry once per transfer. The DB4's measurements are in
 `.claude/re/ploytec_bulk_devices.md`.
+
+## MIDI on Windows
+
+```powershell
+python winmm_midi.py list
+python winmm_midi.py monitor xone 30        # move faders and knobs meanwhile
+powershell -ExecutionPolicy Bypass -File midi_out_check.ps1
+```
+
+`midi_out_check.ps1` should print the sent bytes in order (`90 3c 64 b0 55 2a 80 3c 00 c0 05 f0 7e
+7f 06 01 f7`). Windows MIDI Services starts on demand: right after an install, the first
+`midi enum ep` (or port list) can come up empty.

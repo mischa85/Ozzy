@@ -60,11 +60,13 @@ unsigned int ozzy_control_values(const struct ozzy_control_device *dev, unsigned
 
 bool ozzy_control_value_fits(const struct ozzy_control_device *dev, unsigned int id, unsigned int value)
 {
+	const struct ozzy_info_pipe *out = &dev->info.pipes[OZZY_INFO_PIPE_PCM_OUT];
 	const struct ozzy_info_pipe *in = &dev->info.pipes[OZZY_INFO_PIPE_PCM_IN];
 
 	return !dev->has_info ||
-	       ozzy_setting_value_fits(id, value, ozzy_pcm_in_step(in->transfer_type, in->max_packet,
-								     dev->info.in_bytes_per_frame));
+	       ozzy_setting_value_fits(id, value,
+				       ozzy_pcm_step(out->transfer_type, out->max_packet, dev->info.out_bytes_per_frame),
+				       ozzy_pcm_step(in->transfer_type, in->max_packet, dev->info.in_bytes_per_frame));
 }
 
 const struct ozzy_control_device *ozzy_control_pick(const struct ozzy_control_device *devs, int n, const char *arg)

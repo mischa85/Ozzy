@@ -78,18 +78,26 @@ int main(void)
 		shm.audio.settings.clock_locked = 0;
 	}
 
-	/* In transfers are whole packets of the in endpoint: 1024-byte interrupt, 16 frames */
-	CHECK(ozzy_pcm_in_step(3, 1024, 64) == 16 && ozzy_pcm_in_step(2, 512, 64) == 8 &&
-	      ozzy_pcm_in_step(1, 1024, 64) == 0, "in steps");
-	CHECK(ozzy_engine_pcm_in_step(e) == 16, "DB4 in step %u", (unsigned int)ozzy_engine_pcm_in_step(e));
+	/* Transfers are whole packets: DB4 out 964-byte interrupt, 20 frames; in 1024, 16 frames */
+	CHECK(ozzy_pcm_step(3, 1024, 64) == 16 && ozzy_pcm_step(2, 512, 64) == 8 && ozzy_pcm_step(3, 964, 48) == 20 &&
+	      ozzy_pcm_step(2, 512, 48) == 10 && ozzy_pcm_step(1, 1024, 64) == 0, "packet steps");
+	CHECK(ozzy_engine_pcm_step(e, OZZY_PCM_OUT) == 20 && ozzy_engine_pcm_step(e, OZZY_PCM_IN) == 16,
+	      "DB4 steps %u / %u", (unsigned int)ozzy_engine_pcm_step(e, OZZY_PCM_OUT),
+	      (unsigned int)ozzy_engine_pcm_step(e, OZZY_PCM_IN));
+	CHECK(ozzy_engine_change_setting(e, OZZY_SETTING_PCM_OUT_FRAMES, 0) == OZZY_SETTING_INVALID &&
+	      ozzy_engine_change_setting(e, OZZY_SETTING_PCM_OUT_FRAMES, 2) == OZZY_SETTING_INVALID,
+	      "10 / 30-frame out transfers taken on 964-byte packets");
+	CHECK(ozzy_engine_change_setting(e, OZZY_SETTING_PCM_OUT_FRAMES, 1) == OZZY_SETTING_RESTART, "20 frames refused");
 	CHECK(ozzy_engine_change_setting(e, OZZY_SETTING_PCM_IN_FRAMES, 0) == OZZY_SETTING_INVALID &&
 	      ozzy_engine_change_setting(e, OZZY_SETTING_PCM_IN_FRAMES, 2) == OZZY_SETTING_INVALID,
 	      "8 / 24-frame in transfers taken on 1024-byte packets");
 	CHECK(ozzy_engine_change_setting(e, OZZY_SETTING_PCM_IN_FRAMES, 1) == OZZY_SETTING_RESTART, "16 frames refused");
 	/* A value kept from before that doesn't fit: the next size up, the top one down */
 	ozzy_engine_set_setting(e, OZZY_SETTING_PCM_IN_FRAMES, 0);
-	CHECK(ozzy_engine_restart(e) && e->settings.value[OZZY_SETTING_PCM_IN_FRAMES] == 1,
-	      "8 frames kept became value %u", e->settings.value[OZZY_SETTING_PCM_IN_FRAMES]);
+	ozzy_engine_set_setting(e, OZZY_SETTING_PCM_OUT_FRAMES, 0);
+	CHECK(ozzy_engine_restart(e) && e->settings.value[OZZY_SETTING_PCM_IN_FRAMES] == 1 &&
+	      e->settings.value[OZZY_SETTING_PCM_OUT_FRAMES] == 1, "8 / 10 frames kept became values %u / %u",
+	      e->settings.value[OZZY_SETTING_PCM_IN_FRAMES], e->settings.value[OZZY_SETTING_PCM_OUT_FRAMES]);
 	ozzy_engine_set_setting(e, OZZY_SETTING_PCM_IN_FRAMES, OZZY_NUM_PCM_IN_FRAMES - 1);
 	CHECK(ozzy_engine_restart(e) && e->settings.value[OZZY_SETTING_PCM_IN_FRAMES] == OZZY_NUM_PCM_IN_FRAMES - 2,
 	      "200 frames kept became value %u", e->settings.value[OZZY_SETTING_PCM_IN_FRAMES]);

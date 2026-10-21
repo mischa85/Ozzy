@@ -1,8 +1,9 @@
 /* SPDX-License-Identifier: MIT */
 /*
  * PCM transfer sizes (OZZY_SETTING_PCM_OUT_FRAMES / _IN_FRAMES) on the Ploytec bulk / interrupt
- * family, both out layouts (DB4: 964-byte interrupt, ESU1808: 512-byte bulk), every size: a
- * transfer is frames / 10 sub-packets out and frames * 64 bytes in, end to end in the shared
+ * family, both out layouts (DB4: 964-byte interrupt, ESU1808: 512-byte bulk), every size that is
+ * whole packets of the out endpoint (20 frames on the 964 layout, 10 on 512; the rest is rounded
+ * up, ozzy_pcm_step): a transfer is frames / 10 sub-packets out and frames * 64 bytes in, end to end in the shared
  * memory's rings, which hold a whole number of them; the bytes on the wire are the same stream
  * at every size (PCM, MIDI pacing, control bytes), only cut differently, from the first
  * transfer the ring is encoded into (the ones queued at start are silence: 4 transfers' worth,
@@ -109,6 +110,10 @@ static void run(uint16_t vid, uint16_t pid, uint16_t out_max_packet, unsigned in
 	res->rate = shm.audio.sample_rate;
 	res->transfer_frames[0] = shm.info.transfer_frames[OZZY_PCM_OUT];
 	res->transfer_frames[1] = shm.info.transfer_frames[OZZY_PCM_IN];
+	/* What runs: a size that isn't whole packets is rounded up */
+	out_frames = res->transfer_frames[0];
+	in_frames = res->transfer_frames[1];
+	skip = queued * out_frames / 10;
 	res->anchor_frames = shm.audio.timestamp_frames;
 	res->in_frame_bytes = model->in_channels * 3;
 	out_bytes = out_frames / 10 * subpkt;
@@ -156,6 +161,10 @@ static void run(uint16_t vid, uint16_t pid, uint16_t out_max_packet, unsigned in
 static void compare(const char *name, uint16_t vid, uint16_t pid, uint16_t out_max_packet)
 {
 	static struct result ref, got;
+	/* Out transfers are whole packets: 48 bytes a frame (PLOYTEC_OUT_FRAME_SIZE) */
+	uint32_t out_step = ozzy_pcm_step(out_max_packet <= 512 ? 2 : 3, out_max_packet, 48);
+	unsigned int small = out_step / 10 - 1, io = ozzy_setting_value_fits(OZZY_SETTING_PCM_OUT_FRAMES, 2, out_step, 0) ? 2 : 3;
+	uint32_t small_frames = ozzy_pcm_frames(false, small), io_frames = ozzy_pcm_frames(false, io);
 	unsigned int v;
 
 	/* The default (80 / 80), then every out size, with the in sizes alongside */
@@ -167,6 +176,13 @@ static void compare(const char *name, uint16_t vid, uint16_t pid, uint16_t out_m
 		unsigned int ov = v < OZZY_NUM_PCM_OUT_FRAMES ? v : OZZY_NUM_PCM_OUT_FRAMES - 1;
 		uint32_t out_frames = ozzy_pcm_frames(false, ov), in_frames = ozzy_pcm_frames(true, v);
 
+		if (out_frames % out_step) {
+			/* Not whole packets: the engine takes the next size up */
+			run(vid, pid, out_max_packet, ov, v, OZZY_NUM_PCM_QUEUES - 1, &got);
+			CHECK(got.transfer_frames[0] == (out_frames / out_step + 1) * out_step,
+			      "%s: %u out frames ran as %u", name, out_frames, got.transfer_frames[0]);
+			continue;
+		}
 		run(vid, pid, out_max_packet, ov, v, OZZY_NUM_PCM_QUEUES - 1, &got);
 		CHECK(got.transfer_frames[0] == out_frames && got.transfer_frames[1] == in_frames,
 		      "%s: info says %u / %u frames per transfer", name, got.transfer_frames[0], got.transfer_frames[1]);
@@ -183,28 +199,29 @@ static void compare(const char *name, uint16_t vid, uint16_t pid, uint16_t out_m
 		      "%s %u/%u: clock anchor at %llu, every %u", name, out_frames, in_frames,
 		      (unsigned long long)got.anchor, got.anchor_frames);
 	}
-	/* The largest IO buffer sets the anchors: 8/3 of it in whole out transfers (here 30 frames:
-	 * 300 -> 810, 600 -> 1620, 1200 -> 3210, 2400 -> 6420), at sizes 30 / 24 */
+	/* The largest IO buffer sets the anchors: 8/3 of it in whole out transfers (at 30 frames:
+	 * 300 -> 810, 600 -> 1620, 1200 -> 3210, 2400 -> 6420; 40 on the 964 layout), in 24 */
 	for (v = 0; v < OZZY_NUM_IO_BUFFERS; v++) {
 		run_io_buffer = (int)v;
-		run(vid, pid, out_max_packet, 2, 2, OZZY_NUM_PCM_QUEUES - 1, &got);
-		CHECK(got.anchor_frames == ozzy_anchor_frames(v, 30) && got.anchor_frames % 30 == 0 &&
+		run(vid, pid, out_max_packet, io, 2, OZZY_NUM_PCM_QUEUES - 1, &got);
+		CHECK(got.anchor_frames == ozzy_anchor_frames(v, io_frames) && got.anchor_frames % io_frames == 0 &&
 		      got.anchor && got.anchor % got.anchor_frames == 0, "%s IO buffer %u: anchors every %u, at %llu",
 		      name, ozzy_io_buffer_frames(v), got.anchor_frames, (unsigned long long)got.anchor);
 	}
 	run_io_buffer = -1;
+	/* The queues at the smallest sizes: one packet out (10 or 20 frames), 8 in */
 	for (v = 0; v < OZZY_NUM_PCM_QUEUES; v++) {
 		uint32_t q = ozzy_pcm_queue(v);
 
-		run(vid, pid, out_max_packet, 0, 0, v, &got);
-		CHECK(got.safety_out == ozzy_engine_safety_offset(q * 10, got.rate) &&
-		      got.safety_in == ozzy_engine_safety_offset(q * 8, got.rate) && got.safety_out == got.rate / 1000,
-		      "%s 10/8, %u queued: safety offsets %u / %u",
-		      name, q, got.safety_out, got.safety_in);
+		run(vid, pid, out_max_packet, small, 0, v, &got);
+		CHECK(got.safety_out == ozzy_engine_safety_offset(q * small_frames, got.rate) &&
+		      got.safety_in == ozzy_engine_safety_offset(q * 8, got.rate),
+		      "%s %u/8, %u queued: safety offsets %u / %u",
+		      name, small_frames, q, got.safety_out, got.safety_in);
 		CHECK(got.wire_bytes == ref.wire_bytes && !memcmp(got.wire, ref.wire, ref.wire_bytes),
-		      "%s 10/8, %u queued: the wire differs", name, q);
-		CHECK(!memcmp(got.in_ring, ref.in_ring, FRAMES * ref.in_frame_bytes), "%s 10/8, %u queued: input differs",
-		      name, q);
+		      "%s %u/8, %u queued: the wire differs", name, small_frames, q);
+		CHECK(!memcmp(got.in_ring, ref.in_ring, FRAMES * ref.in_frame_bytes), "%s %u/8, %u queued: input differs",
+		      name, small_frames, q);
 	}
 }
 

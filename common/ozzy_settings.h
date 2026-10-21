@@ -88,9 +88,8 @@ enum ozzy_spdif_out_mode {
 /*
  * OZZY_SETTING_PCM_OUT_FRAMES / _IN_FRAMES values: how many of the device's sub-packets one PCM
  * transfer carries, so how many frames (value + 1 sub-packets: 10 frames each out, 8 in), so
- * how far ahead of the device the driver works (transfers queued x frames: the latency). Out,
- * any number works (tested on the DB4 down to one sub-packet, both out layouts); in, only whole
- * packets of the in endpoint, which the device fills (ozzy_pcm_in_step: 16 frames on the DB4).
+ * how far ahead of the device the driver works (transfers queued x frames: the latency). Only
+ * whole packets of the endpoint work (ozzy_pcm_step: on the DB4 20 frames out, 16 in).
  * .claude/re/ploytec_bulk_devices.md. Ozzy offers up to 200 frames, the official driver's size.
  * The default, 80 frames each way, is what ran before the setting.
  */
@@ -149,25 +148,30 @@ static inline uint32_t ozzy_pcm_frames(bool in, unsigned int value)
 }
 
 /*
- * ozzy_pcm_in_step - What a PCM in transfer's frames must be a multiple of, on an in endpoint of
+ * ozzy_pcm_step - What a PCM transfer's frames must be a multiple of, on an endpoint of
  * @transfer_type (bmAttributes & 3) with @max_packet bytes per service interval and frames of
- * @frame_bytes. On bulk and interrupt the device decides the packet size and sends whole
- * packets: the DB4's 1024-byte interrupt EP 0x86 always 16 frames, and a request for 8 is
- * overrun (babble, .claude/re/ploytec_bulk_devices.md). Out sizes are the host's, any works.
+ * @frame_bytes: the frames in one whole packet. On bulk and interrupt the device takes packets
+ * whole, both ways (DB4 fw 1.4.1, .claude/re/ploytec_bulk_devices.md): in, it fills 1024-byte
+ * packets of 16 frames, and a request for 8 is overrun (babble); out, it reads every packet as a
+ * 964-byte one of 20 frames, and a 10-frame transfer (one 482-byte half) plays garbage.
  * 0: no step (isochronous, or not known).
  */
-static inline uint32_t ozzy_pcm_in_step(uint8_t transfer_type, uint32_t max_packet, uint32_t frame_bytes)
+static inline uint32_t ozzy_pcm_step(uint8_t transfer_type, uint32_t max_packet, uint32_t frame_bytes)
 {
-	if ((transfer_type != 2 && transfer_type != 3) || !frame_bytes || !max_packet || max_packet % frame_bytes)
+	if ((transfer_type != 2 && transfer_type != 3) || !frame_bytes)
 		return 0;
 	return max_packet / frame_bytes;
 }
 
-/* Whether a device whose PCM in step is @in_step (ozzy_pcm_in_step) can take value @value of
- * setting @id: only the in transfer sizes depend on the device */
-static inline bool ozzy_setting_value_fits(unsigned int id, unsigned int value, uint32_t in_step)
+/* Whether a device whose PCM steps are @out_step / @in_step (ozzy_pcm_step) can take value
+ * @value of setting @id: only the transfer sizes depend on the device */
+static inline bool ozzy_setting_value_fits(unsigned int id, unsigned int value, uint32_t out_step, uint32_t in_step)
 {
-	return id != OZZY_SETTING_PCM_IN_FRAMES || !in_step || ozzy_pcm_frames(true, value) % in_step == 0;
+	if (id == OZZY_SETTING_PCM_OUT_FRAMES)
+		return !out_step || ozzy_pcm_frames(false, value) % out_step == 0;
+	if (id == OZZY_SETTING_PCM_IN_FRAMES)
+		return !in_step || ozzy_pcm_frames(true, value) % in_step == 0;
+	return true;
 }
 
 /*

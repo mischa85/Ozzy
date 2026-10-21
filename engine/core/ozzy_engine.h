@@ -503,8 +503,8 @@ uint32_t ozzy_engine_setting_quirks(const struct ozzy_engine *e);
 bool ozzy_engine_has_setting(const struct ozzy_engine *e, unsigned int id);
 /* How many values setting @id has on this device (0: it doesn't have it) */
 unsigned int ozzy_engine_setting_values(const struct ozzy_engine *e, unsigned int id);
-/* The frames a PCM in transfer must be a multiple of on this device (ozzy_pcm_in_step); 0: any */
-uint32_t ozzy_engine_pcm_in_step(const struct ozzy_engine *e);
+/* The frames a PCM transfer in @dir must be a multiple of on this device (ozzy_pcm_step); 0: any */
+uint32_t ozzy_engine_pcm_step(const struct ozzy_engine *e, enum ozzy_pcm_dir dir);
 /* The value setting @id starts with on this device (ozzy_engine_attach): the family's default if
  * it has one, else the setting's */
 static inline uint8_t ozzy_engine_setting_default(const struct ozzy_engine *e, unsigned int id)

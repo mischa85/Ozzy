@@ -393,9 +393,11 @@ static bool gui_same_shape(const struct ozzy_control_device *a, const struct ozz
 	return !strcmp(a->id, b->id) && !strcmp(a->name, b->name) && a->available == b->available &&
 	       a->in_channels == b->in_channels && a->out_channels == b->out_channels &&
 	       a->has_clock == b->has_clock &&
-	       /* the in transfer sizes offered follow the driver's record */
+	       /* the transfer sizes offered follow the driver's record */
 	       a->has_info == b->has_info &&
+	       a->info.pipes[OZZY_INFO_PIPE_PCM_OUT].max_packet == b->info.pipes[OZZY_INFO_PIPE_PCM_OUT].max_packet &&
 	       a->info.pipes[OZZY_INFO_PIPE_PCM_IN].max_packet == b->info.pipes[OZZY_INFO_PIPE_PCM_IN].max_packet &&
+	       a->info.out_bytes_per_frame == b->info.out_bytes_per_frame &&
 	       a->info.in_bytes_per_frame == b->info.in_bytes_per_frame;
 }
 

@@ -68,6 +68,20 @@ static const struct ploytec_host_ops xone_host_ops = { host_control, host_clear_
 /* Without clear_halt, for ploytec_isoc_engine: the official driver doesn't clear halts there */
 const struct ploytec_host_ops ploytec_bus_host_ops = { host_control, NULL, host_sleep, host_log };
 
+/* @frames as whole packets of @step frames (0: any): the next size up, at most @max */
+static uint32_t whole_packets(uint32_t frames, uint32_t step, uint32_t max)
+{
+	uint32_t whole;
+
+	if (!step || frames % step == 0)
+		return frames;
+	whole = (frames / step + 1) * step;
+	if (whole > max)
+		whole -= step;
+	ploytec_log("transfers of %u frames, whole %u-frame packets instead of %u", whole, step, frames);
+	return whole;
+}
+
 static struct ploytec_engine *to_ploytec(struct ozzy_engine *e)
 {
 	return (struct ploytec_engine *)e;
@@ -118,7 +132,7 @@ static bool ploytec_start(struct ozzy_engine *e)
 	const struct ozzy_device *model = e->model;
 	struct ploytec_handshake_info hs;
 	bool bulk = pe->out_layout == PLOYTEC_OUT_LAYOUT_BULK;
-	uint32_t out_places, in_places, in_step, i;
+	uint32_t out_places, in_places, out_step, in_step, i;
 
 	if (!shm)
 		return false;
@@ -128,17 +142,16 @@ static bool ploytec_start(struct ozzy_engine *e)
 	 * the largest IO buffer setting */
 	pe->out_frames = ozzy_pcm_frames(false, e->settings.value[OZZY_SETTING_PCM_OUT_FRAMES]);
 	pe->in_frames = ozzy_pcm_frames(true, e->settings.value[OZZY_SETTING_PCM_IN_FRAMES]);
-	in_step = ozzy_pcm_in_step(e->pipe[OZZY_PIPE_PCM_IN].transfer_type,
-				   e->pipe[OZZY_PIPE_PCM_IN].max_packet_size, PLOYTEC_IN_FRAME_SIZE);
-	if (in_step && pe->in_frames % in_step) {
-		/* A size kept from before (or another device) the in packets would overrun: the next
-		 * one up (down at the top of the list), and the setting follows */
-		pe->in_frames = (pe->in_frames / in_step + 1) * in_step;
-		if (pe->in_frames > OZZY_NUM_PCM_IN_FRAMES * 8)
-			pe->in_frames -= in_step;
-		ploytec_log("in transfers of %u frames, whole %u-frame packets", pe->in_frames, in_step);
-		e->settings.value[OZZY_SETTING_PCM_IN_FRAMES] = (uint8_t)(pe->in_frames / 8 - 1);
-	}
+	/* Sizes kept from before (or another device) that aren't whole packets: the next size up
+	 * (down at the top of the list), and the setting follows */
+	out_step = ozzy_pcm_step(e->pipe[OZZY_PIPE_PCM_OUT].transfer_type,
+				 e->pipe[OZZY_PIPE_PCM_OUT].max_packet_size, PLOYTEC_OUT_FRAME_SIZE);
+	in_step = ozzy_pcm_step(e->pipe[OZZY_PIPE_PCM_IN].transfer_type,
+				e->pipe[OZZY_PIPE_PCM_IN].max_packet_size, PLOYTEC_IN_FRAME_SIZE);
+	pe->out_frames = whole_packets(pe->out_frames, out_step, OZZY_NUM_PCM_OUT_FRAMES * 10);
+	pe->in_frames = whole_packets(pe->in_frames, in_step, OZZY_NUM_PCM_IN_FRAMES * 8);
+	e->settings.value[OZZY_SETTING_PCM_OUT_FRAMES] = (uint8_t)(pe->out_frames / 10 - 1);
+	e->settings.value[OZZY_SETTING_PCM_IN_FRAMES] = (uint8_t)(pe->in_frames / 8 - 1);
 	pe->out_queue = ozzy_pcm_queue(e->settings.value[OZZY_SETTING_PCM_OUT_QUEUE]);
 	pe->in_queue = ozzy_pcm_queue(e->settings.value[OZZY_SETTING_PCM_IN_QUEUE]);
 	out_places = ozzy_engine_pcm_layout(e, OZZY_PCM_OUT, ploytec_out_xfer_bytes(pe->out_layout, pe->out_frames));

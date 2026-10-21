@@ -136,11 +136,19 @@ go into one USB transfer, and how many transfers are queued, is up to the host:
   HAL's ring and timestamps), not the device's. Since 2026-10-18 the size is a setting per
   direction (`OZZY_SETTING_PCM_OUT_FRAMES` / `_IN_FRAMES`, 1-20 sub-packets out, 1-25 in, up to
   200 frames), 80 / 80 the default, and nothing in Ozzy groups frames by 80 any more.
-- **Tested by the user early in Ozzy's development (told 2026-10-18): 10-frame OUT and 8-frame IN
-  transfers work on the DB4, in both out layouts: the 512-byte packet with its padding, and the
-  964 layout sent as a single 482-byte half (a short packet on the 964-byte endpoint). The
-  device just completes more transfers.** In and out don't need the same size.
-- **Also on Linux (told 2026-10-18): one transfer in flight ("no queue") at 10 / 8 frames works.**
+- **OUT sizes are the host's, IN sizes are the device's.** The host picks the OUT packet size, so
+  10-frame OUT transfers work on the DB4 (user, 2026-10-18; Linux usbmon 2026-10-21, 10 frames and
+  1 queued: clean). IN packets are the device's choice, and the DB4 (fw 1.4.1, EP 0x86 interrupt,
+  wMaxPacketSize 1024) always sends full 1024-byte packets, 16 frames each (Linux usbmon
+  2026-10-21: with 1024-byte requests, 2417 completions, all status 0 and exactly 1024 bytes; no
+  short packet). A request that isn't a multiple of 1024 bytes is overrun: 8 frames (512 bytes)
+  completes every transfer with -EOVERFLOW (babble) and 0 bytes, and 24 frames babbles as well.
+  On Linux one babble on EP 0x86 also leaves capture dead until a replug (xhci "Event dma ... for
+  ep 12 status 3 not part of TD" on every restart after it); the engine's restart doesn't recover
+  it. So the IN step is wMaxPacketSize / 64 frames: 16 on the DB4, 8 on a 512-byte endpoint (DB2).
+  The user's earlier report that 8-frame IN worked on the DB4 is not reproduced; main's pre-engine
+  driver always used 80-frame IN transfers.
+- **Also on Linux (told 2026-10-18): one transfer in flight ("no queue") at 10 frames out works.**
   The device paces OUT itself (NAKs until it has room), so its own buffer covers the gap while
   the next transfer is submitted. Not known: that buffer's depth, and whether the macOS kext's
   and Windows' completion paths resubmit fast enough for one in flight.
@@ -148,12 +156,7 @@ go into one USB transfer, and how many transfers are queued, is up to the host:
   `OZZY_PCM_N_URBS`; before that the engine kept 2. It is a setting now too
   (`OZZY_SETTING_PCM_OUT_QUEUE` / `_IN_QUEUE`, 1-4, default 4).
 
-- Open (from the 2026-10-18 review): a PCM IN endpoint with wMaxPacketSize 1024 (interrupt; Ozzy's
-  `pcm_in_int1024`, as the tests model the DB4 fw 1.4.1) could send two sub-packets per USB
-  packet, which an odd sub-packet count (8, 24, ... frames) would overflow. The user's 8-frame
-  in transfers worked on the DB4, so the device sends 512-byte packets at least there; Ozzy keeps
-  the 8-frame steps. Worth a usbmon look at the IN packet sizes during the next DB4 test.
-
-So the host's latency is transfers in flight × transfer size, in 10-frame steps out and 8-frame
-steps in (plus the device's own buffer, which the host can't see). MIDI out
+So the host's latency is transfers in flight × transfer size, in 10-frame steps out and steps of
+wMaxPacketSize / 64 frames in (16 on the DB4)
+(plus the device's own buffer, which the host can't see). MIDI out
 waits behind the same queue (its slot is in every out sub-packet), so it gets faster with it.

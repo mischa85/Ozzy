@@ -188,6 +188,20 @@ go into one USB transfer, and how many transfers are queued, is up to the host:
   interrupt transfer on the wire. One IN transfer in flight is mostly fine there (8 glitches in
   5 s at 96 kHz). Ozzy still offers 1 on macOS (the user's choice: documented, not hidden).
   Not known: the device buffer's depth, and Windows.
+- **The DB4's IN side dies when the host stops polling it** (fw 1.4.1, Windows, 2026-10-21). With
+  the IN queue run dry for a few ms (the driver held the completion path 5 ms on purpose, 80
+  frames x 2 queued), EP 0x86 never completes again: requests stay in flight with no error,
+  OUT runs on. An engine restart (abort, handshake, clear halt) doesn't bring it back; a port
+  reset (bus reset) does. It doesn't always happen: a ~110 ms stall with 16 x 4 queued came
+  back by itself. Same shape as the Linux babble case above and the user's macOS user-mode
+  driver. Not known: what the firmware does (an IN FIFO overflow is the guess).
+- **What stalled the host on the Windows test box** (Threadripper 1920X, MSI X399 Gaming Pro
+  Carbon AC, BIOS 1.D9, AMD fTPM 3.5.0.3): the AMD fTPM stutter. A Windows TPM command (tpm.sys,
+  through ACPI) stops every CPU for ~10 ms (no CPU samples on any of 24 CPUs, no interrupts),
+  then the xHCI raises no interrupt for ~100 ms while the CPUs run again: 67-130 ms with no
+  completion on either pipe (xperf DPC/ISR/profile trace). Each `Get-TpmEndorsementKeyInfo`
+  while streaming made 3 late OUT and 2 late IN completions, 6 times out of 6. No DPC or ISR of
+  any driver ran longer than 2 ms. AMD's fix (AGESA 1.2.0.7, 2022) was for AM4 boards.
 - The queue of 4 Ozzy used had no basis in the protocol: d785fd4 (2026-10-17) copied Linux's old
   `OZZY_PCM_N_URBS`; before that the engine kept 2. It is a setting now too
   (`OZZY_SETTING_PCM_OUT_QUEUE` / `_IN_QUEUE`, 1-4, default 4).

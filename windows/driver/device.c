@@ -6,6 +6,44 @@ static EVT_WDF_DEVICE_PREPARE_HARDWARE wdev_evt_prepare_hardware;
 static EVT_WDF_DEVICE_RELEASE_HARDWARE wdev_evt_release_hardware;
 static EVT_WDF_DEVICE_D0_ENTRY wdev_evt_d0_entry;
 static EVT_WDF_DEVICE_D0_EXIT wdev_evt_d0_exit;
+static EVT_WDF_WORKITEM wdev_recover;
+
+/* DISPATCH_LEVEL (kbus): a PCM pipe died */
+static void wdev_bus_dead(void* ctx) {
+    WdfWorkItemEnqueue(((struct wdev*)ctx)->recover);
+}
+
+/* A wedged pipe (the DB4's IN side after a long gap in completions: only a reset of the device
+ * brings it back): the engine stopped, the port reset (the USB stack keeps the configuration and
+ * the pipes), then a new start with its handshake. The streams stay; they miss what came between. */
+static void wdev_recover(WDFWORKITEM item) {
+    struct wdev* ctx = wdev_get(WdfWorkItemGetParentObject(item));
+    WdfWaitLockAcquire(ctx->lock, NULL);
+    if (ctx->started) {
+        ozzy_engine_suspend(ctx->engine);
+        kbus_stop_io(&ctx->bus);
+        NTSTATUS status = STATUS_UNSUCCESSFUL;
+        for (int k = 0; k < 3 && !NT_SUCCESS(status); k++) {
+            if (k) {
+                LARGE_INTEGER delay;
+                delay.QuadPart = -100 * 10000;   /* 100 ms */
+                KeDelayExecutionThread(KernelMode, FALSE, &delay);
+            }
+            status = WdfUsbTargetDeviceResetPortSynchronously(ctx->bus.usb);
+            kbus_log("[Ozzy] port reset %d: 0x%08x", k + 1, status);
+        }
+        kbus_start_io(&ctx->bus);
+        ctx->started = ozzy_engine_start(ctx->engine);
+        if (!ctx->started) {
+            ozzy_engine_stop(ctx->engine);
+            kbus_stop_io(&ctx->bus);
+        }
+        kbus_log("[Ozzy] recovered: %s", ctx->started ? "streaming" : "start failed");
+    }
+    InterlockedExchange(&ctx->bus.recovering, 0);
+    WdfWaitLockRelease(ctx->lock);
+    wsettings_changed(ctx);
+}
 
 /* The device list row for the first hardware ID (ozzy_device_lookup_hwid) */
 static const struct ozzy_device* lookup_model(PWDFDEVICE_INIT init) {
@@ -46,6 +84,12 @@ NTSTATUS wdev_evt_add(WDFDRIVER driver, PWDFDEVICE_INIT init) {
     struct wdev* ctx = wdev_get(device);
     ctx->model = model;
     status = WdfWaitLockCreate(WDF_NO_OBJECT_ATTRIBUTES, &ctx->lock);
+    if (!NT_SUCCESS(status)) return status;
+    WDF_WORKITEM_CONFIG work;
+    WDF_WORKITEM_CONFIG_INIT(&work, wdev_recover);
+    WDF_OBJECT_ATTRIBUTES_INIT(&attributes);
+    attributes.ParentObject = device;
+    status = WdfWorkItemCreate(&work, &attributes, &ctx->recover);
     if (!NT_SUCCESS(status)) return status;
 
     ACX_DEVICE_CONFIG device_config;
@@ -104,6 +148,8 @@ static NTSTATUS wdev_evt_prepare_hardware(WDFDEVICE device, WDFCMRESLIST resourc
         kbus_init(&ctx->bus, ctx->engine);
         ctx->bus.service = wmidi_service;
         ctx->bus.service_ctx = ctx;
+        ctx->bus.dead = wdev_bus_dead;
+        ctx->bus.dead_ctx = ctx;
         NTSTATUS status = kbus_create(&ctx->bus, device);
         if (NT_SUCCESS(status)) status = kbus_configure(&ctx->bus);
         if (!NT_SUCCESS(status)) return status;

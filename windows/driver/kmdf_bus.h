@@ -17,6 +17,8 @@
 struct wstream;
 
 enum {
+    KBUS_DEAD_MS = 500,           /* a wedged pipe; a ~110 ms gap in completions can come back on its own */
+    KBUS_RECOVER_S = 10,          /* between recoveries: a device a reset doesn't help isn't reset forever */
     KBUS_MAX_PIPES = 8,
     KBUS_REQUESTS_PER_PIPE = 8,   /* the engines keep at most 4 per pipe in flight */
     KBUS_MAX_BLOCKS = 24,         /* transfer buffers (ozzy_engine_alloc_memory: 14) */
@@ -40,6 +42,9 @@ struct kbus_pipe {
     WDFREQUEST requests[KBUS_REQUESTS_PER_PIPE];
     struct kbus_slot slots[KBUS_REQUESTS_PER_PIPE];
     volatile LONG busy;           /* bit per request in flight */
+    bool pcm;                     /* a PCM pipe: completes every transfer period while running */
+    volatile LONG64 last_done;    /* QPC of its last completion (or of the start) */
+    volatile LONG stalled;        /* logged as stalled, until it completes again */
 };
 
 /* Lives in the device context (zeroed); kbus_init before use, kbus_release to start over (after
@@ -66,6 +71,15 @@ struct kmdf_bus {
     void (*service)(void* ctx);
     void* service_ctx;
     volatile LONG in_completion;
+    volatile LONG stopping;       /* kbus_stop_io cancels: STATUS_CANCELLED expected */
+    /* DISPATCH_LEVEL: a PCM pipe has had no completion for KBUS_DEAD_MS while another one
+     * completes (the DB4's IN side wedged): the owner recovers it at PASSIVE_LEVEL and clears
+     * recovering when done */
+    void (*dead)(void* ctx);
+    void* dead_ctx;
+    volatile LONG recovering;
+    LONGLONG recovered_at;        /* QPC of the last recovery's start (0: none) */
+    LONGLONG qpc_freq;
     PEX_TIMER timer;
 };
 

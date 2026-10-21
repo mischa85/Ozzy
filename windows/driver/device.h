@@ -34,6 +34,7 @@ struct wdev {
     volatile LONG midi_busy;           /* wmidi_service runs */
     bool circuits_added;
     bool configured;                   /* bus configured for the engine (once per PrepareHardware) */
+    WDFWORKITEM recover;               /* a wedged pipe: port reset and a new start (kbus dead) */
 };
 typedef struct wdev wdev;
 WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(wdev, wdev_get)

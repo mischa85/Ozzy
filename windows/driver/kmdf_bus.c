@@ -68,6 +68,8 @@ static bool kbus_send(struct kbus_pipe* p, int i, NTSTATUS status, void* xfer) {
     WDFREQUEST request = p->requests[i];
     if (NT_SUCCESS(status)) {
         p->slots[i].xfer = xfer;
+        /* The first in flight (a start): the stall watch counts from here */
+        if (p->busy == (1 << i)) InterlockedExchange64(&p->last_done, KeQueryPerformanceCounter(NULL).QuadPart);
         WdfRequestSetCompletionRoutine(request, kbus_completion, &p->slots[i]);
         if (WdfRequestSend(request, WdfUsbTargetPipeGetIoTarget(p->pipe), WDF_NO_SEND_OPTIONS)) return true;
         status = WdfRequestGetStatus(request);
@@ -128,6 +130,36 @@ static bool kbus_submit_isoc(void* ctx, uint8_t address, void* buf, uint32_t buf
     return kbus_send(p, i, WdfUsbTargetPipeFormatRequestForUrb(p->pipe, request, s->urb_memory, NULL), xfer);
 }
 
+/* DISPATCH_LEVEL: @p completed. Another PCM pipe without a completion for 100 ms (they come every
+ * transfer period) is logged as stalled, once, with its requests in flight; for KBUS_DEAD_MS it
+ * is dead, and the owner recovers the device (at most every KBUS_RECOVER_S) */
+static void kbus_watch(struct kmdf_bus* kb, struct kbus_pipe* p) {
+    LONGLONG now = KeQueryPerformanceCounter(NULL).QuadPart;
+    InterlockedExchange64(&p->last_done, now);
+    if (InterlockedExchange(&p->stalled, 0))
+        DbgPrintEx(DPFLTR_IHVAUDIO_ID, DPFLTR_ERROR_LEVEL, "[Ozzy] pipe 0x%02x completes again\n", p->address);
+    for (int i = 0; i < kb->pipe_count; i++) {
+        struct kbus_pipe* q = &kb->pipes[i];
+        LONGLONG idle = now - InterlockedCompareExchange64(&q->last_done, 0, 0);
+        if (q == p || !q->pcm || kb->stopping || idle < kb->qpc_freq / 10) continue;
+        if (!InterlockedExchange(&q->stalled, 1)) {
+            DbgPrintEx(DPFLTR_IHVAUDIO_ID, DPFLTR_ERROR_LEVEL,
+                       "[Ozzy] pipe 0x%02x stalled: no completion for %u ms, requests in flight 0x%02x\n",
+                       q->address, (unsigned)(idle * 1000 / kb->qpc_freq), (unsigned)q->busy);
+        }
+        if (idle < kb->qpc_freq * KBUS_DEAD_MS / 1000 || !kb->dead ||
+            (kb->recovered_at && now - kb->recovered_at < kb->qpc_freq * KBUS_RECOVER_S))
+            continue;
+        if (!InterlockedExchange(&kb->recovering, 1)) {
+            kb->recovered_at = now;
+            DbgPrintEx(DPFLTR_IHVAUDIO_ID, DPFLTR_ERROR_LEVEL,
+                       "[Ozzy] pipe 0x%02x dead for %u ms: recovering the device\n", q->address,
+                       (unsigned)(idle * 1000 / kb->qpc_freq));
+            kb->dead(kb->dead_ctx);
+        }
+    }
+}
+
 /* DISPATCH_LEVEL: release the request, then hand the result to the engine, which resubmits and
  * moves PCM through its rings from here */
 static void kbus_completion(WDFREQUEST request, WDFIOTARGET target, PWDF_REQUEST_COMPLETION_PARAMS params,
@@ -160,8 +192,10 @@ static void kbus_completion(WDFREQUEST request, WDFIOTARGET target, PWDF_REQUEST
     InterlockedAnd(&p->busy, ~(1 << (int)(slot - p->slots)));
 
     InterlockedIncrement(&kb->in_completion);
-    if (!NT_SUCCESS(status) && status != STATUS_CANCELLED)
-        DbgPrintEx(DPFLTR_IHVAUDIO_ID, DPFLTR_ERROR_LEVEL, "[Ozzy] pipe 0x%02x error: 0x%08x\n", p->address, status);
+    if (!NT_SUCCESS(status) && (status != STATUS_CANCELLED || !kb->stopping))
+        DbgPrintEx(DPFLTR_IHVAUDIO_ID, DPFLTR_ERROR_LEVEL, "[Ozzy] pipe 0x%02x error: 0x%08x (USBD 0x%08x)\n",
+                   p->address, status, params->Parameters.Usb.Completion->UsbdStatus);
+    kbus_watch(kb, p);
     if (kb->engine) {
         if (p->type == 1) ozzy_engine_isoc_complete(kb->engine, p->address, xfer, (int)status, packets, count);
         else ozzy_engine_complete(kb->engine, p->address, xfer, (int)status, bytes);
@@ -296,6 +330,9 @@ void kbus_init(struct kmdf_bus* kb, struct ozzy_engine* engine) {
     kb->allocator.alloc = kbus_alloc;
     kb->allocator.free = kbus_free;
     kb->allocator.ctx = kb;
+    LARGE_INTEGER freq;
+    KeQueryPerformanceCounter(&freq);
+    kb->qpc_freq = freq.QuadPart;
 }
 
 void kbus_release(struct kmdf_bus* kb) {
@@ -448,17 +485,25 @@ NTSTATUS kbus_configure(struct kmdf_bus* kb) {
         status = kbus_add_pipe(kb, (WDFUSBPIPE)bound[role]->handle, bound[role]->address,
                                bound[role]->attributes & 3);
         if (!NT_SUCCESS(status)) return status;
+        kb->pipes[kb->pipe_count - 1].pcm = role == OZZY_PIPE_PCM_OUT || role == OZZY_PIPE_PCM_IN;
     }
     return STATUS_SUCCESS;
 }
 
 void kbus_stop_io(struct kmdf_bus* kb) {
+    InterlockedExchange(&kb->stopping, 1);
     for (int i = 0; i < kb->pipe_count; i++)
         WdfIoTargetStop(WdfUsbTargetPipeGetIoTarget(kb->pipes[i].pipe), WdfIoTargetCancelSentIo);
 }
 
 void kbus_start_io(struct kmdf_bus* kb) {
-    for (int i = 0; i < kb->pipe_count; i++) WdfIoTargetStart(WdfUsbTargetPipeGetIoTarget(kb->pipes[i].pipe));
+    LONGLONG now = KeQueryPerformanceCounter(NULL).QuadPart;
+    for (int i = 0; i < kb->pipe_count; i++) {
+        InterlockedExchange64(&kb->pipes[i].last_done, now);
+        InterlockedExchange(&kb->pipes[i].stalled, 0);
+        WdfIoTargetStart(WdfUsbTargetPipeGetIoTarget(kb->pipes[i].pipe));
+    }
+    InterlockedExchange(&kb->stopping, 0);
 }
 
 void kbus_set_stream(struct kmdf_bus* kb, enum ozzy_pcm_dir dir, struct wstream* stream) {

@@ -77,6 +77,9 @@ struct kmdf_bus {
      * recovering when done */
     void (*dead)(void* ctx);
     void* dead_ctx;
+    /* DISPATCH_LEVEL: the engine's stats had an incident (ozzy_bus_ops.stats_changed) */
+    void (*stats_changed)(void* ctx);
+    void* stats_ctx;
     volatile LONG recovering;
     LONGLONG recovered_at;        /* QPC of the last recovery's start (0: none) */
     LONGLONG qpc_freq;

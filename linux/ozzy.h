@@ -17,6 +17,7 @@
 #include <linux/hrtimer.h>
 #include <linux/mutex.h>
 #include <linux/spinlock.h>
+#include <linux/workqueue.h>
 #include <sound/core.h>
 #include <sound/pcm.h>
 #include <sound/rawmidi.h>
@@ -112,6 +113,8 @@ struct ozzy_chip {
 	struct ozzy_midi midi;
 	struct snd_kcontrol *clock_lock_kctl;
 	struct snd_kcontrol *info_kctl;
+	struct snd_kcontrol *stats_kctl;
+	struct delayed_work stats_work;    /* a stats incident: clients hear of it once it settles */
 };
 
 /* bus.c */
@@ -136,5 +139,6 @@ void ozzy_midi_service(struct ozzy_chip *chip);
 int ozzy_controls_init(struct ozzy_chip *chip);
 void ozzy_controls_handshake(struct ozzy_chip *chip);
 void ozzy_controls_stream_changed(struct ozzy_chip *chip);
+void ozzy_controls_stats_work(struct work_struct *work);
 
 #endif /* OZZY_H */

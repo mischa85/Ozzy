@@ -105,8 +105,9 @@ static VOID wsettings_evt_status(WDFOBJECT object, WDFREQUEST request) {
     WdfRequestCompleteWithInformation(request, status, size);
 }
 
-/* OZZY_KSPROPERTY_INFO (get): the engine's record as of the last handshake */
-static VOID wsettings_evt_info(WDFOBJECT object, WDFREQUEST request) {
+/* OZZY_KSPROPERTY_INFO (get): the engine's record as of the last handshake; OZZY_KSPROPERTY_STATS
+ * (get): its stats as they are */
+static VOID wsettings_shm_get(WDFOBJECT object, WDFREQUEST request, size_t offset, ULONG_PTR size) {
     PAGED_CODE();
     WDFDEVICE device = AcxCircuitGetWdfDevice((ACXCIRCUIT)object);
     struct wdev* dev = wdev_get(device);
@@ -115,7 +116,6 @@ static VOID wsettings_evt_info(WDFOBJECT object, WDFREQUEST request) {
     AcxRequestGetParameters(request, &params);
 
     NTSTATUS status;
-    ULONG_PTR size = sizeof(struct ozzy_info);
     if (params.Parameters.Property.ValueCb == 0) {
         status = STATUS_BUFFER_OVERFLOW;   /* the caller asks for the size */
     } else if (params.Parameters.Property.ValueCb < size || !params.Parameters.Property.Value) {
@@ -124,13 +124,23 @@ static VOID wsettings_evt_info(WDFOBJECT object, WDFREQUEST request) {
     } else {
         WdfWaitLockAcquire(dev->lock, NULL);
         if (dev->shm)
-            RtlCopyMemory(params.Parameters.Property.Value, &dev->shm->info, size);
+            RtlCopyMemory(params.Parameters.Property.Value, (uint8_t*)dev->shm + offset, size);
         else
             RtlZeroMemory(params.Parameters.Property.Value, size);
         WdfWaitLockRelease(dev->lock);
         status = STATUS_SUCCESS;
     }
     WdfRequestCompleteWithInformation(request, status, size);
+}
+
+static VOID wsettings_evt_info(WDFOBJECT object, WDFREQUEST request) {
+    PAGED_CODE();
+    wsettings_shm_get(object, request, FIELD_OFFSET(struct ozzy_shared_memory, info), sizeof(struct ozzy_info));
+}
+
+static VOID wsettings_evt_stats(WDFOBJECT object, WDFREQUEST request) {
+    PAGED_CODE();
+    wsettings_shm_get(object, request, FIELD_OFFSET(struct ozzy_shared_memory, stats), sizeof(struct ozzy_stats));
 }
 
 /* OZZY_KSPROPERTY_SETTING (set): checked by the engine; a device setting restarts it */
@@ -226,6 +236,13 @@ NTSTATUS wsettings_assign(PACXCIRCUIT_INIT init) {
             .Flags = ACX_PROPERTY_ITEM_FLAG_GET,
             .EvtAcxObjectProcessRequest = wsettings_evt_info,
             .ValueCb = sizeof(struct ozzy_info),
+        },
+        {
+            .Set = &ozzy_propsetid_settings,
+            .Id = OZZY_KSPROPERTY_STATS,
+            .Flags = ACX_PROPERTY_ITEM_FLAG_GET,
+            .EvtAcxObjectProcessRequest = wsettings_evt_stats,
+            .ValueCb = sizeof(struct ozzy_stats),
         },
         {
             .Set = &ozzy_propsetid_settings,

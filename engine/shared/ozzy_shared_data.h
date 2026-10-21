@@ -14,6 +14,7 @@
 #include "ozzy_platform.h"
 #include "../../common/ozzy_settings.h"
 #include "ozzy_info.h"
+#include "ozzy_stats.h"
 
 #ifdef OZZY_ENGINE_SIDE
 typedef volatile uint32_t ozzy_atomic_u32;
@@ -28,7 +29,7 @@ typedef std::atomic<bool>     ozzy_atomic_bool;
 
 #define OZZY_SHARED_MEM_NAME            "/ozzy_shared_mem"
 #define OZZY_MAGIC                      0x4F5A5A59   /* "OZZY" */
-#define OZZY_SHARED_VERSION             8            /* bump when ozzy_shared_memory changes layout */
+#define OZZY_SHARED_VERSION             9            /* bump when ozzy_shared_memory changes layout */
 
 /* OzzyKext user client: external method selectors */
 #define OZZY_METHOD_MIDI_OUT_PENDING    0            /* OzzyMIDI queued bytes in midi_out */
@@ -64,6 +65,12 @@ typedef std::atomic<bool>     ozzy_atomic_bool;
  * the caller releases it. Changes with OZZY_PROPERTY_SETTING (both are notified together).
  */
 #define OZZY_PROPERTY_INFO              'ozin'
+/*
+ * OzzyHAL device property with how the stream has gone: a custom property, get only: CFData
+ * holding struct ozzy_stats (ozzy_stats.h), live from the shared memory; the caller releases
+ * it. Notified when its incident counters move.
+ */
+#define OZZY_PROPERTY_STATS             'ozss'
 #define OZZY_AUDIO_PROPERTY_KEY         "OzzyAudio"  /* registry: true if the device has audio channels */
 
 /* Each PCM ring's bytes (struct ozzy_audio_buffer): the device's transfers end to end */
@@ -180,6 +187,8 @@ struct ozzy_shared_memory {
 	/* What the driver knows of the device and its stream, as of the last handshake
 	 * (ozzy_engine_publish_info), for the tools (ozzy_info.h) */
 	struct ozzy_info info;
+	/* How the stream has gone since the driver took the device (ozzy_stats.h): live */
+	struct ozzy_stats stats;
 
 	struct ozzy_midi_buffer midi_out;      /* clients fill it, the engine drains it */
 	struct ozzy_midi_buffer midi_in;       /* the engine fills it, clients drain it */

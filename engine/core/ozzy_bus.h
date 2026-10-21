@@ -69,6 +69,10 @@ enum ozzy_pcm_dir {
  * @abort:        cancel every transfer in flight and return once their completions have run
  *                (with OZZY_STATUS_ABORTED); the pipes stay usable. Process context, never
  *                from a completion. The engine calls it when it stops or suspends.
+ * @time_hz:      @time's ticks per second
+ * @stats_changed: an incident counter in the shared memory's stats moved (ozzy_stats.h): tell
+ *                the clients, the way a setting change is told, at most a few times a second.
+ *                From the completion path. Optional.
  */
 struct ozzy_bus_ops {
 	bool (*submit)(void *ctx, uint8_t pipe, void *buf, uint32_t size, void *xfer);
@@ -83,6 +87,8 @@ struct ozzy_bus_ops {
 	void (*sleep_ms)(void *ctx, unsigned int ms);
 	uint64_t (*time)(void *ctx);
 	void (*abort)(void *ctx);
+	uint64_t (*time_hz)(void *ctx);
+	void (*stats_changed)(void *ctx);
 };
 
 struct ozzy_bus {
@@ -127,6 +133,17 @@ static inline void ozzy_bus_abort(const struct ozzy_bus *bus)
 static inline uint64_t ozzy_bus_time(const struct ozzy_bus *bus)
 {
 	return bus->ops->time(bus->ctx);
+}
+
+static inline uint64_t ozzy_bus_time_hz(const struct ozzy_bus *bus)
+{
+	return bus->ops->time_hz ? bus->ops->time_hz(bus->ctx) : 0;
+}
+
+static inline void ozzy_bus_stats_changed(const struct ozzy_bus *bus)
+{
+	if (bus->ops->stats_changed)
+		bus->ops->stats_changed(bus->ctx);
 }
 
 #ifdef __cplusplus

@@ -360,6 +360,24 @@ CFDataRef OzzyHALDevice::CopyInfoData() const {
     return CFDataCreate(NULL, (const UInt8*)&mInfo, sizeof(mInfo));
 }
 
+/* OZZY_PROPERTY_STATS: the kext's counters as they are now (zeros while unmapped) */
+CFDataRef OzzyHALDevice::CopyStatsData() {
+    struct ozzy_stats stats = {};
+    ozzy_shared_memory* shm = AcquireSHM();
+    if (shm) memcpy(&stats, (const void*)&shm->stats, sizeof(stats));
+    ReleaseSHM();
+    return CFDataCreate(NULL, (const UInt8*)&stats, sizeof(stats));
+}
+
+bool OzzyHALDevice::StatsChanged() {
+    ozzy_shared_memory* shm = AcquireSHM();
+    uint32_t incidents = shm ? ozzy_stats_incidents(&shm->stats) : 0;
+    ReleaseSHM();
+    if (incidents == mStatsIncidents) return false;
+    mStatsIncidents = incidents;
+    return true;
+}
+
 /* OZZY_PROPERTY_SETTING set: each name -> value in @dict. Returns the first error, after trying all. */
 OSStatus OzzyHALDevice::SetSettingsDictionary(AudioServerPlugInHostRef host, CFDictionaryRef dict) {
     if (!dict || CFGetTypeID(dict) != CFDictionaryGetTypeID()) return kAudioHardwareIllegalOperationError;
@@ -785,6 +803,12 @@ void OzzyHAL::MonitorLoop() {
             listChanged |= mDevices[i].UpdateConnectionState(mHost);
             anyMapped |= mDevices[i].IsMapped();
         }
+        // The stats: the clients hear of an incident within a round of this loop
+        for (uint32_t i = 0; i < kOzzyMaxDevices && mHost; i++) {
+            if (!mDevices[i].IsConnected() || !mDevices[i].StatsChanged()) continue;
+            AudioObjectPropertyAddress statsAddr = { OZZY_PROPERTY_STATS, kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMain };
+            mHost->PropertiesChanged(mHost, mDevices[i].GetDeviceID(), 1, &statsAddr);
+        }
         if (listChanged && mHost) {
             AudioObjectPropertyAddress listAddr[2] = {
                 { kAudioPlugInPropertyDeviceList, kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMain },
@@ -863,7 +887,7 @@ extern "C" Boolean OzzyHasProperty(AudioServerPlugInDriverRef, AudioObjectID inO
             case kAudioDevicePropertySafetyOffset: case kAudioDevicePropertyPreferredChannelLayout:
             case kAudioDevicePropertyZeroTimeStampPeriod: case kAudioDevicePropertyClockDomain: return true;
             case OZZY_PROPERTY_SETTING: return dev->HasSettings();
-            case OZZY_PROPERTY_INFO: case kAudioObjectPropertyCustomPropertyInfoList: return true;
+            case OZZY_PROPERTY_INFO: case OZZY_PROPERTY_STATS: case kAudioObjectPropertyCustomPropertyInfoList: return true;
         }
         return false;
     }
@@ -951,7 +975,7 @@ extern "C" HRESULT OzzyGetPropertyDataSize(AudioServerPlugInDriverRef, AudioObje
             case OZZY_PROPERTY_SETTING:
                 if (!dev->HasSettings()) return kAudioHardwareUnknownPropertyError;
                 *outDataSize = sizeof(CFPropertyListRef); return kAudioHardwareNoError;
-            case OZZY_PROPERTY_INFO: *outDataSize = sizeof(CFPropertyListRef); return kAudioHardwareNoError;
+            case OZZY_PROPERTY_INFO: case OZZY_PROPERTY_STATS: *outDataSize = sizeof(CFPropertyListRef); return kAudioHardwareNoError;
             case kAudioObjectPropertyCustomPropertyInfoList:
                 *outDataSize = dev->CustomPropertyCount() * sizeof(AudioServerPlugInCustomPropertyInfo);
                 return kAudioHardwareNoError;
@@ -1088,16 +1112,22 @@ extern "C" HRESULT OzzyGetPropertyData(AudioServerPlugInDriverRef, AudioObjectID
                 if (outSize) *outSize = sizeof(CFPropertyListRef);
                 return kAudioHardwareNoError;
             }
+            case OZZY_PROPERTY_STATS: {
+                if (outData && inMax < sizeof(CFPropertyListRef)) return kAudioHardwareBadPropertySizeError;
+                if (outData) *(CFPropertyListRef*)outData = dev->CopyStatsData();   // the caller releases it
+                if (outSize) *outSize = sizeof(CFPropertyListRef);
+                return kAudioHardwareNoError;
+            }
             case kAudioObjectPropertyCustomPropertyInfoList: {
-                // OZZY_PROPERTY_INFO, and OZZY_PROPERTY_SETTING with settings: property list
-                // data (CFData is one), no qualifier
+                // OZZY_PROPERTY_INFO, OZZY_PROPERTY_STATS, and OZZY_PROPERTY_SETTING with
+                // settings: property list data (CFData is one), no qualifier
                 UInt32 count = dev->CustomPropertyCount();
                 UInt32 size = count * sizeof(AudioServerPlugInCustomPropertyInfo);
                 if (outData && inMax < size) return kAudioHardwareBadPropertySizeError;
                 if (outData) {
                     AudioServerPlugInCustomPropertyInfo* info = (AudioServerPlugInCustomPropertyInfo*)outData;
                     for (UInt32 i = 0; i < count; i++) {
-                        info[i].mSelector = i == 0 ? OZZY_PROPERTY_INFO : OZZY_PROPERTY_SETTING;
+                        info[i].mSelector = i == 0 ? OZZY_PROPERTY_INFO : i == 1 ? OZZY_PROPERTY_STATS : OZZY_PROPERTY_SETTING;
                         info[i].mPropertyDataType = kAudioServerPlugInCustomPropertyDataTypeCFPropertyList;
                         info[i].mQualifierDataType = kAudioServerPlugInCustomPropertyDataTypeNone;
                     }

@@ -13,6 +13,15 @@ static uint64_t kbus_time(void* ctx) {
     return (uint64_t)KeQueryPerformanceCounter(NULL).QuadPart;
 }
 
+static uint64_t kbus_time_hz(void* ctx) {
+    return (uint64_t)((struct kmdf_bus*)ctx)->qpc_freq;
+}
+
+static void kbus_stats_changed(void* ctx) {
+    struct kmdf_bus* kb = ctx;
+    if (kb->stats_changed) kb->stats_changed(kb->stats_ctx);
+}
+
 static void kbus_sleep(void* ctx, unsigned int ms) {
     UNREFERENCED_PARAMETER(ctx);
     LARGE_INTEGER delay;
@@ -290,6 +299,8 @@ static const struct ozzy_bus_ops kbus_ops = {
     .sleep_ms = kbus_sleep,
     .time = kbus_time,
     .abort = kbus_abort,
+    .time_hz = kbus_time_hz,
+    .stats_changed = kbus_stats_changed,
 };
 
 /* PASSIVE_LEVEL (PrepareHardware): a nonpaged buffer for the engine, with its WDFMEMORY */

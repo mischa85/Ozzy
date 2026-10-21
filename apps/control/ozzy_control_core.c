@@ -155,6 +155,10 @@ bool ozzy_control_same(const struct ozzy_control_device *a, const struct ozzy_co
 		if ((a->available & (1u << id)) && a->settings.value[id] != b->settings.value[id])
 			return false;
 	/* Both come zeroed and filled by the backend, padding included */
+	/* The stats by their incidents: the transfer counts move all the time */
+	if (a->has_stats != b->has_stats ||
+	    (a->has_stats && ozzy_stats_incidents(&a->stats) != ozzy_stats_incidents(&b->stats)))
+		return false;
 	return a->has_info == b->has_info && (!a->has_info || !memcmp(&a->info, &b->info, sizeof(a->info))) &&
 	       !memcmp(&a->host, &b->host, sizeof(a->host));
 }
@@ -170,10 +174,20 @@ bool ozzy_control_take_info(struct ozzy_info *out, const void *raw, size_t size)
 	return true;
 }
 
+bool ozzy_control_take_stats(struct ozzy_stats *out, const void *raw, size_t size)
+{
+	const struct ozzy_stats *in = raw;
+
+	if (!raw || size < sizeof(*in) || in->version != OZZY_STATS_VERSION || in->size != sizeof(*in))
+		return false;
+	memcpy(out, in, sizeof(*out));
+	return true;
+}
+
 /* --- The facts --- */
 
 const char *const ozzy_control_group_names[OZZY_CONTROL_GROUPS] = {
-	"Device", "Audio", "Stream", "Endpoints", "Operating system"
+	"Device", "Audio", "Stream", "Stream health", "Endpoints", "Operating system"
 };
 
 struct facts {
@@ -372,6 +386,30 @@ int ozzy_control_facts(const struct ozzy_control_device *dev, struct ozzy_contro
 			     in->in_bytes_per_frame);
 		if (in->timestamp_frames)
 			fact(&f, "Clock anchors", "every %s", frames(&f, in->timestamp_frames, a, sizeof(a)));
+	}
+
+	/*
+	 * Stream health: since the driver took the device. Late is a completion after a gap the
+	 * queued transfers didn't cover: the host stopped serving the device for a while (the USB
+	 * side's xrun; not the client's).
+	 */
+	f.group = OZZY_CONTROL_GROUP_HEALTH;
+	if (dev->has_stats) {
+		static const char *const dirs[2] = { "Out", "In" };
+		unsigned int channels[2] = { dev->out_channels, dev->in_channels };
+
+		for (i = 0; i < 2; i++) {
+			const struct ozzy_stats_dir *s = &dev->stats.dir[i];
+
+			if (!channels[i] && !s->transfers)
+				continue;
+			fact(&f, dirs[i], "%u late, %u errors, %u short, longest gap %.1f ms", s->late, s->errors,
+			     s->short_transfers, s->max_gap_us / 1000.0);
+		}
+		if (dev->stats.recovery_failures)
+			fact(&f, "Recoveries", "%u (%u failed)", dev->stats.recoveries, dev->stats.recovery_failures);
+		else
+			fact(&f, "Recoveries", "%u", dev->stats.recoveries);
 	}
 
 	/* Endpoints */

@@ -28,6 +28,7 @@
 /* Same values as engine/shared/ozzy_shared_data.h (its client side is C++, for the HAL) */
 #define OZZY_PROPERTY_SETTING 'ozst'
 #define OZZY_PROPERTY_INFO 'ozin'
+#define OZZY_PROPERTY_STATS 'ozss'
 /* kAudioDevicePropertyZeroTimeStampPeriod, which only AudioServerPlugIn.h names */
 #define ZERO_TIMESTAMP_PERIOD 'ring'
 
@@ -128,19 +129,37 @@ static UInt32 get_u32(AudioObjectID obj, AudioObjectPropertySelector sel, AudioO
 	return v;
 }
 
-/* The driver's record (OZZY_PROPERTY_INFO), if it has one this build reads */
-static void read_info(AudioObjectID dev, struct ozzy_control_device *out)
+/* The CFData of custom property @selector, or NULL (the caller releases it) */
+static CFDataRef copy_data(AudioObjectID dev, AudioObjectPropertySelector selector)
 {
-	AudioObjectPropertyAddress a = addr(OZZY_PROPERTY_INFO, kAudioObjectPropertyScopeGlobal);
+	AudioObjectPropertyAddress a = addr(selector, kAudioObjectPropertyScopeGlobal);
 	CFDataRef data = NULL;
 	UInt32 sz = sizeof(data);
 
 	if (!AudioObjectHasProperty(dev, &a) ||
 	    AudioObjectGetPropertyData(dev, &a, 0, NULL, &sz, &data) != noErr || !data)
-		return;
-	if (CFGetTypeID(data) == CFDataGetTypeID())
+		return NULL;
+	if (CFGetTypeID(data) != CFDataGetTypeID()) {
+		CFRelease(data);
+		return NULL;
+	}
+	return data;
+}
+
+/* The driver's record (OZZY_PROPERTY_INFO) and stats (OZZY_PROPERTY_STATS), if it has ones this build reads */
+static void read_info(AudioObjectID dev, struct ozzy_control_device *out)
+{
+	CFDataRef data = copy_data(dev, OZZY_PROPERTY_INFO);
+
+	if (data) {
 		out->has_info = ozzy_control_take_info(&out->info, CFDataGetBytePtr(data), (size_t)CFDataGetLength(data));
-	CFRelease(data);
+		CFRelease(data);
+	}
+	data = copy_data(dev, OZZY_PROPERTY_STATS);
+	if (data) {
+		out->has_stats = ozzy_control_take_stats(&out->stats, CFDataGetBytePtr(data), (size_t)CFDataGetLength(data));
+		CFRelease(data);
+	}
 }
 
 /* What CoreAudio has of the device */
@@ -255,6 +274,7 @@ static int nwatched;
 static const AudioObjectPropertySelector device_props[] = {
 	OZZY_PROPERTY_SETTING,
 	OZZY_PROPERTY_INFO,
+	OZZY_PROPERTY_STATS,
 	kAudioDevicePropertyNominalSampleRate,
 	kAudioDevicePropertyBufferFrameSize,
 	kAudioDevicePropertyDeviceIsRunningSomewhere,

@@ -165,11 +165,17 @@ static void OpsStopTimer(void* ctx) { ((KextBus*)ctx)->StopTimer(); }
 static void OpsSleep(void* ctx, unsigned int ms) { ((KextBus*)ctx)->Sleep(ms); }
 static uint64_t OpsTime(void* ctx) { return ((KextBus*)ctx)->GetTime(); }
 static void OpsAbort(void* ctx) { ((KextBus*)ctx)->Abort(); }
+static uint64_t OpsTimeHz(void* ctx) {
+    uint64_t ticks = 0;
+    nanoseconds_to_absolutetime(1000000000ULL, &ticks);   // mach_absolute_time ticks a second
+    return ticks;
+}
 
-// No PCM rings on macOS: the HAL writes the shared memory itself
+// No PCM rings on macOS: the HAL writes the shared memory itself. No stats_changed: the HAL
+// reads the stats from the shared memory and tells its clients (OzzyHAL's monitor thread).
 const struct ozzy_bus_ops KextBus::sOps = {
     OpsSubmit, OpsSubmitIsoc, OpsControl, OpsClearHalt, OpsStartTimer, OpsStopTimer, nullptr, OpsSleep, OpsTime,
-    OpsAbort
+    OpsAbort, OpsTimeHz, nullptr
 };
 
 KextBus::KextBus(IOUSBHostDevice* device, IOService* driver) 

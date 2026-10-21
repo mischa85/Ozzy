@@ -124,6 +124,16 @@ static inline uint32_t ozzy_mod_u64(uint64_t a, uint32_t b)
 #endif
 }
 
+/* @a / @b, both 64-bit, for the same reason */
+static inline uint64_t ozzy_div_u64(uint64_t a, uint64_t b)
+{
+#ifdef OZZY_LINUX_KERNEL
+	return div64_u64(a, b);
+#else
+	return a / b;
+#endif
+}
+
 /*
  * --- Memory ordering on the engine side ---
  * volatile only stops the compiler from reordering; on arm64 the CPU can still make a ring

@@ -35,6 +35,8 @@ struct wdev {
     bool circuits_added;
     bool configured;                   /* bus configured for the engine (once per PrepareHardware) */
     WDFWORKITEM recover;               /* a wedged pipe: port reset and a new start (kbus dead) */
+    WDFTIMER stats_timer;              /* a stats incident: the clients hear of it once it settles */
+    volatile LONG stats_pending;
 };
 typedef struct wdev wdev;
 WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(wdev, wdev_get)

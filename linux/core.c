@@ -216,6 +216,7 @@ static int ozzy_chip_probe(struct usb_interface *intf, const struct usb_device_i
 	spin_lock_init(&chip->stream[OZZY_PCM_OUT].lock);
 	spin_lock_init(&chip->stream[OZZY_PCM_IN].lock);
 	spin_lock_init(&chip->midi.lock);
+	INIT_DELAYED_WORK(&chip->stats_work, ozzy_controls_stats_work);
 	card->private_free = ozzy_chip_card_free;
 	strscpy(card->driver, DRIVER_NAME, sizeof(card->driver));
 	strscpy(card->shortname, dev->product ?: model->name, sizeof(card->shortname));
@@ -275,6 +276,7 @@ static int ozzy_chip_probe(struct usb_interface *intf, const struct usb_device_i
 
 err_stop:
 	ozzy_engine_stop(chip->engine);
+	cancel_delayed_work_sync(&chip->stats_work);
 err_intf:
 	ozzy_chip_release_interfaces(chip);
 err_card:
@@ -295,6 +297,7 @@ static void ozzy_chip_disconnect(struct usb_interface *intf)
 	chip->running = false;
 	ozzy_engine_stop(chip->engine);
 	mutex_unlock(&chip->lock);
+	cancel_delayed_work_sync(&chip->stats_work);
 
 	snd_card_disconnect(chip->card);
 	ozzy_chip_release_interfaces(chip);

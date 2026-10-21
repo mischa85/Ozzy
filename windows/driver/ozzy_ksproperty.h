@@ -26,6 +26,7 @@ enum ozzy_ksproperty_id {
 	OZZY_KSPROPERTY_STATUS = 0,    /* get: struct ozzy_ksproperty_status */
 	OZZY_KSPROPERTY_SETTING = 1,   /* set: struct ozzy_ksproperty_setting */
 	OZZY_KSPROPERTY_INFO = 2,      /* get: struct ozzy_info (engine/shared/ozzy_info.h) */
+	OZZY_KSPROPERTY_STATS = 3,     /* get: struct ozzy_stats (engine/shared/ozzy_stats.h), live */
 };
 
 /* The event set: {1fd13819-4ef9-40f0-bdf3-695f6589d659}, as a GUID initializer */
@@ -33,8 +34,8 @@ enum ozzy_ksproperty_id {
 	{ 0x1fd13819, 0x4ef9, 0x40f0, { 0xbd, 0xf3, 0x69, 0x5f, 0x65, 0x89, 0xd6, 0x59 } }
 
 enum ozzy_ksevent_id {
-	OZZY_KSEVENT_CHANGED = 0,      /* a setting, the rate, the clock lock or a stream's run state
-	                                * changed: get the status */
+	OZZY_KSEVENT_CHANGED = 0,      /* a setting, the rate, the clock lock, a stream's run state or
+	                                * a stats incident changed: get the status (and the stats) */
 };
 
 /* Bump when struct ozzy_ksproperty_status changes */

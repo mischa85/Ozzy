@@ -162,6 +162,16 @@ static void demo_info(struct ozzy_control_device *d, const struct ozzy_device *m
 	in->safety_offset_frames = isoc ? 147 : 320;
 	in->timestamp_frames = 3200;
 	snprintf(in->driver_version, sizeof(in->driver_version), "demo");
+	/* Stats: the DB4 had one stop of the host's that held up both ways, and came back */
+	d->has_stats = true;
+	d->stats.version = OZZY_STATS_VERSION;
+	d->stats.size = sizeof(d->stats);
+	d->stats.dir[0].transfers = 3600000;
+	d->stats.dir[1].transfers = 3600000;
+	d->stats.dir[0].max_gap_us = isoc ? 1400 : 105300;
+	d->stats.dir[1].max_gap_us = isoc ? 1500 : 105300;
+	d->stats.dir[0].late = d->stats.dir[1].late = isoc ? 0 : 1;
+	d->stats.recoveries = isoc ? 0 : 1;
 	if (isoc) {
 		demo_pipe(&in->pipes[OZZY_INFO_PIPE_PCM_OUT], 0x02, 1, 1024, 1, 3);
 		demo_pipe(&in->pipes[OZZY_INFO_PIPE_PCM_IN], 0x86, 2, 512, 0, 2);

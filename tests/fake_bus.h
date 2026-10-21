@@ -31,6 +31,9 @@ struct fake_bus {
 	unsigned int head, tail;
 	uint8_t rate[3];                   /* last UAC1 SET_CUR rate */
 	uint64_t ticks;
+	uint64_t hz;                       /* 0: the clock ticks once per call; else it reads @now */
+	uint64_t now;                      /* the clock, in @hz ticks a second, as the test sets it */
+	unsigned int stats_changed;        /* stats_changed calls */
 	bool timer_on;
 	uint64_t progress[OZZY_PCM_DIRS];  /* last pcm_progress */
 	bool rings;                        /* has pcm_progress (a ring platform) */

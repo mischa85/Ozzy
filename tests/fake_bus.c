@@ -98,7 +98,19 @@ static void fb_sleep(void *ctx, unsigned int ms)
 
 static uint64_t fb_time(void *ctx)
 {
-	return ++((struct fake_bus *)ctx)->ticks;
+	struct fake_bus *fb = ctx;
+
+	return fb->hz ? fb->now : ++fb->ticks;
+}
+
+static uint64_t fb_time_hz(void *ctx)
+{
+	return ((struct fake_bus *)ctx)->hz;
+}
+
+static void fb_stats_changed(void *ctx)
+{
+	((struct fake_bus *)ctx)->stats_changed++;
 }
 
 /* Everything queued completes as aborted (to the engine of the last completion, if any) */
@@ -132,6 +144,8 @@ static const struct ozzy_bus_ops fake_ops = {
 	.sleep_ms = fb_sleep,
 	.time = fb_time,
 	.abort = fb_abort,
+	.time_hz = fb_time_hz,
+	.stats_changed = fb_stats_changed,
 };
 
 static const struct ozzy_bus_ops fake_ops_no_rings = {
@@ -144,6 +158,8 @@ static const struct ozzy_bus_ops fake_ops_no_rings = {
 	.sleep_ms = fb_sleep,
 	.time = fb_time,
 	.abort = fb_abort,
+	.time_hz = fb_time_hz,
+	.stats_changed = fb_stats_changed,
 };
 
 void fake_bus_init(struct fake_bus *fb, struct ozzy_shared_memory *shm, bool rings, FILE *trace)

@@ -94,8 +94,13 @@ public:
     CFDictionaryRef CopySettingsDictionary() const;
     // OZZY_PROPERTY_INFO's data: a new CFData of the kext's struct ozzy_info
     CFDataRef CopyInfoData() const;
-    // The custom properties the device has (kAudioObjectPropertyCustomPropertyInfoList)
-    UInt32 CustomPropertyCount() const { return HasSettings() ? 2 : 1; }
+    // OZZY_PROPERTY_STATS's data: a new CFData of the kext's struct ozzy_stats, as it is now
+    CFDataRef CopyStatsData();
+    // The monitor thread: true once for a change in the stats' incidents (ozzy_stats_incidents)
+    bool StatsChanged();
+    // The custom properties the device has (kAudioObjectPropertyCustomPropertyInfoList): the
+    // info, the stats, and the settings if it has any
+    UInt32 CustomPropertyCount() const { return HasSettings() ? 3 : 2; }
     OSStatus SetSettingsDictionary(AudioServerPlugInHostRef host, CFDictionaryRef dict);
     // CoreAudio stopped IO for a setting or rate change: send it to the kext, re-read the
     // format, keep it
@@ -143,6 +148,7 @@ private:
     uint32_t mLockRate = 0;
     struct ozzy_info mInfo = {};        // the kext's, as of its last handshake (ApplyDeviceConfig)
     mutable std::mutex mInfoLock;       // ApplyDeviceConfig writes mInfo while a client may read it
+    uint32_t mStatsIncidents = 0;       // as the monitor thread last told of them
     struct ozzy_route mInRoute = {};    // capture routing, applied after mReadInput
     struct ozzy_route mOutRoute = {};   // playback routing, applied before mWriteOutput
     bool mSpdifMirror = false;          // mWriteOutput is the ESU1808 mirror writer (UpdateRoutes)

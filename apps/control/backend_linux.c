@@ -92,24 +92,41 @@ static void card_stream(int card, uint32_t *rate, struct ozzy_control_host *h)
 	h->running = *rate != 0;
 }
 
-/* The driver's record from "Ozzy Info", if it has one this build reads */
-static void read_info(snd_ctl_t *ctl, struct ozzy_control_device *d)
+/* The bytes of card control @name into @out, at most @size; how many, or 0 if it has none */
+static size_t read_bytes(snd_ctl_t *ctl, const char *name, void *out, size_t size)
 {
 	snd_ctl_elem_value_t *v;
 	snd_ctl_elem_info_t *info;
+	size_t count;
 
 	snd_ctl_elem_info_alloca(&info);
 	snd_ctl_elem_value_alloca(&v);
 	snd_ctl_elem_info_set_interface(info, SND_CTL_ELEM_IFACE_CARD);   /* a card control, not a mixer one */
-	snd_ctl_elem_info_set_name(info, "Ozzy Info");
+	snd_ctl_elem_info_set_name(info, name);
 	if (snd_ctl_elem_info(ctl, info) < 0 || snd_ctl_elem_info_get_type(info) != SND_CTL_ELEM_TYPE_BYTES)
-		return;
+		return 0;
 	snd_ctl_elem_value_set_interface(v, SND_CTL_ELEM_IFACE_CARD);
-	snd_ctl_elem_value_set_name(v, "Ozzy Info");
+	snd_ctl_elem_value_set_name(v, name);
 	if (snd_ctl_elem_read(ctl, v) < 0)
-		return;
-	d->has_info = ozzy_control_take_info(&d->info, snd_ctl_elem_value_get_bytes(v),
-					     snd_ctl_elem_info_get_count(info));
+		return 0;
+	count = snd_ctl_elem_info_get_count(info);
+	if (count > size)
+		count = size;
+	memcpy(out, snd_ctl_elem_value_get_bytes(v), count);
+	return count;
+}
+
+/* The driver's record from "Ozzy Info" and its stats from "Ozzy Stats", if it has ones this build reads */
+static void read_info(snd_ctl_t *ctl, struct ozzy_control_device *d)
+{
+	struct ozzy_info info;
+	struct ozzy_stats stats;
+	size_t n;
+
+	n = read_bytes(ctl, "Ozzy Info", &info, sizeof(info));
+	d->has_info = n && ozzy_control_take_info(&d->info, &info, n);
+	n = read_bytes(ctl, "Ozzy Stats", &stats, sizeof(stats));
+	d->has_stats = n && ozzy_control_take_stats(&d->stats, &stats, n);
 }
 
 /* Whether the card behind @ctl is one of ours; its info into @ci */

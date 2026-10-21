@@ -232,6 +232,9 @@ struct ozzy_engine_report {
  * @driver_version: the platform's build (OZZY_GIT_VERSION), NULL if it didn't say
  * @anchors:      the platform reads the clock anchors (ozzy_engine_set_anchors)
  * @starts:       starts that succeeded since ozzy_engine_attach
+ * @stats_last/@stats_late: per PCM direction, the bus time of the last completion (0: none
+ *                since the start) and the gap past which a completion is late (the queued
+ *                transfers' time, in bus ticks; 0: not measured), for the shared memory's stats
  */
 struct ozzy_engine {
 	const struct ozzy_engine_ops *ops;
@@ -254,6 +257,8 @@ struct ozzy_engine {
 	const char *driver_version;
 	bool anchors;
 	uint32_t starts;
+	uint64_t stats_last[OZZY_PCM_DIRS];
+	uint64_t stats_late[OZZY_PCM_DIRS];
 };
 
 /* Bytes to allocate for @model's engine (0 if Ozzy has none for its family) */
@@ -382,15 +387,31 @@ static inline void ozzy_engine_suspend(struct ozzy_engine *e)
  */
 bool ozzy_engine_restart(struct ozzy_engine *e);
 
+/*
+ * The shared memory's stats (ozzy_stats.h): a completion on @pipe (with @failed isochronous
+ * packets), from the completion path; ozzy_engine_complete and ozzy_engine_isoc_complete count
+ * every one. A family counts a transfer that moved less than asked with
+ * ozzy_engine_stats_short; the platform its recoveries (process context).
+ */
+void ozzy_engine_stats_complete(struct ozzy_engine *e, uint8_t pipe, int status, uint32_t failed);
+void ozzy_engine_stats_short(struct ozzy_engine *e, enum ozzy_pcm_dir dir);
+void ozzy_engine_stats_recovery(struct ozzy_engine *e, bool streaming);
+
 /* A transfer completed. Transfer type bits as bmAttributes & 3. */
 static inline void ozzy_engine_complete(struct ozzy_engine *e, uint8_t pipe, void *xfer, int status, uint32_t bytes)
 {
+	ozzy_engine_stats_complete(e, pipe, status, 0);
 	e->ops->complete(e, pipe, xfer, status, bytes);
 }
 
 static inline void ozzy_engine_isoc_complete(struct ozzy_engine *e, uint8_t pipe, void *xfer, int status,
 					     struct ozzy_isoc_packet *packets, uint32_t count)
 {
+	uint32_t failed = 0, i;
+
+	for (i = 0; i < count; i++)
+		failed += packets[i].status != 0;
+	ozzy_engine_stats_complete(e, pipe, status, failed);
 	if (e->ops->isoc_complete)
 		e->ops->isoc_complete(e, pipe, xfer, status, packets, count);
 }

@@ -156,6 +156,13 @@ static int find_devices(struct ozzy_control_device *devs, int max, wchar_t (*fou
 			if (ks_property(found[n], OZZY_KSPROPERTY_INFO, KSPROPERTY_TYPE_GET, &info, sizeof(info), &returned))
 				d->has_info = ozzy_control_take_info(&d->info, &info, returned);
 		}
+		{
+			struct ozzy_stats stats;
+
+			memset(&stats, 0, sizeof(stats));
+			if (ks_property(found[n], OZZY_KSPROPERTY_STATS, KSPROPERTY_TYPE_GET, &stats, sizeof(stats), &returned))
+				d->has_stats = ozzy_control_take_stats(&d->stats, &stats, returned);
+		}
 		n++;
 	}
 	SetupDiDestroyDeviceInfoList(set);

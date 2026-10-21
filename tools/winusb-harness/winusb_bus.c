@@ -38,6 +38,13 @@ static uint64_t wbus_time(void* ctx) {
     return (uint64_t)t.QuadPart;
 }
 
+static uint64_t wbus_time_hz(void* ctx) {
+    (void)ctx;
+    LARGE_INTEGER f;
+    QueryPerformanceFrequency(&f);
+    return (uint64_t)f.QuadPart;
+}
+
 static void wbus_sleep(void* ctx, unsigned int ms) {
     (void)ctx;
     Sleep(ms);
@@ -194,6 +201,7 @@ static const struct ozzy_bus_ops wbus_ops = {
     .sleep_ms = wbus_sleep,
     .time = wbus_time,
     .abort = wbus_abort,
+    .time_hz = wbus_time_hz,
 };
 
 bool wbus_open(struct winusb_bus* wb, const wchar_t* path, struct ozzy_engine* engine) {

@@ -21,6 +21,7 @@
 #include <stdint.h>
 #include "../../common/ozzy_settings.h"
 #include "../../engine/shared/ozzy_info.h"
+#include "../../engine/shared/ozzy_stats.h"
 
 #define OZZY_CONTROL_MAX_DEVICES 16
 
@@ -57,6 +58,7 @@ struct ozzy_control_host {
  * @settings:      their values
  * @has_clock:     @clock is valid (the device has the clock source; lock_rate 0: unknown)
  * @has_info:      @info is the driver's record (a driver from before it had one: false)
+ * @has_stats:     @stats is the driver's stats, as of the listing (the same)
  * @id_internal:   @id only finds the device again (Windows' device instance path), not shown
  * @host:          what the OS's audio stack says
  * @handle:        backend-private
@@ -72,8 +74,10 @@ struct ozzy_control_device {
 	bool has_clock;
 	struct ozzy_clock_status clock;
 	bool has_info;
+	bool has_stats;
 	bool id_internal;
 	struct ozzy_info info;
+	struct ozzy_stats stats;
 	struct ozzy_control_host host;
 	uintptr_t handle;
 };
@@ -92,7 +96,8 @@ int ozzy_control_backend_set(const struct ozzy_control_device *dev, unsigned int
 
 /*
  * ozzy_control_backend_watch - From now on, call @changed(@ctx) after a device arrives or leaves, or a
- * device's settings, rate or clock lock change; list again to see what. Notified by the OS and
+ * device's settings, rate or clock lock change, or the driver's stats have an incident; list
+ * again to see what. Notified by the OS and
  * the driver, never polled: macOS CoreAudio property listeners, Linux ALSA control events and
  * inotify on /dev/snd, Windows the driver's KS event and CM notifications. @changed runs on a
  * backend thread, one call at a time, and may list. Call once per process. Returns 0, or -1
@@ -128,6 +133,8 @@ bool ozzy_control_same(const struct ozzy_control_device *a, const struct ozzy_co
 
 /* @raw (@size bytes, from the driver) into @out if it is a struct ozzy_info this build reads */
 bool ozzy_control_take_info(struct ozzy_info *out, const void *raw, size_t size);
+/* The same for the driver's struct ozzy_stats */
+bool ozzy_control_take_stats(struct ozzy_stats *out, const void *raw, size_t size);
 
 /*
  * What ozzy-cli and the ozzy app show of a device beside its settings: facts, each a label and
@@ -137,6 +144,7 @@ enum ozzy_control_group {
 	OZZY_CONTROL_GROUP_DEVICE,
 	OZZY_CONTROL_GROUP_AUDIO,
 	OZZY_CONTROL_GROUP_STREAM,
+	OZZY_CONTROL_GROUP_HEALTH,
 	OZZY_CONTROL_GROUP_ENDPOINTS,
 	OZZY_CONTROL_GROUP_HOST,
 	OZZY_CONTROL_GROUPS

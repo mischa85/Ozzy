@@ -4,13 +4,15 @@
  *
  * One enumerated control per setting the device has, named as common/ozzy_settings.h names
  * it (apps/control/backend_linux.c finds them by name), plus "S/PDIF Clock Validity" with the clock
- * source, and "Ozzy Info": the engine's struct ozzy_info as bytes, for ozzy-cli and the ozzy app.
+ * source, "Ozzy Info": the engine's struct ozzy_info as bytes, for ozzy-cli and the ozzy app, and
+ * "Ozzy Stats": its struct ozzy_stats, live.
  * A route applies at once (the engine routes from the next packet); a device setting
  * restarts the engine, whose handshake sends it.
  *
  * Clients learn of changes from control events (snd_ctl_subscribe_events): ALSA sends one for
  * a setting a client changed, the driver one for the clock lock and the info after each
- * handshake (ozzy_controls_handshake), the only time the engine learns them.
+ * handshake (ozzy_controls_handshake), the only time the engine learns them, and one for the
+ * stats after an incident (ozzy_controls_stats_work).
  *
  * Copyright (C) 2024 Marcel Bierling <marcel@hackerman.art>
  */
@@ -101,6 +103,41 @@ static const struct snd_kcontrol_new info_ctl = {
 /* The bytes control carries the whole record */
 static_assert(sizeof(struct ozzy_info) <= sizeof(((struct snd_ctl_elem_value *)0)->value.bytes.data));
 
+static int stats_info(struct snd_kcontrol *kctl, struct snd_ctl_elem_info *uinfo)
+{
+	uinfo->type = SNDRV_CTL_ELEM_TYPE_BYTES;
+	uinfo->count = sizeof(struct ozzy_stats);
+	return 0;
+}
+
+/* Live: the completions write it as they go (one writer a field, ozzy_stats.h) */
+static int stats_get(struct snd_kcontrol *kctl, struct snd_ctl_elem_value *ucontrol)
+{
+	struct ozzy_chip *chip = snd_kcontrol_chip(kctl);
+
+	memcpy(ucontrol->value.bytes.data, &chip->shm->stats, sizeof(struct ozzy_stats));
+	return 0;
+}
+
+static const struct snd_kcontrol_new stats_ctl = {
+	.iface  = SNDRV_CTL_ELEM_IFACE_CARD,
+	.name   = "Ozzy Stats",
+	.access = SNDRV_CTL_ELEM_ACCESS_READ | SNDRV_CTL_ELEM_ACCESS_VOLATILE,
+	.info   = stats_info,
+	.get    = stats_get,
+};
+
+static_assert(sizeof(struct ozzy_stats) <= sizeof(((struct snd_ctl_elem_value *)0)->value.bytes.data));
+
+/* A stats incident (the bus's stats_changed, 250 ms on) */
+void ozzy_controls_stats_work(struct work_struct *work)
+{
+	struct ozzy_chip *chip = container_of(to_delayed_work(work), struct ozzy_chip, stats_work);
+
+	if (chip->stats_kctl)
+		snd_ctl_notify(chip->card, SNDRV_CTL_EVENT_MASK_VALUE, &chip->stats_kctl->id);
+}
+
 static int clock_lock_get(struct snd_kcontrol *kctl, struct snd_ctl_elem_value *ucontrol)
 {
 	struct ozzy_chip *chip = snd_kcontrol_chip(kctl);
@@ -150,5 +187,10 @@ int ozzy_controls_init(struct ozzy_chip *chip)
 	if (ret < 0)
 		return ret;
 	chip->info_kctl = kctl;
+	kctl = snd_ctl_new1(&stats_ctl, chip);
+	ret = snd_ctl_add(chip->card, kctl);
+	if (ret < 0)
+		return ret;
+	chip->stats_kctl = kctl;
 	return 0;
 }

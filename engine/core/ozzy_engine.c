@@ -63,6 +63,11 @@ void ozzy_engine_attach(struct ozzy_engine *e, const struct ozzy_bus *bus, volat
 	ozzy_engine_free_memory(e);
 	e->bus = bus;
 	e->shm = shm;
+	memset((void *)&shm->stats, 0, sizeof(shm->stats));
+	shm->stats.version = OZZY_STATS_VERSION;
+	shm->stats.size = sizeof(shm->stats);
+	memset(e->stats_last, 0, sizeof(e->stats_last));
+	memset(e->stats_late, 0, sizeof(e->stats_late));
 	shm->magic = OZZY_MAGIC;
 	shm->version = OZZY_SHARED_VERSION;
 	shm->vendor_id = e->model->vid;
@@ -177,6 +182,97 @@ uint32_t ozzy_engine_pcm_layout(struct ozzy_engine *e, enum ozzy_pcm_dir dir, ui
 /* struct ozzy_info has one pipe per role */
 typedef char ozzy_info_pipes_match[((int)OZZY_INFO_PIPES == (int)OZZY_PIPE_ROLES) ? 1 : -1];
 
+/* --- The shared memory's stats (ozzy_stats.h) --- */
+
+/* A completion later than this past the queued transfers' time is late: jitter, not a stop */
+#define OZZY_STATS_JITTER_US 1000
+
+static int stats_dir(const struct ozzy_engine *e, uint8_t pipe)
+{
+	if (pipe && pipe == e->pipe[OZZY_PIPE_PCM_OUT].address)
+		return OZZY_PCM_OUT;
+	if (pipe && pipe == e->pipe[OZZY_PIPE_PCM_IN].address)
+		return OZZY_PCM_IN;
+	return -1;
+}
+
+/* At a start: each direction's late gap, the transfers it keeps queued plus the jitter */
+static void stats_start(struct ozzy_engine *e)
+{
+	static const enum ozzy_pipe_role roles[OZZY_PCM_DIRS] = { OZZY_PIPE_PCM_OUT, OZZY_PIPE_PCM_IN };
+	uint64_t hz = ozzy_bus_time_hz(e->bus);
+	uint32_t rate = e->shm->audio.sample_rate;
+	unsigned int dir;
+
+	for (dir = 0; dir < OZZY_PCM_DIRS; dir++) {
+		uint64_t frames = (uint64_t)e->report.in_flight[roles[dir]] *
+				  ozzy_engine_transfer_frames(e, (enum ozzy_pcm_dir)dir);
+
+		e->stats_last[dir] = 0;
+		e->stats_late[dir] = hz && rate && frames ?
+			ozzy_div_u64(frames * hz, rate) + ozzy_div_u64(hz * OZZY_STATS_JITTER_US, 1000000) : 0;
+	}
+}
+
+void ozzy_engine_stats_complete(struct ozzy_engine *e, uint8_t pipe, int status, uint32_t failed)
+{
+	int dir = stats_dir(e, pipe);
+	volatile struct ozzy_stats_dir *s;
+	bool incident = false;
+	uint64_t now, hz;
+
+	if (dir < 0 || !e->shm || !e->bus)
+		return;
+	if (status == OZZY_STATUS_ABORTED) {   /* a stop: what follows is no gap */
+		e->stats_last[dir] = 0;
+		return;
+	}
+	s = &e->shm->stats.dir[dir];
+	now = ozzy_bus_time(e->bus);
+	hz = ozzy_bus_time_hz(e->bus);
+	if (e->stats_last[dir] && now > e->stats_last[dir] && hz) {
+		uint64_t gap = now - e->stats_last[dir];
+		uint64_t us = ozzy_div_u64(gap * 1000000, hz);
+
+		if (us > s->max_gap_us)
+			s->max_gap_us = us > 0xffffffffu ? 0xffffffffu : (uint32_t)us;
+		if (e->stats_late[dir] && gap > e->stats_late[dir]) {
+			s->late++;
+			incident = true;
+		}
+	}
+	e->stats_last[dir] = now;
+	s->transfers++;
+	if (status != 0) {
+		s->errors++;
+		incident = true;
+	}
+	if (failed) {
+		s->short_transfers += failed;
+		incident = true;
+	}
+	if (incident)
+		ozzy_bus_stats_changed(e->bus);
+}
+
+void ozzy_engine_stats_short(struct ozzy_engine *e, enum ozzy_pcm_dir dir)
+{
+	if (!e->shm)
+		return;
+	e->shm->stats.dir[dir].short_transfers++;
+	ozzy_bus_stats_changed(e->bus);
+}
+
+void ozzy_engine_stats_recovery(struct ozzy_engine *e, bool streaming)
+{
+	if (!e->shm)
+		return;
+	e->shm->stats.recoveries++;
+	if (!streaming)
+		e->shm->stats.recovery_failures++;
+	ozzy_bus_stats_changed(e->bus);
+}
+
 bool ozzy_engine_start(struct ozzy_engine *e)
 {
 	memset(&e->report, 0, sizeof(e->report));
@@ -184,6 +280,7 @@ bool ozzy_engine_start(struct ozzy_engine *e)
 		return false;
 	e->starts++;
 	ozzy_engine_publish_info(e);
+	stats_start(e);
 	return true;
 }
 

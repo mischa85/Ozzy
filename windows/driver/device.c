@@ -7,6 +7,21 @@ static EVT_WDF_DEVICE_RELEASE_HARDWARE wdev_evt_release_hardware;
 static EVT_WDF_DEVICE_D0_ENTRY wdev_evt_d0_entry;
 static EVT_WDF_DEVICE_D0_EXIT wdev_evt_d0_exit;
 static EVT_WDF_WORKITEM wdev_recover;
+static EVT_WDF_TIMER wdev_stats_timer;
+
+/* DISPATCH_LEVEL (the engine, through kbus): a stats incident. The clients hear of it 250 ms
+ * on, once for a burst of them */
+static void wdev_bus_stats(void* ctx) {
+    struct wdev* dev = ctx;
+    if (!InterlockedExchange(&dev->stats_pending, 1)) WdfTimerStart(dev->stats_timer, WDF_REL_TIMEOUT_IN_MS(250));
+}
+
+/* PASSIVE_LEVEL: the change event, which has them read the status and the stats again */
+static void wdev_stats_timer(WDFTIMER timer) {
+    struct wdev* dev = wdev_get(WdfTimerGetParentObject(timer));
+    InterlockedExchange(&dev->stats_pending, 0);
+    wsettings_changed(dev);
+}
 
 /* DISPATCH_LEVEL (kbus): a PCM pipe died */
 static void wdev_bus_dead(void* ctx) {
@@ -39,6 +54,7 @@ static void wdev_recover(WDFWORKITEM item) {
             kbus_stop_io(&ctx->bus);
         }
         kbus_log("[Ozzy] recovered: %s", ctx->started ? "streaming" : "start failed");
+        ozzy_engine_stats_recovery(ctx->engine, ctx->started);
     }
     InterlockedExchange(&ctx->bus.recovering, 0);
     WdfWaitLockRelease(ctx->lock);
@@ -90,6 +106,13 @@ NTSTATUS wdev_evt_add(WDFDRIVER driver, PWDFDEVICE_INIT init) {
     WDF_OBJECT_ATTRIBUTES_INIT(&attributes);
     attributes.ParentObject = device;
     status = WdfWorkItemCreate(&work, &attributes, &ctx->recover);
+    if (!NT_SUCCESS(status)) return status;
+    WDF_TIMER_CONFIG timer;
+    WDF_TIMER_CONFIG_INIT(&timer, wdev_stats_timer);
+    WDF_OBJECT_ATTRIBUTES_INIT(&attributes);
+    attributes.ParentObject = device;
+    attributes.ExecutionLevel = WdfExecutionLevelPassive;
+    status = WdfTimerCreate(&timer, &attributes, &ctx->stats_timer);
     if (!NT_SUCCESS(status)) return status;
 
     ACX_DEVICE_CONFIG device_config;
@@ -150,6 +173,8 @@ static NTSTATUS wdev_evt_prepare_hardware(WDFDEVICE device, WDFCMRESLIST resourc
         ctx->bus.service_ctx = ctx;
         ctx->bus.dead = wdev_bus_dead;
         ctx->bus.dead_ctx = ctx;
+        ctx->bus.stats_changed = wdev_bus_stats;
+        ctx->bus.stats_ctx = ctx;
         NTSTATUS status = kbus_create(&ctx->bus, device);
         if (NT_SUCCESS(status)) status = kbus_configure(&ctx->bus);
         if (!NT_SUCCESS(status)) return status;

@@ -255,7 +255,8 @@ int ozzy_control_backend_set(const struct ozzy_control_device *dev, unsigned int
 	demo_lock_take();
 	demo_init();
 	d = &demo[dev->handle];
-	if (!demo_present[dev->handle] || !(d->available & (1u << id)) || value >= ozzy_control_values(d, id)) {
+	if (!demo_present[dev->handle] || !(d->available & (1u << id)) || value >= ozzy_control_values(d, id) ||
+	    !ozzy_control_value_fits(d, id, value)) {
 		demo_lock_give();
 		fprintf(stderr, "%s: %u is not a value of %s\n", dev->name, value, ozzy_setting_descs[id].name);
 		return -1;

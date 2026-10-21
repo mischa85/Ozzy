@@ -58,6 +58,15 @@ unsigned int ozzy_control_values(const struct ozzy_control_device *dev, unsigned
 	return (dev->available & (1u << id)) ? ozzy_setting_count(id, dev->in_channels, dev->out_channels) : 0;
 }
 
+bool ozzy_control_value_fits(const struct ozzy_control_device *dev, unsigned int id, unsigned int value)
+{
+	const struct ozzy_info_pipe *in = &dev->info.pipes[OZZY_INFO_PIPE_PCM_IN];
+
+	return !dev->has_info ||
+	       ozzy_setting_value_fits(id, value, ozzy_pcm_in_step(in->transfer_type, in->max_packet,
+								     dev->info.in_bytes_per_frame));
+}
+
 const struct ozzy_control_device *ozzy_control_pick(const struct ozzy_control_device *devs, int n, const char *arg)
 {
 	char a[96], b[96];
@@ -102,6 +111,8 @@ int ozzy_control_find_value(const struct ozzy_control_device *dev, unsigned int 
 	ozzy_control_slug(arg, a, sizeof(a));
 	len = strlen(a);
 	for (k = 0; len && k < n; k++) {
+		if (!ozzy_control_value_fits(dev, id, k))
+			continue;
 		ozzy_control_slug(ozzy_setting_descs[id].value_names[k], b, sizeof(b));
 		if (!strcmp(a, b) || (!strncmp(a, b, len) && b[len] == '-'))
 			return (int)k;
@@ -111,7 +122,7 @@ int ozzy_control_find_value(const struct ozzy_control_device *dev, unsigned int 
 	if (n && isdigit((unsigned char)ozzy_setting_descs[id].value_names[0][0]))
 		return -1;
 	v = number(arg);
-	return (v >= 0 && (unsigned long)v < n) ? (int)v : -1;
+	return (v >= 0 && (unsigned long)v < n && ozzy_control_value_fits(dev, id, (unsigned int)v)) ? (int)v : -1;
 }
 
 bool ozzy_control_reread(const char *id, struct ozzy_control_device *out)

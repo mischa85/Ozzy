@@ -105,6 +105,9 @@ void ozzy_control_slug(const char *name, char *out, size_t size);
 
 /* How many values setting @id of @dev has: 0 if it doesn't have it (or channel counts unknown) */
 unsigned int ozzy_control_values(const struct ozzy_control_device *dev, unsigned int id);
+/* Whether @dev can take value @value of setting @id: in transfer sizes are whole packets of its in
+ * endpoint (ozzy_pcm_in_step, from the driver's record); every value when that isn't known */
+bool ozzy_control_value_fits(const struct ozzy_control_device *dev, unsigned int id, unsigned int value);
 
 /* The device @arg picks (a number from the list or part of the name, NULL: the first), or NULL */
 const struct ozzy_control_device *ozzy_control_pick(const struct ozzy_control_device *devs, int n, const char *arg);

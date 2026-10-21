@@ -127,15 +127,19 @@ static void print_value(const struct ozzy_control_device *dev, unsigned int id)
 {
 	const struct ozzy_setting_desc *d = &ozzy_setting_descs[id];
 	unsigned int v = dev->settings.value[id], n = ozzy_control_values(dev, id), i;
+	bool first;
 	char s[96];
 
 	ozzy_control_slug(d->name, s, sizeof(s));
 	printf("  %-24s ", s);
 	ozzy_control_slug(v < n ? d->value_names[v] : "?", s, sizeof(s));
 	printf("%-16s (", s);
-	for (i = 0; i < n; i++) {
+	for (i = 0, first = true; i < n; i++) {
+		if (!ozzy_control_value_fits(dev, id, i))
+			continue;
 		ozzy_control_slug(d->value_names[i], s, sizeof(s));
-		printf("%s%s", i ? ", " : "", s);
+		printf("%s%s", first ? "" : ", ", s);
+		first = false;
 	}
 	printf(")%s\n", d->kind == OZZY_SETTING_DEVICE ? "" : "  [host]");
 }

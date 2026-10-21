@@ -78,6 +78,22 @@ int main(void)
 		shm.audio.settings.clock_locked = 0;
 	}
 
+	/* In transfers are whole packets of the in endpoint: 1024-byte interrupt, 16 frames */
+	CHECK(ozzy_pcm_in_step(3, 1024, 64) == 16 && ozzy_pcm_in_step(2, 512, 64) == 8 &&
+	      ozzy_pcm_in_step(1, 1024, 64) == 0, "in steps");
+	CHECK(ozzy_engine_pcm_in_step(e) == 16, "DB4 in step %u", (unsigned int)ozzy_engine_pcm_in_step(e));
+	CHECK(ozzy_engine_change_setting(e, OZZY_SETTING_PCM_IN_FRAMES, 0) == OZZY_SETTING_INVALID &&
+	      ozzy_engine_change_setting(e, OZZY_SETTING_PCM_IN_FRAMES, 2) == OZZY_SETTING_INVALID,
+	      "8 / 24-frame in transfers taken on 1024-byte packets");
+	CHECK(ozzy_engine_change_setting(e, OZZY_SETTING_PCM_IN_FRAMES, 1) == OZZY_SETTING_RESTART, "16 frames refused");
+	/* A value kept from before that doesn't fit: the next size up, the top one down */
+	ozzy_engine_set_setting(e, OZZY_SETTING_PCM_IN_FRAMES, 0);
+	CHECK(ozzy_engine_restart(e) && e->settings.value[OZZY_SETTING_PCM_IN_FRAMES] == 1,
+	      "8 frames kept became value %u", e->settings.value[OZZY_SETTING_PCM_IN_FRAMES]);
+	ozzy_engine_set_setting(e, OZZY_SETTING_PCM_IN_FRAMES, OZZY_NUM_PCM_IN_FRAMES - 1);
+	CHECK(ozzy_engine_restart(e) && e->settings.value[OZZY_SETTING_PCM_IN_FRAMES] == OZZY_NUM_PCM_IN_FRAMES - 2,
+	      "200 frames kept became value %u", e->settings.value[OZZY_SETTING_PCM_IN_FRAMES]);
+
 	ozzy_engine_stop(e);
 	CHECK(queued(&fb) == 0, "%u transfers in flight after stop", queued(&fb));
 	CHECK(!shm.audio.driver_ready && !shm.audio.hardware_present, "the HAL still sees the device after stop");

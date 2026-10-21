@@ -88,10 +88,11 @@ enum ozzy_spdif_out_mode {
 /*
  * OZZY_SETTING_PCM_OUT_FRAMES / _IN_FRAMES values: how many of the device's sub-packets one PCM
  * transfer carries, so how many frames (value + 1 sub-packets: 10 frames each out, 8 in), so
- * how far ahead of the device the driver works (transfers queued x frames: the latency). Any
- * number works (tested on the DB4 down to one sub-packet, both out layouts,
- * .claude/re/ploytec_bulk_devices.md); Ozzy offers up to 200 frames, the official driver's
- * size. The default, 80 frames each way, is what ran before the setting.
+ * how far ahead of the device the driver works (transfers queued x frames: the latency). Out,
+ * any number works (tested on the DB4 down to one sub-packet, both out layouts); in, only whole
+ * packets of the in endpoint, which the device fills (ozzy_pcm_in_step: 16 frames on the DB4).
+ * .claude/re/ploytec_bulk_devices.md. Ozzy offers up to 200 frames, the official driver's size.
+ * The default, 80 frames each way, is what ran before the setting.
  */
 #define OZZY_NUM_PCM_OUT_FRAMES 20    /* 10 ... 200 */
 #define OZZY_NUM_PCM_IN_FRAMES  25    /* 8 ... 200 */
@@ -100,7 +101,7 @@ enum ozzy_spdif_out_mode {
  * OZZY_SETTING_PCM_OUT_QUEUE / _IN_QUEUE values: how many PCM transfers the driver keeps in
  * flight, value + 1 (1-4). With the transfer size it is the latency on USB: queue x frames. The
  * device paces the stream itself (it refuses OUT packets until it has room), so its own buffer
- * covers the gap while the next transfer is being submitted; one in flight with 10 / 8-frame
+ * covers the gap while the next transfer is being submitted; one in flight with 10-frame out
  * transfers worked on the DB4 under Linux (.claude/re/ploytec_bulk_devices.md). Out, each
  * transfer queued is latency (a frame waits behind them all); in, the frames are there once
  * their one transfer completes, and the others queued are margin, buffers the device can fill
@@ -145,6 +146,28 @@ static inline uint32_t ozzy_pcm_frames(bool in, unsigned int value)
 	if (value >= (in ? OZZY_NUM_PCM_IN_FRAMES : OZZY_NUM_PCM_OUT_FRAMES))
 		value = in ? 9 : 7;
 	return (value + 1) * (in ? 8 : 10);
+}
+
+/*
+ * ozzy_pcm_in_step - What a PCM in transfer's frames must be a multiple of, on an in endpoint of
+ * @transfer_type (bmAttributes & 3) with @max_packet bytes per service interval and frames of
+ * @frame_bytes. On bulk and interrupt the device decides the packet size and sends whole
+ * packets: the DB4's 1024-byte interrupt EP 0x86 always 16 frames, and a request for 8 is
+ * overrun (babble, .claude/re/ploytec_bulk_devices.md). Out sizes are the host's, any works.
+ * 0: no step (isochronous, or not known).
+ */
+static inline uint32_t ozzy_pcm_in_step(uint8_t transfer_type, uint32_t max_packet, uint32_t frame_bytes)
+{
+	if ((transfer_type != 2 && transfer_type != 3) || !frame_bytes || !max_packet || max_packet % frame_bytes)
+		return 0;
+	return max_packet / frame_bytes;
+}
+
+/* Whether a device whose PCM in step is @in_step (ozzy_pcm_in_step) can take value @value of
+ * setting @id: only the in transfer sizes depend on the device */
+static inline bool ozzy_setting_value_fits(unsigned int id, unsigned int value, uint32_t in_step)
+{
+	return id != OZZY_SETTING_PCM_IN_FRAMES || !in_step || ozzy_pcm_frames(true, value) % in_step == 0;
 }
 
 /*

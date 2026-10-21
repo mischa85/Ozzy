@@ -80,7 +80,20 @@ static const struct {
 struct gui_row {
 	unsigned int id;
 	uiCombobox *box;
+	uint8_t values[32];    /* the setting's value at each combobox index (only the ones that fit) */
+	unsigned int nvalues;
 };
+
+/* The combobox index of value @v in @row, or -1 */
+static int gui_row_index(const struct gui_row *row, unsigned int v)
+{
+	unsigned int k;
+
+	for (k = 0; k < row->nvalues; k++)
+		if (row->values[k] == v)
+			return (int)k;
+	return -1;
+}
 
 /*
  * The window. @content is built for one device's shape (gui_same_shape: the device, its
@@ -221,7 +234,8 @@ static void gui_on_setting(uiCombobox *box, void *data)
 	struct gui_row *row = data;
 	const struct ozzy_control_device *d;
 	struct gui_apply *a;
-	int v = uiComboboxSelected(box);
+	int k = uiComboboxSelected(box);
+	int v = k >= 0 && (unsigned int)k < row->nvalues ? row->values[k] : -1;
 
 	if (gui.current < 0 || gui.busy || v < 0)
 		return;
@@ -272,8 +286,13 @@ static void gui_add_setting(uiForm *form, const struct ozzy_control_device *d, u
 
 	row->id = id;
 	row->box = uiNewCombobox();
-	for (v = 0; v < n; v++)
+	row->nvalues = 0;
+	for (v = 0; v < n && row->nvalues < sizeof(row->values); v++) {
+		if (!ozzy_control_value_fits(d, id, v))
+			continue;
+		row->values[row->nvalues++] = (uint8_t)v;
 		uiComboboxAppend(row->box, ozzy_setting_descs[id].value_names[v]);
+	}
 	uiComboboxOnSelected(row->box, gui_on_setting, row);
 	uiFormAppend(form, gui_settings[id].label, uiControl(row->box), 0);
 }
@@ -373,7 +392,11 @@ static bool gui_same_shape(const struct ozzy_control_device *a, const struct ozz
 {
 	return !strcmp(a->id, b->id) && !strcmp(a->name, b->name) && a->available == b->available &&
 	       a->in_channels == b->in_channels && a->out_channels == b->out_channels &&
-	       a->has_clock == b->has_clock;
+	       a->has_clock == b->has_clock &&
+	       /* the in transfer sizes offered follow the driver's record */
+	       a->has_info == b->has_info &&
+	       a->info.pipes[OZZY_INFO_PIPE_PCM_IN].max_packet == b->info.pipes[OZZY_INFO_PIPE_PCM_IN].max_packet &&
+	       a->info.in_bytes_per_frame == b->info.in_bytes_per_frame;
 }
 
 /* Whether @facts (@n) are the ones the window has, labels and groups, values aside */
@@ -397,7 +420,7 @@ static void gui_update(void)
 	int k;
 
 	for (i = 0; i < gui.nrows; i++)
-		uiComboboxSetSelected(gui.rows[i].box, d->settings.value[gui.rows[i].id]);
+		uiComboboxSetSelected(gui.rows[i].box, gui_row_index(&gui.rows[i], d->settings.value[gui.rows[i].id]));
 	for (k = 0; k < gui.nfacts; k++)
 		if (gui.fact_values[k])
 			uiLabelSetText(gui.fact_values[k], gui.facts[k].value);

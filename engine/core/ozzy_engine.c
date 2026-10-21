@@ -97,6 +97,14 @@ unsigned int ozzy_engine_setting_values(const struct ozzy_engine *e, unsigned in
 	return ozzy_setting_values(ozzy_engine_setting_quirks(e), e->model->in_channels, e->model->out_channels, id);
 }
 
+uint32_t ozzy_engine_pcm_in_step(const struct ozzy_engine *e)
+{
+	const struct ozzy_engine_pipe *in = &e->pipe[OZZY_PIPE_PCM_IN];
+
+	return ozzy_pcm_in_step(in->transfer_type, in->max_packet_size,
+				e->shm ? e->shm->audio.input_bytes_per_frame : 0);
+}
+
 bool ozzy_engine_has_setting(const struct ozzy_engine *e, unsigned int id)
 {
 	return ozzy_engine_setting_values(e, id) > 0;
@@ -106,6 +114,11 @@ enum ozzy_setting_change ozzy_engine_change_setting(struct ozzy_engine *e, unsig
 {
 	if (id >= OZZY_NUM_SETTINGS || value >= ozzy_engine_setting_values(e, id))
 		return OZZY_SETTING_INVALID;
+	if (!ozzy_setting_value_fits(id, value, ozzy_engine_pcm_in_step(e))) {
+		ozzy_log("%s: %s doesn't fit the in endpoint's %u-frame packets", ozzy_setting_descs[id].name,
+			 ozzy_setting_descs[id].value_names[value], (unsigned int)ozzy_engine_pcm_in_step(e));
+		return OZZY_SETTING_INVALID;
+	}
 	if (e->settings.value[id] == value)
 		return OZZY_SETTING_SAME;
 	ozzy_log("%s: %s", ozzy_setting_descs[id].name, ozzy_setting_descs[id].value_names[value]);

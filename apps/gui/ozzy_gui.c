@@ -567,6 +567,7 @@ int main(void)
 	uiInitOptions options;
 	const char *err;
 
+	ozzy_icon_init();
 	memset(&options, 0, sizeof(options));
 	err = uiInit(&options);
 	if (err) {

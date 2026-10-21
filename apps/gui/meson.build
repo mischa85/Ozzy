@@ -74,3 +74,23 @@ executable('ozzy', sources,
 	link_args: link_args,
 	win_subsystem: 'windows',
 	install: true)
+
+# Linux: the launcher entry and the icon GNOME's dock shows (ozzy_icon.c), with meson install.
+# Exec is the full path: GLib ignores an entry whose program isn't on the session's PATH, which
+# ~/.local/bin often isn't.
+if os == 'linux'
+	configure_file(input: 'ozzy.desktop.in', output: 'ozzy.desktop',
+		configuration: {'BINDIR': get_option('prefix') / get_option('bindir')},
+		install_dir: get_option('datadir') / 'applications')
+	install_data('ozzy.png', install_dir: get_option('datadir') / 'icons' / 'hicolor' / '256x256' / 'apps')
+	# GNOME Shell and GTK only look at an icon theme again when its directory changes (a new file
+	# in 256x256/apps doesn't change it), and an icon-theme.cache from before hides the new icon:
+	# touch the theme, rebuild a cache that's there. Not into a DESTDIR (packages do their own).
+	meson.add_install_script('sh', '-c', '''
+		[ -n "$DESTDIR" ] && exit 0
+		theme="$MESON_INSTALL_PREFIX/@0@/icons/hicolor"
+		touch "$theme"
+		[ -f "$theme/icon-theme.cache" ] && gtk-update-icon-cache -qtf "$theme"
+		exit 0
+	'''.format(get_option('datadir')))
+endif

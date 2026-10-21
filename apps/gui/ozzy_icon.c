@@ -3,7 +3,11 @@
  * The window's icon, Ozzy the cat, which libui-ng has no call for: each platform's own.
  *   - Windows: the exe's icon resource (ozzy.rc, ozzy.ico) on the window, the title bar's and
  *     the taskbar's (WM_SETICON, both sizes)
- *   - Linux: ozzy.png (ozzy_icon_png.h) on the window and as the default for any other (GTK)
+ *   - Linux: ozzy.png (ozzy_icon_png.h) on the window and as the default for any other (GTK),
+ *     which X11 shows. GNOME on Wayland has no window icons: its dock and app switcher show the
+ *     icon of the .desktop file named as the window's app id, so the app id is "ozzy" (libui-ng
+ *     starts GTK without argv, which leaves it unnamed) and meson install puts ozzy.desktop and
+ *     the icon in the hicolor theme
  *   - macOS: windows have no icon of their own there; ozzy.png becomes the application's, in
  *     the Dock and the app switcher (ozzy_icon_macos.m), since the app runs without a bundle
  *
@@ -15,6 +19,10 @@
 
 #if defined(_WIN32)
 #include <windows.h>
+
+void ozzy_icon_init(void)
+{
+}
 
 void ozzy_icon_set(uiWindow *w)
 {
@@ -37,6 +45,10 @@ void ozzy_icon_set(uiWindow *w)
 
 void ozzy_icon_set_app(const unsigned char *png, unsigned long size);   /* ozzy_icon_macos.m */
 
+void ozzy_icon_init(void)
+{
+}
+
 void ozzy_icon_set(uiWindow *w)
 {
 	(void)w;
@@ -46,6 +58,13 @@ void ozzy_icon_set(uiWindow *w)
 #else
 #include <gtk/gtk.h>
 #include "ozzy_icon_png.h"
+
+/* The app id GDK gives the window on Wayland (and its WM_CLASS on X11): ozzy.desktop's name */
+void ozzy_icon_init(void)
+{
+	g_set_prgname("ozzy");
+	g_set_application_name("Ozzy");
+}
 
 void ozzy_icon_set(uiWindow *w)
 {

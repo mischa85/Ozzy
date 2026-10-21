@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Ozzy
+Comment=Settings and status of Ozzy's audio devices
+Exec=@BINDIR@/ozzy
+Icon=ozzy
+Terminal=false
+Categories=Settings;HardwareSettings;
+StartupWMClass=ozzy

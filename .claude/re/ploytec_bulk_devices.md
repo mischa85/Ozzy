@@ -153,6 +153,25 @@ go into one USB transfer, and how many transfers are queued, is up to the host:
   it. So the IN step is wMaxPacketSize / 64 frames: 16 on the DB4, 8 on a 512-byte endpoint (DB2).
   The user's earlier report that 8-frame IN worked on the DB4 is not reproduced; main's pre-engine
   driver always used 80-frame IN transfers. 16 frames in with 1 queued records clean.
+- **The official Windows driver does the same** (Allen & Heath 2.9.91.0, its ASIO control panel,
+  DB4 at 48 kHz, USBPcap 2026-10-21, `captures/db4_windows_official/official_panel.pcap` with the
+  registry changes timestamped in `official_panel.log`). The panel's "USB buffer length" (ms) and
+  "Number of USB buffers" are `PerformanceMode_USB_LEN` / `_NUM` under
+  `HKLM\SYSTEM\CurrentControlSet\Services\XONE_DB4_USB\Parameters` ("Performance mode" is a
+  preset of the two; "Default ASIO buffer size" is `DefBufferSize`), written on Close:
+
+  | Panel | OUT transfer | OUT in flight | IN transfer | IN in flight |
+  |---|---|---|---|---|
+  | 5 ms x 4 | 12 x 964 B = 240 frames | 4 | 15 x 1024 B = 240 frames | 4 |
+  | 4 ms x 4 | 9 x 964 B = 180 frames | 4 | 12 x 1024 B = 192 frames | 4 |
+  | 3 ms x 3 | 7 x 964 B = 140 frames | 3 | 9 x 1024 B = 144 frames | 4 |
+  | 2 ms x 3 / x 2 | 4 x 964 B = 80 frames | 3 / 2 | 6 x 1024 B = 96 frames | 4 |
+  | 1 ms x 3 | 2 x 964 B = 40 frames | 3 | 3 x 1024 B = 48 frames | 4 |
+
+  The length is rounded down to whole packets each way (20 frames out, 16 in at 48 kHz); the
+  number of buffers sets only the OUT queue, IN always keeps 4. **Changes apply live**: no control
+  request, no restart, at most a 5 ms gap between OUT completions while the sizes switch (Ozzy
+  restarts the engine for each). Its smallest: 40 frames out x 2, 48 in x 4.
 - Ozzy offers only whole-packet sizes (`ozzy_pcm_step`, from the endpoints in the driver's info):
   the engine refuses the rest and rounds a kept value up at start.
 - **One transfer in flight ("no queue") works on Linux, not on macOS** (DB4, 2026-10-21).

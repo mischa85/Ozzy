@@ -131,6 +131,35 @@ IN/OUT pair (86,05,86,05,86,05,86, then GET_CUR 86), so the Windows build likely
 more of these paths. The exact count is not magic; it's the sum of code paths. Ozzy
 currently sends 2 (commit bbfa66d, which was based on an incomplete reading). See open_questions.md.
 
+## 5a. A rate change in the official Windows driver (captured)
+
+DB4 fw 1.4.1, Allen & Heath's Windows package 2.9.9.10 (driver 2.9.91.0, its ASIO driver doing
+the change), USBPcap, 2026-10-21; `captures/db4_windows_official/official_rate.pcap` (+ `.log`),
+three changes 48 -> 96 -> 44.1 -> 48 kHz driven by `tools/hwtest/asio_probe rate`. Every change
+went the same way (times from the last PCM completion before it):
+
+1. Streaming stops; the transfers drain. Then **~100 ms with no traffic at all**.
+2. **SET_CONFIGURATION 0** (unconfigure), GET_DESCRIPTOR (device), 'V' (firmware), the
+   configuration descriptors, **SET_CONFIGURATION 1**. No USB port reset: the device keeps
+   its address and doesn't re-enumerate.
+3. 50 ms, then the handshake: 'I' read, GET_CUR (EP 0), SET_CUR 86 / 05 / (GET_DESCRIPTOR) /
+   86 / 05 / 86 / 05 / 86 (the §5 pattern, 7 SET_CURs here), GET_CUR 86, 'I' read, 'I' write
+   0xFFB2. Not one stall.
+4. ~310 ms later: ABORT_PIPE + SYNC_RESET_PIPE_AND_CLEAR_STALL on 0x86, then on 0x05, and the
+   stream starts again. **~565 ms without audio** in all.
+
+So the official driver neither resets the port (Linux main's way, which the Xone:4D doesn't
+survive, #86) nor restarts straight after aborting (the engine's way, which the DB4 answers with
+stalls for ~100 ms: the handshake retry, 6feeec5): it waits, unconfigures and reconfigures the
+device, and only then talks to it. A candidate for the engine's restart and the 4D.
+
+The same package streams continuously from attach, also with no client: 4 transfers in flight
+each way, OUT 11568 bytes (12 x 964 = 240 frames), IN 8192 bytes (8 x 1024 = 128 frames), all
+whole packets (`official1.pcap`). A client starting or stopping sends no control request. Its
+ASIO driver reports buffer size 4096 frames only (min = max = preferred) and latencies of 484 in /
+1286 out frames at 48 kHz. The Windows Update package (2.9.96.6) has the same kernel drivers
+without the ASIO driver, so it can't change the rate: WDM-KS clients at another rate get silence.
+
 ## 6. The DB2 can't carry more than 48 kHz anyway
 
 Interrupt endpoints with bInterval 1 move one packet per 125 µs microframe:

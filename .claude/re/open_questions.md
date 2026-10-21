@@ -98,6 +98,8 @@ related to level metering or some control protocol. Has its own pipe assignment 
   the 4D drop the next control transfer (hence draining first). Not in `main`; #86 was closed
   with a request for a separate PR. Open: does the official driver ever reset the device on a
   rate change, or always stop/SET_CUR/restart (the start path in sample_rates.md §5 suggests the latter)?
+  **Answered for Windows (2026-10-21, ploytec_sample_rates.md §5a):** no port reset; it drains,
+  waits ~100 ms, sends SET_CONFIGURATION 0 then 1, and runs the handshake with its SET_CURs.
 - **Does Xone firmware ignore MIDI running status?** PR #80 (Reloop Digital Jockey 2 ME, 200c:1009,
   also a Ploytec bulk device) reports its firmware drops MIDI out messages that use running status,
   which ALSA's sequencer bridge emits by default: MIDI in worked, but no LED ever lit until the

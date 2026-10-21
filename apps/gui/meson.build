@@ -48,6 +48,9 @@ endif
 
 c_args = []
 link_args = []
+if os == 'linux' and not get_option('demo')
+	c_args += ['-D_GNU_SOURCE']   # realpath, alloca in backend_linux.c (the CLI builds it as gnu11)
+endif
 if os == 'windows'
 	c_args += ['-DUNICODE', '-D_UNICODE', '-D_CRT_SECURE_NO_WARNINGS', '-D_UI_STATIC']
 	# libui-ng linked in statically: the app carries the Common Controls 6 manifest itself

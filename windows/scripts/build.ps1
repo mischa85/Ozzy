@@ -111,8 +111,20 @@ if (-not (Test-Path $stamp) -or (Get-Content $stamp) -ne $wdkVersion) {
 # 3. The driver package (ozzy.vcxproj finds the WDK in windows\build\wdk\ itself)
 $log = Join-Path $build "build.log"
 Set-Content $log "" -Encoding utf8
+# git describe only where the checkout is Ozzy's own, not a repository the sources sit in; else
+# the commit git archive / a GitHub ZIP wrote into ozzy_version.txt (common/ozzy_version.h)
 if (-not $GitVersion -and (Get-Command git -ErrorAction SilentlyContinue)) {
-    $GitVersion = & { $ErrorActionPreference = "Continue"; git -C $repo describe --always --dirty 2>$null }
+    $top = & { $ErrorActionPreference = "Continue"; git -C $repo rev-parse --show-toplevel 2>$null }
+    if ($top -and [IO.Path]::GetFullPath($top).TrimEnd('\') -eq [IO.Path]::GetFullPath($repo).TrimEnd('\')) {
+        $GitVersion = & { $ErrorActionPreference = "Continue"; git -C $repo describe --always --dirty 2>$null }
+    }
+}
+if (-not $GitVersion) {
+    $versionFile = Join-Path $repo "common\ozzy_version.txt"
+    if (Test-Path $versionFile) {
+        $v = (Get-Content $versionFile -TotalCount 1).Trim()
+        if ($v -and $v -notmatch "Format") { $GitVersion = $v }
+    }
 }
 $props = @("/p:Configuration=Release", "/p:Platform=x64")
 if ($GitVersion) { $props += "/p:OzzyGitVersion=$GitVersion" }

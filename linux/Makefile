@@ -41,7 +41,15 @@ OZZY_DISABLE ?= TascamUS144 TascamUS144MKII
 ccflags-y += $(addprefix -DOZZY_DISABLE_,$(OZZY_DISABLE))
 
 # Commit the module is built from: logged at probe, shown by `modinfo -F version`
-OZZY_GIT_VERSION := $(shell git -C $(src) describe --always --dirty 2>/dev/null || echo unknown)
+# (common/ozzy_version.h). git describe only where the checkout is Ozzy's own, not a repository
+# the sources sit in; else the commit git archive / a GitHub ZIP wrote into ozzy_version.txt.
+OZZY_ROOT := $(src)/..
+OZZY_GIT_VERSION := $(shell \
+	if [ "$$(git -C "$(OZZY_ROOT)" rev-parse --show-toplevel 2>/dev/null)" = "$$(cd "$(OZZY_ROOT)" && pwd -P)" ]; then \
+		git -C "$(OZZY_ROOT)" describe --always --dirty; \
+	else \
+		grep -sv Format "$(OZZY_ROOT)/common/ozzy_version.txt" || echo unknown; \
+	fi)
 CFLAGS_core.o := -DOZZY_GIT_VERSION='"$(OZZY_GIT_VERSION)"'
 
 # A new device family is an engine (engine/devices/) and its common/ code: add their objects

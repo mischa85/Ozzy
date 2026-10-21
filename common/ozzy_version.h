@@ -2,10 +2,13 @@
 /*
  * Ozzy Build Version
  *
- * OZZY_GIT_VERSION is the commit the driver was built from (`git describe
- * --always --dirty`), passed in by the build: linux/Makefile and
- * macos/install.command. It is logged at startup so bug reports show which
- * code actually ran.
+ * OZZY_GIT_VERSION is the commit the driver was built from, passed in by the
+ * build (linux/Makefile, macos/install.command, windows/scripts/build.ps1 and
+ * windows/driver/ozzy.vcxproj): `git describe --always --dirty` in Ozzy's own
+ * checkout (not a repository the sources were unpacked into), else
+ * common/ozzy_version.txt, where git archive and GitHub's ZIP downloads write
+ * the commit (export-subst, .gitattributes), else "unknown". It is logged at
+ * startup so bug reports show which code actually ran.
  *
  * Copyright (C) 2024 Marcel Bierling <marcel@hackerman.art>
  */

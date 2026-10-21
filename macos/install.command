@@ -228,8 +228,16 @@ fi
 
 SDKROOT=$(xcrun --sdk macosx --show-sdk-path)
 
-# Commit we build from, logged by the kext and HAL at startup
-GIT_VERSION=$(git -C "$DIR" describe --always --dirty 2>/dev/null || echo unknown)
+# Commit we build from, logged by the kext and HAL at startup (common/ozzy_version.h): git
+# describe only where the checkout is Ozzy's own, not a repository the sources sit in; else the
+# commit git archive / a GitHub ZIP wrote into ozzy_version.txt
+ROOT="$(cd "$DIR/.." && pwd -P)"
+if [ "$(git -C "$ROOT" rev-parse --show-toplevel 2>/dev/null)" = "$ROOT" ]; then
+    GIT_VERSION=$(git -C "$ROOT" describe --always --dirty)
+else
+    GIT_VERSION=$(cat "$ROOT/common/ozzy_version.txt" 2>/dev/null)
+    case "$GIT_VERSION" in ''|*Format*) GIT_VERSION=unknown ;; esac
+fi
 echo "   🏷️  Build: $GIT_VERSION"
 KERNEL_HEADERS="$SDKROOT/System/Library/Frameworks/Kernel.framework/Headers"
 

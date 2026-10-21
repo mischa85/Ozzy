@@ -1,0 +1,2 @@
+# git archive and GitHub's ZIP downloads write the commit into it (common/ozzy_version.h)
+common/ozzy_version.txt export-subst

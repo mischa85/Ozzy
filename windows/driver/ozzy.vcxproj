@@ -114,16 +114,33 @@
   <ImportGroup Condition="'$(OzzyWdkNuGet)' == 'true'">
     <Import Project="$(OzzyWdkDir)Microsoft.Windows.SDK.CPP\build\native\Microsoft.Windows.SDK.cpp.targets" />
   </ImportGroup>
-  <!-- The commit for the driver's record and log (common/ozzy_version.h): git describe, or
-       /p:OzzyGitVersion=... (a build from a copy without .git says "unknown") -->
+  <!-- The commit for the driver's record and log (common/ozzy_version.h), or
+       /p:OzzyGitVersion=...: git describe only where the checkout is Ozzy's own, not a repository
+       the sources sit in; else the commit git archive / a GitHub ZIP wrote into
+       common/ozzy_version.txt; else "unknown" -->
   <Target Name="OzzyGitVersion" BeforeTargets="ClCompile">
-    <Exec Command="git -C &quot;$(MSBuildThisFileDirectory)..&quot; describe --always --dirty" Condition="'$(OzzyGitVersion)' == ''"
+    <PropertyGroup>
+      <OzzyRoot>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\..'))</OzzyRoot>
+    </PropertyGroup>
+    <Exec Command="git -C &quot;$(OzzyRoot)&quot; rev-parse --show-toplevel" Condition="'$(OzzyGitVersion)' == ''"
+          ConsoleToMSBuild="true" IgnoreExitCode="true" StandardOutputImportance="low" StandardErrorImportance="low" EchoOff="true">
+      <Output TaskParameter="ConsoleOutput" PropertyName="OzzyGitTop" />
+      <Output TaskParameter="ExitCode" PropertyName="OzzyGitExit" />
+    </Exec>
+    <PropertyGroup>
+      <OzzyOwnCheckout Condition="'$(OzzyGitExit)' == '0' and '$(OzzyGitTop)' != '' and
+                                  '$([System.IO.Path]::GetFullPath($(OzzyGitTop)).TrimEnd(`\`))' == '$(OzzyRoot.TrimEnd(`\`))'">true</OzzyOwnCheckout>
+    </PropertyGroup>
+    <Exec Command="git -C &quot;$(OzzyRoot)&quot; describe --always --dirty" Condition="'$(OzzyGitVersion)' == '' and '$(OzzyOwnCheckout)' == 'true'"
           ConsoleToMSBuild="true" IgnoreExitCode="true" StandardOutputImportance="low" StandardErrorImportance="low" EchoOff="true">
       <Output TaskParameter="ConsoleOutput" PropertyName="OzzyGitVersion" />
       <Output TaskParameter="ExitCode" PropertyName="OzzyGitExit" />
     </Exec>
     <PropertyGroup>
-      <OzzyGitVersion Condition="'$(OzzyGitExit)' != '' and '$(OzzyGitExit)' != '0'"></OzzyGitVersion>
+      <OzzyGitVersion Condition="'$(OzzyOwnCheckout)' == 'true' and '$(OzzyGitExit)' != '0'"></OzzyGitVersion>
+      <OzzyVersionFile>$(OzzyRoot)\common\ozzy_version.txt</OzzyVersionFile>
+      <OzzyGitVersion Condition="'$(OzzyGitVersion)' == '' and Exists('$(OzzyVersionFile)')">$([System.IO.File]::ReadAllText('$(OzzyVersionFile)').Trim())</OzzyGitVersion>
+      <OzzyGitVersion Condition="$(OzzyGitVersion.Contains('Format'))"></OzzyGitVersion>
     </PropertyGroup>
     <!-- A header the compiler force-includes: a quoted string doesn't survive PreprocessorDefinitions -->
     <MakeDir Directories="$(IntDir)" />

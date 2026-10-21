@@ -29,6 +29,10 @@
 #define OZZY_PROPERTY_SETTING 'ozst'
 #define OZZY_PROPERTY_INFO 'ozin'
 #define OZZY_PROPERTY_STATS 'ozss'
+#define OZZY_PROPERTY_CLIENTS 'ozcl'
+
+/* libproc.h's, declared here: the header brings sys/socket.h's listen() */
+int proc_name(int pid, void *buffer, uint32_t buffersize);
 /* kAudioDevicePropertyZeroTimeStampPeriod, which only AudioServerPlugIn.h names */
 #define ZERO_TIMESTAMP_PERIOD 'ring'
 
@@ -163,6 +167,108 @@ static void read_info(AudioObjectID dev, struct ozzy_control_device *out)
 }
 
 /* What CoreAudio has of the device */
+/*
+ * Whether process @pid does IO on @dev in that direction, from CoreAudio's process objects
+ * (macOS 14 and later): 1 yes, 0 no, -1 if CoreAudio doesn't say
+ */
+static int process_uses(AudioObjectID dev, pid_t pid, bool output)
+{
+	AudioObjectPropertyAddress a = addr(kAudioHardwarePropertyTranslatePIDToProcessObject, kAudioObjectPropertyScopeGlobal);
+	AudioObjectID proc = kAudioObjectUnknown, devs[16];
+	UInt32 sz = sizeof(proc), i, n;
+
+	if (AudioObjectGetPropertyData(kAudioObjectSystemObject, &a, sizeof(pid), &pid, &sz, &proc) != noErr ||
+	    proc == kAudioObjectUnknown)
+		return -1;
+	if (!get_u32(proc, output ? kAudioProcessPropertyIsRunningOutput : kAudioProcessPropertyIsRunningInput,
+		     kAudioObjectPropertyScopeGlobal))
+		return 0;
+	a = addr(kAudioProcessPropertyDevices, output ? kAudioObjectPropertyScopeOutput : kAudioObjectPropertyScopeInput);
+	sz = sizeof(devs);
+	if (AudioObjectGetPropertyData(proc, &a, 0, NULL, &sz, devs) != noErr)
+		return -1;
+	n = sz / sizeof(devs[0]);
+	for (i = 0; i < n; i++)
+		if (devs[i] == dev)
+			return 1;
+	return 0;
+}
+
+/* ", " and @name (pid @pid) onto @list */
+static void add_client(char *list, size_t size, unsigned int *count, const char *name, pid_t pid)
+{
+	size_t len = strlen(list);
+
+	snprintf(list + len, size - len, "%s%s (pid %d)", len ? ", " : "", name, (int)pid);
+	(*count)++;
+}
+
+/* How CoreAudio serves the clients in @list: it mixes them, unless one has the device to itself */
+static void finish_clients(char *list, size_t size, unsigned int count, bool hog)
+{
+	size_t len = strlen(list);
+
+	if (count)
+		snprintf(list + len, size - len, "%s", hog ? ", exclusive (hog mode)" :
+			 count > 1 ? ", mixed by CoreAudio" : ", CoreAudio");
+}
+
+/* The clients doing IO (OzzyHAL's OZZY_PROPERTY_CLIENTS), each way when CoreAudio says which */
+static void read_clients(AudioObjectID dev, struct ozzy_control_host *h)
+{
+	AudioObjectPropertyAddress a = addr(OZZY_PROPERTY_CLIENTS, kAudioObjectPropertyScopeGlobal);
+	AudioObjectPropertyAddress ha = addr(kAudioDevicePropertyHogMode, kAudioObjectPropertyScopeGlobal);
+	unsigned int count[2] = { 0, 0 }, undirected = 0;
+	bool hog_dir[2] = { false, false }, hog_any = false;
+	CFArrayRef clients = NULL;
+	UInt32 sz = sizeof(clients);
+	pid_t hog = -1;
+	CFIndex i;
+
+	if (!AudioObjectHasProperty(dev, &a) || AudioObjectGetPropertyData(dev, &a, 0, NULL, &sz, &clients) != noErr ||
+	    !clients)
+		return;
+	sz = sizeof(hog);
+	if (AudioObjectGetPropertyData(dev, &ha, 0, NULL, &sz, &hog) != noErr)
+		hog = -1;
+	for (i = 0; CFGetTypeID(clients) == CFArrayGetTypeID() && i < CFArrayGetCount(clients); i++) {
+		CFDictionaryRef c = CFArrayGetValueAtIndex(clients, i);
+		CFNumberRef number;
+		CFStringRef bundle;
+		char name[128] = "";
+		SInt32 pid = -1;
+		int dir, uses[2];
+
+		if (CFGetTypeID(c) != CFDictionaryGetTypeID())
+			continue;
+		number = CFDictionaryGetValue(c, CFSTR("pid"));
+		if (number)
+			CFNumberGetValue(number, kCFNumberSInt32Type, &pid);
+		if (pid <= 0 || proc_name(pid, name, sizeof(name)) <= 0) {
+			bundle = CFDictionaryGetValue(c, CFSTR("bundle"));
+			if (!bundle || !CFStringGetCString(bundle, name, sizeof(name), kCFStringEncodingUTF8))
+				snprintf(name, sizeof(name), "a client");
+		}
+		uses[0] = pid > 0 ? process_uses(dev, pid, true) : -1;
+		uses[1] = pid > 0 ? process_uses(dev, pid, false) : -1;
+		if (uses[0] < 0 || uses[1] < 0) {
+			add_client(h->clients, sizeof(h->clients), &undirected, name, pid);
+			hog_any |= pid == hog;
+			continue;
+		}
+		for (dir = 0; dir < 2; dir++) {
+			if (!uses[dir])
+				continue;
+			add_client(h->client[dir], sizeof(h->client[dir]), &count[dir], name, pid);
+			hog_dir[dir] |= pid == hog;
+		}
+	}
+	CFRelease(clients);
+	finish_clients(h->client[0], sizeof(h->client[0]), count[0], hog_dir[0]);
+	finish_clients(h->client[1], sizeof(h->client[1]), count[1], hog_dir[1]);
+	finish_clients(h->clients, sizeof(h->clients), undirected, hog_any);
+}
+
 static void read_host(AudioObjectID dev, struct ozzy_control_device *out)
 {
 	struct ozzy_control_host *h = &out->host;
@@ -176,6 +282,7 @@ static void read_host(AudioObjectID dev, struct ozzy_control_device *out)
 	h->safety_offset[1] = get_u32(dev, kAudioDevicePropertySafetyOffset, kAudioObjectPropertyScopeInput);
 	h->timestamp_period = get_u32(dev, ZERO_TIMESTAMP_PERIOD, kAudioObjectPropertyScopeGlobal);
 	snprintf(h->format, sizeof(h->format), "32-bit float, 24-bit on the device");
+	read_clients(dev, h);
 }
 
 int ozzy_control_backend_list(struct ozzy_control_device *devs, int max)
@@ -275,6 +382,7 @@ static const AudioObjectPropertySelector device_props[] = {
 	OZZY_PROPERTY_SETTING,
 	OZZY_PROPERTY_INFO,
 	OZZY_PROPERTY_STATS,
+	OZZY_PROPERTY_CLIENTS,
 	kAudioDevicePropertyNominalSampleRate,
 	kAudioDevicePropertyBufferFrameSize,
 	kAudioDevicePropertyDeviceIsRunningSomewhere,

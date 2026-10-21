@@ -555,6 +555,8 @@ bool OzzyHALDevice::UpdateConnectionState(AudioServerPlugInHostRef host) {
         mIOStarted = false;
         mTimestampSeed++;
         LogOzzyHAL("device %{public}u: auto-stopped I/O due to disconnect", mSlot);
+        std::lock_guard<std::mutex> lock(mClientLock);
+        for (int k = 0; k < mClientCount; k++) mClients[k].io = false;
     }
 
     mConnected = currentlyConnected;
@@ -563,7 +565,108 @@ bool OzzyHALDevice::UpdateConnectionState(AudioServerPlugInHostRef host) {
     return true;
 }
 
-kern_return_t OzzyHALDevice::StartIO() {
+void OzzyHALDevice::AddClient(const AudioServerPlugInClientInfo* info) {
+    if (!info) return;
+    std::lock_guard<std::mutex> lock(mClientLock);
+    for (int i = 0; i < mClientCount; i++)
+        if (mClients[i].id == info->mClientID) return;
+    if (mClientCount == kMaxClients) return;
+    Client* c = &mClients[mClientCount++];
+    memset(c, 0, sizeof(*c));
+    c->id = info->mClientID;
+    c->pid = info->mProcessID;
+    if (!info->mBundleID || !CFStringGetCString(info->mBundleID, c->bundle, sizeof(c->bundle), kCFStringEncodingUTF8))
+        c->bundle[0] = 0;
+}
+
+void OzzyHALDevice::RemoveClient(UInt32 clientID) {
+    std::lock_guard<std::mutex> lock(mClientLock);
+    for (int i = 0; i < mClientCount; i++) {
+        if (mClients[i].id != clientID) continue;
+        mClients[i] = mClients[--mClientCount];
+        return;
+    }
+}
+
+void OzzyHALDevice::NotifyClients(AudioServerPlugInHostRef host) {
+    if (!host) return;
+    AudioObjectPropertyAddress a = { OZZY_PROPERTY_CLIENTS, kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMain };
+    host->PropertiesChanged(host, GetDeviceID(), 1, &a);
+}
+
+/* A client starts IO; the device's IO starts with the first */
+kern_return_t OzzyHALDevice::StartIO(AudioServerPlugInHostRef host, UInt32 clientID) {
+    bool first = false;
+    {
+        std::lock_guard<std::mutex> lock(mClientLock);
+        int i, running = 0;
+        for (i = 0; i < mClientCount && mClients[i].id != clientID; i++) {}
+        if (i == mClientCount && mClientCount < kMaxClients) {
+            memset(&mClients[i], 0, sizeof(mClients[i]));   /* one the host didn't announce */
+            mClients[i].id = clientID;
+            mClients[i].pid = -1;
+            mClientCount++;
+        }
+        for (int k = 0; k < mClientCount; k++) running += mClients[k].io;
+        if (i < mClientCount) {
+            if (mClients[i].io) return kIOReturnSuccess;
+            mClients[i].io = true;
+        }
+        first = running == 0;
+    }
+    kern_return_t result = first ? StartDeviceIO() : kIOReturnSuccess;
+    if (result != kIOReturnSuccess) {
+        std::lock_guard<std::mutex> lock(mClientLock);
+        for (int k = 0; k < mClientCount; k++)
+            if (mClients[k].id == clientID) mClients[k].io = false;
+        return result;
+    }
+    NotifyClients(host);
+    return result;
+}
+
+/* A client stops IO; the device's IO stops with the last */
+kern_return_t OzzyHALDevice::StopIO(AudioServerPlugInHostRef host, UInt32 clientID) {
+    bool last = false, was = false;
+    {
+        std::lock_guard<std::mutex> lock(mClientLock);
+        int running = 0;
+        for (int k = 0; k < mClientCount; k++) {
+            if (mClients[k].id == clientID && mClients[k].io) {
+                mClients[k].io = false;
+                was = true;
+            }
+            running += mClients[k].io;
+        }
+        last = was && running == 0;
+    }
+    if (last) StopDeviceIO();
+    if (was) NotifyClients(host);
+    return kIOReturnSuccess;
+}
+
+CFArrayRef OzzyHALDevice::CopyClientsArray() const {
+    CFMutableArrayRef array = CFArrayCreateMutable(NULL, 0, &kCFTypeArrayCallBacks);
+    std::lock_guard<std::mutex> lock(mClientLock);
+    for (int i = 0; array && i < mClientCount; i++) {
+        if (!mClients[i].io) continue;
+        CFMutableDictionaryRef dict = CFDictionaryCreateMutable(NULL, 2, &kCFTypeDictionaryKeyCallBacks,
+                                                                &kCFTypeDictionaryValueCallBacks);
+        if (!dict) continue;
+        SInt32 pid = mClients[i].pid;
+        CFNumberRef number = CFNumberCreate(NULL, kCFNumberSInt32Type, &pid);
+        if (number) { CFDictionarySetValue(dict, CFSTR("pid"), number); CFRelease(number); }
+        if (mClients[i].bundle[0]) {
+            CFStringRef bundle = CFStringCreateWithCString(NULL, mClients[i].bundle, kCFStringEncodingUTF8);
+            if (bundle) { CFDictionarySetValue(dict, CFSTR("bundle"), bundle); CFRelease(bundle); }
+        }
+        CFArrayAppendValue(array, dict);
+        CFRelease(dict);
+    }
+    return array;
+}
+
+kern_return_t OzzyHALDevice::StartDeviceIO() {
     if (!mConnected) return kAudioHardwareNotRunningError;
     ozzy_shared_memory* shm = AcquireSHM();
     if (shm) shm->audio.hal_write_position.store(0, std::memory_order_relaxed);
@@ -574,12 +677,11 @@ kern_return_t OzzyHALDevice::StartIO() {
     return kIOReturnSuccess;
 }
 
-kern_return_t OzzyHALDevice::StopIO() {
+void OzzyHALDevice::StopDeviceIO() {
     LogOzzyHAL("device %{public}u: stop I/O", mSlot);
     mIOStarted = false;
     mTimestampSeed++;
     ClearOutputBuffer();
-    return kIOReturnSuccess;
 }
 
 HRESULT OzzyHALDevice::GetZeroTimeStamp(Float64* outSampleTime, UInt64* outHostTime, UInt64* outSeed) {
@@ -840,8 +942,16 @@ extern "C" HRESULT OzzyInitialize(AudioServerPlugInDriverRef, AudioServerPlugInH
 
 extern "C" HRESULT OzzyCreateDevice(AudioServerPlugInDriverRef, CFDictionaryRef, const AudioServerPlugInClientInfo*, AudioObjectID*) { return kAudioHardwareNoError; }
 extern "C" HRESULT OzzyDestroyDevice(AudioServerPlugInDriverRef, AudioObjectID) { return kAudioHardwareNoError; }
-extern "C" HRESULT OzzyAddDeviceClient(AudioServerPlugInDriverRef, AudioObjectID, const AudioServerPlugInClientInfo*) { return kAudioHardwareNoError; }
-extern "C" HRESULT OzzyRemoveDeviceClient(AudioServerPlugInDriverRef, AudioObjectID, const AudioServerPlugInClientInfo*) { return kAudioHardwareNoError; }
+extern "C" HRESULT OzzyAddDeviceClient(AudioServerPlugInDriverRef, AudioObjectID inDeviceObjectID, const AudioServerPlugInClientInfo* inClientInfo) {
+    OzzyHALDevice* dev = OzzyHAL::Get().DeviceForObject(inDeviceObjectID);
+    if (dev) dev->AddClient(inClientInfo);
+    return kAudioHardwareNoError;
+}
+extern "C" HRESULT OzzyRemoveDeviceClient(AudioServerPlugInDriverRef, AudioObjectID inDeviceObjectID, const AudioServerPlugInClientInfo* inClientInfo) {
+    OzzyHALDevice* dev = OzzyHAL::Get().DeviceForObject(inDeviceObjectID);
+    if (dev && inClientInfo) dev->RemoveClient(inClientInfo->mClientID);
+    return kAudioHardwareNoError;
+}
 extern "C" HRESULT OzzyPerformDeviceConfigurationChange(AudioServerPlugInDriverRef, AudioObjectID inDeviceObjectID, UInt64 inChangeAction, void*) {
     OzzyHALDevice* dev = OzzyHAL::Get().DeviceForObject(inDeviceObjectID);
     return dev ? dev->PerformConfigurationChange(OzzyHAL::Get().GetHost(), inChangeAction) : kAudioHardwareBadObjectError;
@@ -887,7 +997,8 @@ extern "C" Boolean OzzyHasProperty(AudioServerPlugInDriverRef, AudioObjectID inO
             case kAudioDevicePropertySafetyOffset: case kAudioDevicePropertyPreferredChannelLayout:
             case kAudioDevicePropertyZeroTimeStampPeriod: case kAudioDevicePropertyClockDomain: return true;
             case OZZY_PROPERTY_SETTING: return dev->HasSettings();
-            case OZZY_PROPERTY_INFO: case OZZY_PROPERTY_STATS: case kAudioObjectPropertyCustomPropertyInfoList: return true;
+            case OZZY_PROPERTY_INFO: case OZZY_PROPERTY_STATS: case OZZY_PROPERTY_CLIENTS:
+            case kAudioObjectPropertyCustomPropertyInfoList: return true;
         }
         return false;
     }
@@ -975,7 +1086,8 @@ extern "C" HRESULT OzzyGetPropertyDataSize(AudioServerPlugInDriverRef, AudioObje
             case OZZY_PROPERTY_SETTING:
                 if (!dev->HasSettings()) return kAudioHardwareUnknownPropertyError;
                 *outDataSize = sizeof(CFPropertyListRef); return kAudioHardwareNoError;
-            case OZZY_PROPERTY_INFO: case OZZY_PROPERTY_STATS: *outDataSize = sizeof(CFPropertyListRef); return kAudioHardwareNoError;
+            case OZZY_PROPERTY_INFO: case OZZY_PROPERTY_STATS: case OZZY_PROPERTY_CLIENTS:
+                *outDataSize = sizeof(CFPropertyListRef); return kAudioHardwareNoError;
             case kAudioObjectPropertyCustomPropertyInfoList:
                 *outDataSize = dev->CustomPropertyCount() * sizeof(AudioServerPlugInCustomPropertyInfo);
                 return kAudioHardwareNoError;
@@ -1118,16 +1230,23 @@ extern "C" HRESULT OzzyGetPropertyData(AudioServerPlugInDriverRef, AudioObjectID
                 if (outSize) *outSize = sizeof(CFPropertyListRef);
                 return kAudioHardwareNoError;
             }
+            case OZZY_PROPERTY_CLIENTS: {
+                if (outData && inMax < sizeof(CFPropertyListRef)) return kAudioHardwareBadPropertySizeError;
+                if (outData) *(CFPropertyListRef*)outData = dev->CopyClientsArray();   // the caller releases it
+                if (outSize) *outSize = sizeof(CFPropertyListRef);
+                return kAudioHardwareNoError;
+            }
             case kAudioObjectPropertyCustomPropertyInfoList: {
-                // OZZY_PROPERTY_INFO, OZZY_PROPERTY_STATS, and OZZY_PROPERTY_SETTING with
-                // settings: property list data (CFData is one), no qualifier
+                // OZZY_PROPERTY_INFO, OZZY_PROPERTY_STATS, OZZY_PROPERTY_CLIENTS, and
+                // OZZY_PROPERTY_SETTING with settings: property list data, no qualifier
                 UInt32 count = dev->CustomPropertyCount();
                 UInt32 size = count * sizeof(AudioServerPlugInCustomPropertyInfo);
                 if (outData && inMax < size) return kAudioHardwareBadPropertySizeError;
                 if (outData) {
                     AudioServerPlugInCustomPropertyInfo* info = (AudioServerPlugInCustomPropertyInfo*)outData;
                     for (UInt32 i = 0; i < count; i++) {
-                        info[i].mSelector = i == 0 ? OZZY_PROPERTY_INFO : i == 1 ? OZZY_PROPERTY_STATS : OZZY_PROPERTY_SETTING;
+                        info[i].mSelector = i == 0 ? OZZY_PROPERTY_INFO : i == 1 ? OZZY_PROPERTY_STATS :
+                                            i == 2 ? OZZY_PROPERTY_CLIENTS : OZZY_PROPERTY_SETTING;
                         info[i].mPropertyDataType = kAudioServerPlugInCustomPropertyDataTypeCFPropertyList;
                         info[i].mQualifierDataType = kAudioServerPlugInCustomPropertyDataTypeNone;
                     }
@@ -1186,13 +1305,13 @@ extern "C" HRESULT OzzySetPropertyData(AudioServerPlugInDriverRef, AudioObjectID
     }
     return kAudioHardwareUnsupportedOperationError;
 }
-extern "C" HRESULT OzzyStartIO(AudioServerPlugInDriverRef, AudioObjectID inDeviceObjectID, UInt32) {
+extern "C" HRESULT OzzyStartIO(AudioServerPlugInDriverRef, AudioObjectID inDeviceObjectID, UInt32 inClientID) {
     OzzyHALDevice* dev = OzzyHAL::Get().DeviceForObject(inDeviceObjectID);
-    return dev ? dev->StartIO() : kAudioHardwareBadObjectError;
+    return dev ? dev->StartIO(OzzyHAL::Get().GetHost(), inClientID) : kAudioHardwareBadObjectError;
 }
-extern "C" HRESULT OzzyStopIO(AudioServerPlugInDriverRef, AudioObjectID inDeviceObjectID, UInt32) {
+extern "C" HRESULT OzzyStopIO(AudioServerPlugInDriverRef, AudioObjectID inDeviceObjectID, UInt32 inClientID) {
     OzzyHALDevice* dev = OzzyHAL::Get().DeviceForObject(inDeviceObjectID);
-    return dev ? dev->StopIO() : kAudioHardwareBadObjectError;
+    return dev ? dev->StopIO(OzzyHAL::Get().GetHost(), inClientID) : kAudioHardwareBadObjectError;
 }
 extern "C" HRESULT OzzyGetZeroTimeStamp(AudioServerPlugInDriverRef, AudioObjectID inDeviceObjectID, UInt32, Float64* outSampleTime, UInt64* outHostTime, UInt64* outSeed) {
     OzzyHALDevice* dev = OzzyHAL::Get().DeviceForObject(inDeviceObjectID);

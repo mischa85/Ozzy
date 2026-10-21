@@ -436,6 +436,8 @@ int ozzy_control_facts(const struct ozzy_control_device *dev, struct ozzy_contro
 		fact(&f, "Playing", "%s", h->client[0]);
 	if (h->client[1][0])
 		fact(&f, "Recording", "%s", h->client[1]);
+	if (h->clients[0])
+		fact(&f, "Clients", "%s", h->clients);
 	if (h->format[0])
 		fact(&f, "Format", "%s", h->format);
 	if (h->buffer_frames)

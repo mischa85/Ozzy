@@ -48,8 +48,14 @@ public:
     // CoreAudio state
     bool IsConnected() const { return mConnected; }
     bool IsRunning() const { return mIOStarted; }
-    kern_return_t StartIO();
-    kern_return_t StopIO();
+    // Clients (AddDeviceClient / RemoveDeviceClient) and their IO: StartIO and StopIO come per
+    // client, and the device runs IO while at least one client has started it
+    void AddClient(const AudioServerPlugInClientInfo* info);
+    void RemoveClient(UInt32 clientID);
+    kern_return_t StartIO(AudioServerPlugInHostRef host, UInt32 clientID);
+    kern_return_t StopIO(AudioServerPlugInHostRef host, UInt32 clientID);
+    // OZZY_PROPERTY_CLIENTS's data: a new CFArray of the clients doing IO
+    CFArrayRef CopyClientsArray() const;
     HRESULT GetZeroTimeStamp(Float64* outSampleTime, UInt64* outHostTime, UInt64* outSeed);
     OSStatus ioOperation(UInt32 inOperationID, UInt32 inIOBufferFrameSize, const AudioServerPlugInIOCycleInfo* inIOCycleInfo, void* ioMainBuffer);
 
@@ -100,7 +106,7 @@ public:
     bool StatsChanged();
     // The custom properties the device has (kAudioObjectPropertyCustomPropertyInfoList): the
     // info, the stats, and the settings if it has any
-    UInt32 CustomPropertyCount() const { return HasSettings() ? 3 : 2; }
+    UInt32 CustomPropertyCount() const { return HasSettings() ? 4 : 3; }
     OSStatus SetSettingsDictionary(AudioServerPlugInHostRef host, CFDictionaryRef dict);
     // CoreAudio stopped IO for a setting or rate change: send it to the kext, re-read the
     // format, keep it
@@ -155,6 +161,20 @@ private:
 
     bool mConnected = false;     // published to CoreAudio
     bool mIOStarted = false;
+
+    struct Client {
+        UInt32 id;
+        pid_t pid;
+        char bundle[128];
+        bool io;                 // started IO
+    };
+    static constexpr int kMaxClients = 64;
+    Client mClients[kMaxClients] = {};
+    int mClientCount = 0;
+    mutable std::mutex mClientLock;
+    kern_return_t StartDeviceIO();
+    void StopDeviceIO();
+    void NotifyClients(AudioServerPlugInHostRef host);
     uint32_t mTimestampSeed = 1;
 
     // Kext connection. The monitor thread maps and unmaps; CoreAudio's threads use the

@@ -71,6 +71,13 @@ typedef std::atomic<bool>     ozzy_atomic_bool;
  * it. Notified when its incident counters move.
  */
 #define OZZY_PROPERTY_STATS             'ozss'
+/*
+ * OzzyHAL device property with the clients doing IO on the device: a custom property, get only:
+ * CFArray of CFDictionary, each "pid" (CFNumber) and "bundle" (CFString, may be absent), as
+ * CoreAudio told the plug-in of them (AddDeviceClient); the caller releases it. Notified when a
+ * client starts or stops IO.
+ */
+#define OZZY_PROPERTY_CLIENTS           'ozcl'
 #define OZZY_AUDIO_PROPERTY_KEY         "OzzyAudio"  /* registry: true if the device has audio channels */
 
 /* Each PCM ring's bytes (struct ozzy_audio_buffer): the device's transfers end to end */

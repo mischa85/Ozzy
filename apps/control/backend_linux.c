@@ -4,7 +4,8 @@
  * control named after ozzy_setting_descs[].name (linux/controls.c), the digital lock is
  * "S/PDIF Clock Validity". The channel counts come from the device table, through the card's
  * USB IDs in sysfs; the driver's record (struct ozzy_info) from the bytes control "Ozzy Info";
- * the rate, period, buffer and format from /proc/asound while a stream is open. Changes come from ALSA
+ * the rate, period, buffer and format from /proc/asound while a stream is open, and who has it
+ * open (a sound server or an app on ALSA itself). Changes come from ALSA
  * control events on each card (a setting a client set, the clock lock after each handshake) and
  * inotify on /dev/snd (cards coming and going), on one thread waiting in poll().
  *
@@ -61,8 +62,49 @@ static const struct ozzy_device *card_model(int card)
 	return (vid < 0 || pid < 0) ? NULL : ozzy_device_lookup((uint16_t)vid, (uint16_t)pid);
 }
 
+/*
+ * Who has the stream of card @card in @dir ("pcm0p", "pcm0c") open, into @out: ALSA's owner_pid
+ * in its status, and that process's name. A sound server (PipeWire, PulseAudio, JACK) mixes the
+ * apps; anything else is one app on the device itself. Empty while closed.
+ */
+static void stream_client(int card, const char *dir, char *out, size_t size)
+{
+	static const struct { const char *comm; const char *name; } servers[] = {
+		{ "pipewire", "PipeWire" }, { "pulseaudio", "PulseAudio" }, { "jackd", "JACK" }, { "jackdbus", "JACK" },
+	};
+	char path[96], line[128], comm[64] = "";
+	unsigned int pid = 0, i;
+	FILE *f;
+
+	out[0] = 0;
+	snprintf(path, sizeof(path), "/proc/asound/card%d/%s/sub0/status", card, dir);
+	f = fopen(path, "r");
+	if (!f)
+		return;
+	while (fgets(line, sizeof(line), f))
+		sscanf(line, "owner_pid : %u", &pid);
+	fclose(f);
+	if (!pid)
+		return;   /* "closed" */
+	snprintf(path, sizeof(path), "/proc/%u/comm", pid);
+	f = fopen(path, "r");
+	if (f) {
+		if (fgets(comm, sizeof(comm), f))
+			comm[strcspn(comm, "\n")] = 0;
+		fclose(f);
+	}
+	for (i = 0; i < sizeof(servers) / sizeof(servers[0]); i++)
+		if (!strcmp(comm, servers[i].comm))
+			break;
+	if (i < sizeof(servers) / sizeof(servers[0]))
+		snprintf(out, size, "%s (pid %u), mixing the apps", servers[i].name, pid);
+	else
+		snprintf(out, size, "%s (pid %u), ALSA directly", comm[0] ? comm : "an app", pid);
+}
+
 /* An open stream of card @card (playback, else capture): its rate into @rate (else 0), its
- * period, buffer and format into @h ("closed" in hw_params: none open) */
+ * period, buffer and format into @h ("closed" in hw_params: none open), and who has each
+ * direction open */
 static void card_stream(int card, uint32_t *rate, struct ozzy_control_host *h)
 {
 	static const char *const dirs[] = { "pcm0p", "pcm0c" };
@@ -90,6 +132,8 @@ static void card_stream(int card, uint32_t *rate, struct ozzy_control_host *h)
 		fclose(f);
 	}
 	h->running = *rate != 0;
+	for (i = 0; i < 2; i++)
+		stream_client(card, dirs[i], h->client[i], sizeof(h->client[i]));
 }
 
 /* The bytes of card control @name into @out, at most @size; how many, or 0 if it has none */

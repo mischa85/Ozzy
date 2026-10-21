@@ -37,6 +37,7 @@
  * @format:        the stream format as the OS names it ("S24_3LE")
  * @client:        who streams each way and how, as the backend names it ("python.exe (pid 17452),
  *                 WASAPI exclusive"); empty where nothing streams or the platform doesn't say
+ * @clients:       the same for clients whose direction the platform doesn't tell (macOS before 14)
  */
 struct ozzy_control_host {
 	char driver[32];
@@ -48,6 +49,7 @@ struct ozzy_control_host {
 	uint32_t timestamp_period;
 	char format[64];
 	char client[2][96];
+	char clients[128];
 };
 
 /*

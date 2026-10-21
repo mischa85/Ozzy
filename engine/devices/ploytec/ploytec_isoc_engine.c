@@ -104,6 +104,7 @@ static bool isoc_start(struct ozzy_engine *e)
 	/* 0. The in transfer size for this run (a change takes a restart), laid out in its ring */
 	pe->in_frames = ozzy_pcm_frames(true, e->settings.value[OZZY_SETTING_PCM_IN_FRAMES]);
 	pe->in_queue = ozzy_pcm_queue(e->settings.value[OZZY_SETTING_PCM_IN_QUEUE]);
+	e->settings.value[OZZY_SETTING_PCM_IN_QUEUE] = (uint8_t)(pe->in_queue - 1);   /* one runs as two */
 	in_places = ozzy_engine_pcm_layout(e, OZZY_PCM_IN, ploytec_in_xfer_bytes(pe->in_frames));
 	if (!in_places) {
 		ploytec_log("isoc: PCM in transfers of %u frames don't fit", pe->in_frames);

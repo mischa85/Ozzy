@@ -9,7 +9,7 @@
  * transfer the ring is encoded into (the ones queued at start are silence: 4 transfers' worth,
  * so it starts later at larger sizes); input decodes to the same ring; the safety offsets
  * follow the sizes; the clock anchors on a whole number of transfers near 3200 frames. Then
- * the queues (OZZY_SETTING_PCM_OUT_QUEUE / _IN_QUEUE), 1 to 4 transfers in flight at the
+ * the queues (OZZY_SETTING_PCM_OUT_QUEUE / _IN_QUEUE), 2 to 4 transfers in flight at the
  * smallest sizes: the same stream, safety offsets of queue x frames.
  *
  * Copyright (C) 2024 Marcel Bierling <marcel@hackerman.art>
@@ -209,8 +209,9 @@ static void compare(const char *name, uint16_t vid, uint16_t pid, uint16_t out_m
 		      name, ozzy_io_buffer_frames(v), got.anchor_frames, (unsigned long long)got.anchor);
 	}
 	run_io_buffer = -1;
-	/* The queues at the smallest sizes: one packet out (10 or 20 frames), 8 in */
-	for (v = 0; v < OZZY_NUM_PCM_QUEUES; v++) {
+	/* The queues at the smallest sizes: one packet out (10 or 20 frames), 8 in (one in flight
+	 * isn't offered) */
+	for (v = OZZY_PCM_QUEUE_MIN; v < OZZY_NUM_PCM_QUEUES; v++) {
 		uint32_t q = ozzy_pcm_queue(v);
 
 		run(vid, pid, out_max_packet, small, 0, v, &got);

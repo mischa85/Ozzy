@@ -98,12 +98,14 @@ enum ozzy_spdif_out_mode {
 
 /*
  * OZZY_SETTING_PCM_OUT_QUEUE / _IN_QUEUE values: how many PCM transfers the driver keeps in
- * flight, value + 1 (1-4). With the transfer size it is the latency on USB: queue x frames. The
- * device paces the stream itself (it refuses OUT packets until it has room), so its own buffer
- * covers the gap while the next transfer is being submitted; one in flight with 20-frame out
- * transfers works on the DB4 under Linux, but not under macOS, whose USB stack puts the next
- * transfer on the wire too late: the DB4 runs dry once per transfer (.claude/re/ploytec_bulk_devices.md;
- * offered anyway, two in flight are clean there). Out, each
+ * flight, value + 1 (2-4; value 0, one, isn't offered and runs as two). With the transfer size it
+ * is the latency on USB: queue x frames. The device paces the stream itself (it refuses OUT
+ * packets until it has room), so its own buffer covers the gap while the next transfer is being
+ * submitted; one in flight with 20-frame out transfers works on the DB4 under Linux, but not
+ * under macOS, whose USB stack puts the next transfer on the wire too late: the DB4 runs dry once
+ * per transfer, and on Windows it glitches too (.claude/re/ploytec_bulk_devices.md). The
+ * official driver never runs one either. The values keep their numbers, so a stored setting
+ * means what it meant. Out, each
  * transfer queued is latency (a frame waits behind them all); in, the frames are there once
  * their one transfer completes, and the others queued are margin, buffers the device can fill
  * while the host is late. The default, 4, is what ran before the setting (the isochronous
@@ -111,8 +113,12 @@ enum ozzy_spdif_out_mode {
  */
 #define OZZY_NUM_PCM_QUEUES 4
 
+#define OZZY_PCM_QUEUE_MIN 1           /* the lowest value offered: two in flight */
+
 static inline uint32_t ozzy_pcm_queue(unsigned int value)
 {
+	if (value < OZZY_PCM_QUEUE_MIN)
+		value = OZZY_PCM_QUEUE_MIN;
 	return value < OZZY_NUM_PCM_QUEUES ? value + 1 : OZZY_NUM_PCM_QUEUES;
 }
 
@@ -166,9 +172,12 @@ static inline uint32_t ozzy_pcm_step(uint8_t transfer_type, uint32_t max_packet,
 }
 
 /* Whether a device whose PCM steps are @out_step / @in_step (ozzy_pcm_step) can take value
- * @value of setting @id: only the transfer sizes depend on the device */
+ * @value of setting @id: the transfer sizes depend on the device; one transfer in flight is
+ * offered to none (ozzy_pcm_queue) */
 static inline bool ozzy_setting_value_fits(unsigned int id, unsigned int value, uint32_t out_step, uint32_t in_step)
 {
+	if (id == OZZY_SETTING_PCM_OUT_QUEUE || id == OZZY_SETTING_PCM_IN_QUEUE)
+		return value >= OZZY_PCM_QUEUE_MIN;
 	if (id == OZZY_SETTING_PCM_OUT_FRAMES)
 		return !out_step || ozzy_pcm_frames(false, value) % out_step == 0;
 	if (id == OZZY_SETTING_PCM_IN_FRAMES)

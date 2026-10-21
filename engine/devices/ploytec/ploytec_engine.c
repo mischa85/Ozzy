@@ -154,6 +154,9 @@ static bool ploytec_start(struct ozzy_engine *e)
 	e->settings.value[OZZY_SETTING_PCM_IN_FRAMES] = (uint8_t)(pe->in_frames / 8 - 1);
 	pe->out_queue = ozzy_pcm_queue(e->settings.value[OZZY_SETTING_PCM_OUT_QUEUE]);
 	pe->in_queue = ozzy_pcm_queue(e->settings.value[OZZY_SETTING_PCM_IN_QUEUE]);
+	/* What runs: one in flight (a setting stored before it went) runs as two */
+	e->settings.value[OZZY_SETTING_PCM_OUT_QUEUE] = (uint8_t)(pe->out_queue - 1);
+	e->settings.value[OZZY_SETTING_PCM_IN_QUEUE] = (uint8_t)(pe->in_queue - 1);
 	out_places = ozzy_engine_pcm_layout(e, OZZY_PCM_OUT, ploytec_out_xfer_bytes(pe->out_layout, pe->out_frames));
 	in_places = ozzy_engine_pcm_layout(e, OZZY_PCM_IN, ploytec_in_xfer_bytes(pe->in_frames));
 	if (!out_places || !in_places) {

@@ -4,7 +4,8 @@
  * now uses them: a device setting asks for a restart, a route applies at once, bad ids and
  * values are refused; a rate the device lists asks for a restart, the S/PDIF lock leaves only
  * the lock rate; a restart aborts what is in flight (the bus's abort) and runs the handshake
- * again, and stop leaves nothing in flight.
+ * again, and stop leaves nothing in flight; one transfer in flight is refused, and one kept from
+ * before runs as two.
  *
  * Copyright (C) 2024 Marcel Bierling <marcel@hackerman.art>
  */
@@ -101,6 +102,16 @@ int main(void)
 	ozzy_engine_set_setting(e, OZZY_SETTING_PCM_IN_FRAMES, OZZY_NUM_PCM_IN_FRAMES - 1);
 	CHECK(ozzy_engine_restart(e) && e->settings.value[OZZY_SETTING_PCM_IN_FRAMES] == OZZY_NUM_PCM_IN_FRAMES - 2,
 	      "200 frames kept became value %u", e->settings.value[OZZY_SETTING_PCM_IN_FRAMES]);
+
+	/* One transfer in flight isn't offered; one kept from before runs as two */
+	CHECK(ozzy_engine_change_setting(e, OZZY_SETTING_PCM_OUT_QUEUE, 0) == OZZY_SETTING_INVALID &&
+	      ozzy_engine_change_setting(e, OZZY_SETTING_PCM_IN_QUEUE, 0) == OZZY_SETTING_INVALID, "one in flight taken");
+	ozzy_engine_set_setting(e, OZZY_SETTING_PCM_OUT_QUEUE, 0);
+	ozzy_engine_set_setting(e, OZZY_SETTING_PCM_IN_QUEUE, 0);
+	CHECK(ozzy_engine_restart(e) && e->settings.value[OZZY_SETTING_PCM_OUT_QUEUE] == 1 &&
+	      e->settings.value[OZZY_SETTING_PCM_IN_QUEUE] == 1 && shm.info.pipes[OZZY_PIPE_PCM_OUT].in_flight == 2 &&
+	      shm.info.pipes[OZZY_PIPE_PCM_IN].in_flight == 2, "one in flight kept ran as %u / %u",
+	      shm.info.pipes[OZZY_PIPE_PCM_OUT].in_flight, shm.info.pipes[OZZY_PIPE_PCM_IN].in_flight);
 
 	ozzy_engine_stop(e);
 	CHECK(queued(&fb) == 0, "%u transfers in flight after stop", queued(&fb));

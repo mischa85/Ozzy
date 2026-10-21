@@ -71,6 +71,31 @@ static const struct ozzy_device* lookup_model(PWDFDEVICE_INIT init) {
     return ozzy_device_lookup_hwid((const uint16_t*)ids);
 }
 
+/* devpkey.h's, here so no initguid.h is needed */
+static const DEVPROPKEY wdev_key_friendly_name = {
+    { 0xa45c254e, 0xdf1c, 0x4efd, { 0x80, 0x20, 0x67, 0xd1, 0x46, 0xa8, 0x50, 0xe0 } }, 14 };
+static const DEVPROPKEY wdev_key_bus_reported_desc = {
+    { 0x540b947e, 0x8b40, 0x45bc, { 0xa8, 0xa2, 0x6a, 0x0b, 0x89, 0x4c, 0xbd, 0xa2 } }, 4 };
+
+/* The device's own name (its USB product string, "Allen&Heath Xone:DB4") as its friendly name,
+ * the one Windows shows and puts in its endpoints' names, as Linux and macOS name it; the INF
+ * names it by the model ("Xone:DB4"), which stays if the device has no name of its own */
+static void wdev_name(WDFDEVICE device) {
+    WCHAR name[128] = { 0 };
+    ULONG length = 0;
+    DEVPROPTYPE type = DEVPROP_TYPE_EMPTY;
+    WDF_DEVICE_PROPERTY_DATA data;
+
+    WDF_DEVICE_PROPERTY_DATA_INIT(&data, &wdev_key_bus_reported_desc);
+    if (!NT_SUCCESS(WdfDeviceQueryPropertyEx(device, &data, sizeof(name) - sizeof(WCHAR), name, &length, &type)) ||
+        type != DEVPROP_TYPE_STRING || length <= sizeof(WCHAR))
+        return;
+    WDF_DEVICE_PROPERTY_DATA_INIT(&data, &wdev_key_friendly_name);
+    data.Flags = PLUGPLAY_PROPERTY_PERSISTENT;
+    NTSTATUS status = WdfDeviceAssignProperty(device, &data, DEVPROP_TYPE_STRING, length, name);
+    if (!NT_SUCCESS(status)) kbus_log("[Ozzy] the device's name as its friendly name: 0x%08x", status);
+}
+
 NTSTATUS wdev_evt_add(WDFDRIVER driver, PWDFDEVICE_INIT init) {
     UNREFERENCED_PARAMETER(driver);
     PAGED_CODE();
@@ -99,6 +124,7 @@ NTSTATUS wdev_evt_add(WDFDRIVER driver, PWDFDEVICE_INIT init) {
 
     struct wdev* ctx = wdev_get(device);
     ctx->model = model;
+    wdev_name(device);
     status = WdfWaitLockCreate(WDF_NO_OBJECT_ATTRIBUTES, &ctx->lock);
     if (!NT_SUCCESS(status)) return status;
     WDF_WORKITEM_CONFIG work;

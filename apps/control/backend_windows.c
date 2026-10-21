@@ -21,6 +21,12 @@
 
 #include "ozzy_control.h"
 #include "../../common/ozzy_devices.h"
+
+/* DEVPKEY_Device_BusReportedDeviceDesc (devpkey.h, here so no initguid.h is needed): the
+ * device's own name, its USB product string, as Linux and macOS show it ("Allen&Heath
+ * Xone:DB4"); the friendly name is the INF's model name ("Xone:DB4") */
+static const DEVPROPKEY ozzy_bus_reported_desc = {
+	{ 0x540b947e, 0x8b40, 0x45bc, { 0xa8, 0xa2, 0x6a, 0x0b, 0x89, 0x4c, 0xbd, 0xa2 } }, 4 };
 #include "../../windows/driver/ozzy_ksproperty.h"
 
 /* KSCATEGORY_AUDIO, here so no GUID library is needed */
@@ -121,7 +127,18 @@ static int find_devices(struct ozzy_control_device *devs, int max, wchar_t (*fou
 		wcsncpy_s(found[n], 512, detail->DevicePath, _TRUNCATE);
 		free(detail);
 
-		if (SetupDiGetDeviceRegistryPropertyW(set, &dev, SPDRP_FRIENDLYNAME, NULL, (BYTE *)friendly,
+		/* The device's own name, else the friendly name, else the model's */
+		{
+			DEVPROPTYPE type = 0;
+
+			memset(friendly, 0, sizeof(friendly));
+			if (SetupDiGetDevicePropertyW(set, &dev, &ozzy_bus_reported_desc, &type, (BYTE *)friendly,
+						      sizeof(friendly) - sizeof(wchar_t), NULL, 0) &&
+			    type == DEVPROP_TYPE_STRING)
+				to_utf8(friendly, d->name, sizeof(d->name));
+		}
+		if (!d->name[0] &&
+		    SetupDiGetDeviceRegistryPropertyW(set, &dev, SPDRP_FRIENDLYNAME, NULL, (BYTE *)friendly,
 						      sizeof(friendly) - sizeof(wchar_t), NULL))
 			to_utf8(friendly, d->name, sizeof(d->name));
 		if (!d->name[0])

@@ -119,15 +119,21 @@ public static extern bool UpdateDriverForPlugAndPlayDevicesW(IntPtr hwnd, string
 $ids = Select-String -Path $inf -Pattern "USB\\VID_[0-9A-F]{4}&PID_[0-9A-F]{4}" -AllMatches | ForEach-Object { $_.Matches.Value } | Sort-Object -Unique
 $present = Get-PnpDevice -PresentOnly | Where-Object { $_.InstanceId -match "^USB\\VID_[0-9A-F]{4}&PID_[0-9A-F]{4}\\" }
 $bound = 0
-# Ozzy already running a device (an update): Windows' audio services hold its endpoints open, so the
-# old driver couldn't unload before a restart. Stopped for the switch, it can (a few seconds of
-# no sound on every device).
+# Ozzy already running a device (an update): Windows' audio services, Windows MIDI Services and an
+# open ozzy app hold its endpoints open, so the old driver couldn't unload before a restart (and
+# the device would go on with it). Stopped for the switch, it can (a few seconds of no sound on
+# every device).
 $ozzyInfs = (pnputil /enum-drivers | Out-String) -split "(?=Published Name:)" |
             Where-Object { $_ -match "Original Name:\s+ozzy\.inf" -and $_ -match "Published Name:\s+(oem\d+\.inf)" } | ForEach-Object { $Matches[1] }
 $updating = $present | Where-Object {
     (Get-PnpDeviceProperty -InstanceId $_.InstanceId -KeyName DEVPKEY_Device_DriverInfPath -ErrorAction SilentlyContinue).Data -in $ozzyInfs }
 if ($updating) {
     Say "Updating a running Ozzy: Windows' audio stops for a few seconds."
+    Get-Process ozzy -ErrorAction SilentlyContinue | Where-Object Path -eq (Join-Path $env:ProgramFiles "Ozzy\ozzy.exe") |
+        ForEach-Object { $_.Kill(); $_.WaitForExit(5000) | Out-Null }
+    $midi = Get-Service midisrv -ErrorAction SilentlyContinue
+    $midiRunning = $midi -and $midi.Status -eq "Running"
+    if ($midiRunning) { Stop-Service midisrv -Force }
     Stop-Service AudioEndpointBuilder -Force   # Audiosrv depends on it and stops too
 }
 foreach ($id in $ids) {
@@ -137,12 +143,27 @@ foreach ($id in $ids) {
     if ([Ozzy.NewDev]::UpdateDriverForPlugAndPlayDevicesW([IntPtr]::Zero, $id, $inf, 1, [ref]$needReboot)) {
         Say "  $($dev.FriendlyName) ($id): Ozzy"
         $bound++
+        # Windows Audio starts again on demand (any app that plays) and then holds the old driver,
+        # without the switch saying so: the device waits for a reboot, still on the old driver.
+        # Out and in again, the services stopped once more, it loads the new one.
+        if ($updating -and ($needReboot -or (pnputil /restart-device $dev.InstanceId | Out-String) -match "reboot")) {
+            Stop-Service AudioEndpointBuilder -Force
+            if ($midiRunning) { Stop-Service midisrv -Force }
+            pnputil /remove-device $dev.InstanceId | Out-Null
+            for ($i = 0; $i -lt 20 -and (sc.exe query Ozzy | Select-String "RUNNING"); $i++) { Start-Sleep -Milliseconds 500 }
+            pnputil /scan-devices | Out-Null
+            Start-Sleep 2
+            $needReboot = (pnputil /restart-device $dev.InstanceId | Out-String) -match "reboot"
+        }
         if ($needReboot -and -not $restart) { $restart = "Windows asked for it to switch the device" }
     } else {
         Say "  $($dev.FriendlyName) ($id): not switched (error $([Runtime.InteropServices.Marshal]::GetLastWin32Error()))"
     }
 }
-if ($updating) { Start-Service AudioEndpointBuilder, Audiosrv }
+if ($updating) {
+    Start-Service AudioEndpointBuilder, Audiosrv
+    if ($midiRunning) { Start-Service midisrv }
+}
 if ($bound -eq 0) { Say "No supported device is connected now: it gets Ozzy when you plug it in." }
 
 # 6. The ozzy app and ozzy-cli in Program Files: the app in the Start menu ("Ozzy"), ozzy-cli on the PATH

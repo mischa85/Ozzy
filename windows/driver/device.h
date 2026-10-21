@@ -34,6 +34,7 @@ struct wdev {
     volatile LONG midi_busy;           /* wmidi_service runs */
     bool circuits_added;
     bool configured;                   /* bus configured for the engine (once per PrepareHardware) */
+    WCHAR name[128];                   /* the device's own name (its USB product string), or empty */
     WDFWORKITEM recover;               /* a wedged pipe: port reset and a new start (kbus dead) */
     WDFTIMER stats_timer;              /* a stats incident: the clients hear of it once it settles */
     volatile LONG stats_pending;

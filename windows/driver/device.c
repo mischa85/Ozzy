@@ -81,19 +81,64 @@ static const DEVPROPKEY wdev_key_bus_reported_desc = {
  * the one Windows shows and puts in its endpoints' names, as Linux and macOS name it; the INF
  * names it by the model ("Xone:DB4"), which stays if the device has no name of its own */
 static void wdev_name(WDFDEVICE device) {
-    WCHAR name[128] = { 0 };
+    WCHAR* name = wdev_get(device)->name;
     ULONG length = 0;
     DEVPROPTYPE type = DEVPROP_TYPE_EMPTY;
     WDF_DEVICE_PROPERTY_DATA data;
 
     WDF_DEVICE_PROPERTY_DATA_INIT(&data, &wdev_key_bus_reported_desc);
-    if (!NT_SUCCESS(WdfDeviceQueryPropertyEx(device, &data, sizeof(name) - sizeof(WCHAR), name, &length, &type)) ||
-        type != DEVPROP_TYPE_STRING || length <= sizeof(WCHAR))
+    if (!NT_SUCCESS(WdfDeviceQueryPropertyEx(device, &data, sizeof(wdev_get(device)->name) - sizeof(WCHAR), name,
+                                             &length, &type)) ||
+        type != DEVPROP_TYPE_STRING || length <= sizeof(WCHAR)) {
+        name[0] = 0;
         return;
+    }
     WDF_DEVICE_PROPERTY_DATA_INIT(&data, &wdev_key_friendly_name);
     data.Flags = PLUGPLAY_PROPERTY_PERSISTENT;
     NTSTATUS status = WdfDeviceAssignProperty(device, &data, DEVPROP_TYPE_STRING, length, name);
     if (!NT_SUCCESS(status)) kbus_log("[Ozzy] the device's name as its friendly name: 0x%08x", status);
+}
+
+/* The KS categories the INF registers the circuits under, as ksmedia.h has them (here so no
+ * initguid.h is needed): AUDIO, RENDER, CAPTURE, REALTIME */
+static const GUID wdev_ks_categories[] = {
+    { 0x6994ad04, 0x93ef, 0x11d0, { 0xa3, 0xcc, 0x00, 0xa0, 0xc9, 0x22, 0x31, 0x96 } },
+    { 0x65e8773e, 0x8f56, 0x11d0, { 0xa3, 0xb9, 0x00, 0xa0, 0xc9, 0x22, 0x31, 0x96 } },
+    { 0x65e8773d, 0x8f56, 0x11d0, { 0xa3, 0xb9, 0x00, 0xa0, 0xc9, 0x22, 0x31, 0x96 } },
+    { 0xeb115ffc, 0x10c8, 0x4964, { 0x83, 0x1d, 0x6d, 0xcb, 0x02, 0xe6, 0xf2, 0x3f } },
+};
+
+/*
+ * The same name on the circuits' KS filters: the FriendlyName of their interfaces (the INF sets
+ * "Ozzy output", "Ozzy input", "Ozzy MIDI"; the reference strings are the circuit names, Ozzy*),
+ * for clients that list the filters themselves (PortAudio's WDM-KS reads KSCATEGORY_AUDIO's).
+ * After the circuits are added, which registers the interfaces.
+ */
+static void wdev_name_filters(struct wdev* ctx, WDFDEVICE device) {
+    if (!ctx->name[0]) return;
+    for (int c = 0; c < ARRAYSIZE(wdev_ks_categories); c++) {
+        PWSTR links = NULL;
+        /* Registered, not yet enabled: the device is still starting */
+        NTSTATUS status = IoGetDeviceInterfaces(&wdev_ks_categories[c], WdfDeviceWdmGetPhysicalDevice(device),
+                                                DEVICE_INTERFACE_INCLUDE_NONACTIVE, &links);
+        if (!NT_SUCCESS(status) || !links) continue;
+        for (PWSTR link = links; *link; link += wcslen(link) + 1) {
+            PWSTR ref = wcsrchr(link, L'\\');
+            if (!ref || _wcsnicmp(ref, L"\\Ozzy", 5)) continue;
+            UNICODE_STRING name;
+            HANDLE key = NULL;
+            RtlInitUnicodeString(&name, link);
+            status = IoOpenDeviceInterfaceRegistryKey(&name, KEY_SET_VALUE, &key);
+            if (NT_SUCCESS(status)) {
+                UNICODE_STRING value = RTL_CONSTANT_STRING(L"FriendlyName");
+                status = ZwSetValueKey(key, &value, 0, REG_SZ, ctx->name,
+                                       (ULONG)((wcslen(ctx->name) + 1) * sizeof(WCHAR)));
+                ZwClose(key);
+            }
+            if (!NT_SUCCESS(status)) kbus_log("[Ozzy] the name of filter %ws: 0x%08x", ref + 1, status);
+        }
+        ExFreePool(links);
+    }
 }
 
 NTSTATUS wdev_evt_add(WDFDRIVER driver, PWDFDEVICE_INIT init) {
@@ -235,6 +280,7 @@ static NTSTATUS wdev_evt_prepare_hardware(WDFDEVICE device, WDFCMRESLIST resourc
                 DbgPrintEx(DPFLTR_IHVAUDIO_ID, DPFLTR_ERROR_LEVEL, "[Ozzy] MIDI circuit not added: 0x%08x\n", status);
         }
         ctx->circuits_added = true;
+        wdev_name_filters(ctx, device);
     }
     return STATUS_SUCCESS;
 }

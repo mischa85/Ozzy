@@ -179,6 +179,44 @@ static NTSTATUS wstream_get_presentation_position(ACXSTREAM stream, PULONGLONG p
     return STATUS_SUCCESS;
 }
 
+/*
+ * KSPROPERTY_AUDIO_POSITION (get): where the device is in the WaveRT buffer, in bytes, for clients
+ * that run the pin themselves instead of through the audio engine's packets (PortAudio's WDM-KS,
+ * which has no position register from ACX to map). Render: the play offset is the frame at the
+ * device, the ring position less the transfers in flight (the client adds those back from the
+ * FIFO size, KSPROPERTY_RTAUDIO_HWLATENCY); capture: where the device writes next. Both offsets
+ * the same; 0 until the stream has run, which such clients check.
+ */
+static VOID wstream_evt_position(WDFOBJECT object, WDFREQUEST request) {
+    struct wstream* s = wstream_get((ACXSTREAM)object);
+    ACX_REQUEST_PARAMETERS params;
+    ACX_REQUEST_PARAMETERS_INIT(&params);
+    AcxRequestGetParameters(request, &params);
+
+    NTSTATUS status;
+    ULONG_PTR size = sizeof(KSAUDIO_POSITION);
+    if (params.Parameters.Property.ValueCb == 0) {
+        status = STATUS_BUFFER_OVERFLOW;   /* the caller asks for the size */
+    } else if (params.Parameters.Property.ValueCb < size || !params.Parameters.Property.Value) {
+        status = STATUS_BUFFER_TOO_SMALL;
+        size = 0;
+    } else {
+        KSAUDIO_POSITION* position = (KSAUDIO_POSITION*)params.Parameters.Property.Value;
+        uint64_t frames = (uint64_t)s->packet_count * s->packet_frames;
+        uint64_t pos = wstream_pos(s);
+        uint64_t at = 0;
+        if (frames) {
+            uint32_t behind = wstream_in_flight_frames(s);
+            if (s->render) pos = pos > behind ? pos - behind : 0;
+            at = pos % frames * s->block_align;
+        }
+        position->PlayOffset = at;
+        position->WriteOffset = at;
+        status = STATUS_SUCCESS;
+    }
+    WdfRequestCompleteWithInformation(request, status, size);
+}
+
 static NTSTATUS wstream_prepare_hardware(ACXSTREAM stream) {
     UNREFERENCED_PARAMETER(stream);
     return STATUS_SUCCESS;
@@ -229,6 +267,18 @@ NTSTATUS wstream_evt_create(WDFDEVICE device, ACXCIRCUIT circuit, ACXPIN pin, PA
     status = AcxStreamInitAssignAcxRtStreamCallbacks(init, &rt);
     if (!NT_SUCCESS(status)) return status;
     AcxStreamInitSetAcxRtStreamSupportsNotifications(init);
+    /* Without it the stream still runs for the audio engine: no failure */
+    static ACX_PROPERTY_ITEM properties[] = {
+        {
+            .Set = &KSPROPSETID_Audio,
+            .Id = KSPROPERTY_AUDIO_POSITION,
+            .Flags = ACX_PROPERTY_ITEM_FLAG_GET,
+            .EvtAcxObjectProcessRequest = wstream_evt_position,
+            .ValueCb = sizeof(KSAUDIO_POSITION),
+        },
+    };
+    NTSTATUS assigned = AcxStreamInitAssignProperties(init, properties, ARRAYSIZE(properties));
+    if (!NT_SUCCESS(assigned)) kbus_log("[Ozzy] stream position property: 0x%08x", assigned);
 
     WDF_OBJECT_ATTRIBUTES attributes;
     WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&attributes, wstream);

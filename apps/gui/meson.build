@@ -27,7 +27,7 @@ libui = subproject('libui-ng',
 os = host_machine.system()
 cc = meson.get_compiler('c')
 
-sources = files('ozzy_gui.c', '../control/ozzy_control_core.c')
+sources = files('ozzy_gui.c', 'ozzy_icon.c', '../control/ozzy_control_core.c')
 deps = [libui.get_variable('libui_dep'), libui.get_variable('libui_binary_deps')]
 
 if get_option('demo')
@@ -44,6 +44,14 @@ else
 endif
 if os != 'windows'
 	deps += dependency('threads')
+endif
+# The window's icon (ozzy_icon.c): macOS sets the application's in Objective-C, Linux through GTK
+if os == 'darwin'
+	add_languages('objc', native: false)
+	sources += files('ozzy_icon_macos.m')
+	deps += dependency('appleframeworks', modules: ['Cocoa'])
+elif os != 'windows'
+	deps += dependency('gtk+-3.0')
 endif
 
 c_args = []

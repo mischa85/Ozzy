@@ -27,6 +27,7 @@
 #endif
 
 #include "ui.h"
+#include "ozzy_icon.h"
 #include "../control/ozzy_control.h"
 
 /* The window's sections, in order: the first GUI_LEFT_SECTIONS in the left column */
@@ -36,6 +37,7 @@ enum gui_section {
 	GUI_SECTION_DIGITAL_OUT,
 	GUI_SECTION_ROUTING,
 	GUI_SECTION_STREAM,
+	GUI_SECTION_HEALTH,
 	GUI_SECTION_ENDPOINTS,
 	GUI_SECTION_HOST,
 	GUI_NUM_SECTIONS
@@ -44,7 +46,7 @@ enum gui_section {
 #define GUI_LEFT_SECTIONS GUI_SECTION_STREAM
 
 static const char *const gui_section_titles[GUI_NUM_SECTIONS] = {
-	"Device", "Audio", "Digital output", "Routing", "Stream", "Endpoints", "Operating system"
+	"Device", "Audio", "Digital output", "Routing", "Stream", "Stream health", "Endpoints", "Operating system"
 };
 
 /* Where each group of facts goes */
@@ -52,6 +54,7 @@ static const enum gui_section gui_fact_sections[OZZY_CONTROL_GROUPS] = {
 	[OZZY_CONTROL_GROUP_DEVICE]    = GUI_SECTION_DEVICE,
 	[OZZY_CONTROL_GROUP_AUDIO]     = GUI_SECTION_AUDIO,
 	[OZZY_CONTROL_GROUP_STREAM]    = GUI_SECTION_STREAM,
+	[OZZY_CONTROL_GROUP_HEALTH]    = GUI_SECTION_HEALTH,
 	[OZZY_CONTROL_GROUP_ENDPOINTS] = GUI_SECTION_ENDPOINTS,
 	[OZZY_CONTROL_GROUP_HOST]      = GUI_SECTION_HOST,
 };
@@ -278,14 +281,50 @@ static void gui_on_pick(uiCombobox *box, void *data)
 	uiQueueMain(gui_on_change_main, NULL);
 }
 
-/* A label in column 0 of @grid's row @top, aligned against its value as @valign */
-static void gui_grid_label(uiGrid *grid, int top, const char *text, uiAlign valign)
+/*
+ * A section's rows, a label and its value each. A grid on Windows and Linux: a uiForm lines its
+ * labels up for edit-box-high controls, so on Windows a label next to a text value sat lower
+ * than the value. A uiForm on macOS: libui-ng's grid there neither keeps the rows apart nor the
+ * label column as wide as its labels.
+ */
+struct gui_rows {
+#ifdef __APPLE__
+	uiForm *form;
+#else
+	uiGrid *grid;
+	int top;
+#endif
+};
+
+static uiControl *gui_rows_new(struct gui_rows *r)
 {
-	uiGridAppend(grid, uiControl(uiNewLabel(text)), 0, top, 1, 1, 0, uiAlignStart, 0, valign);
+#ifdef __APPLE__
+	r->form = uiNewForm();
+	uiFormSetPadded(r->form, 1);
+	return uiControl(r->form);
+#else
+	r->grid = uiNewGrid();
+	r->top = 0;
+	uiGridSetPadded(r->grid, 1);
+	return uiControl(r->grid);
+#endif
 }
 
-/* A combobox for setting @id of @d, with its values, in row @top of @grid */
-static void gui_add_setting(uiGrid *grid, int top, const struct ozzy_control_device *d, unsigned int id)
+/* @label and @value as the next row; @setting: a control (the label centred on it), else text */
+static void gui_rows_add(struct gui_rows *r, const char *label, uiControl *value, bool setting)
+{
+#ifdef __APPLE__
+	(void)setting;
+	uiFormAppend(r->form, label, value, 0);
+#else
+	uiGridAppend(r->grid, uiControl(uiNewLabel(label)), 0, r->top, 1, 1, 0, uiAlignStart, 0,
+		     setting ? uiAlignCenter : uiAlignStart);
+	uiGridAppend(r->grid, value, 1, r->top++, 1, 1, 1, uiAlignFill, 0, setting ? uiAlignFill : uiAlignStart);
+#endif
+}
+
+/* A combobox for setting @id of @d, with its values, as the next row of @rows */
+static void gui_add_setting(struct gui_rows *rows, const struct ozzy_control_device *d, unsigned int id)
 {
 	struct gui_row *row = &gui.rows[gui.nrows++];
 	unsigned int n = ozzy_control_values(d, id), v;
@@ -300,8 +339,7 @@ static void gui_add_setting(uiGrid *grid, int top, const struct ozzy_control_dev
 		uiComboboxAppend(row->box, ozzy_setting_descs[id].value_names[v]);
 	}
 	uiComboboxOnSelected(row->box, gui_on_setting, row);
-	gui_grid_label(grid, top, gui_settings[id].label, uiAlignCenter);
-	uiGridAppend(grid, uiControl(row->box), 1, top, 1, 1, 1, uiAlignFill, 0, uiAlignFill);
+	gui_rows_add(rows, gui_settings[id].label, uiControl(row->box), true);
 }
 
 static uiBox *gui_build_empty(const char *text)
@@ -317,11 +355,9 @@ static uiBox *gui_build_empty(const char *text)
 static uiGroup *gui_build_section(const struct ozzy_control_device *d, enum gui_section s)
 {
 	uiGroup *group = NULL;
-	/* A grid, not a uiForm: the form lines its labels up for edit-box-high controls, so on Windows
-	 * a label next to a text value sat lower than the value */
-	uiGrid *grid = NULL;
+	struct gui_rows rows = { 0 };
 	unsigned int id;
-	int i, top = 0;
+	int i;
 
 	for (id = 0; id <= OZZY_NUM_SETTINGS; id++) {
 		bool setting = id < OZZY_NUM_SETTINGS;
@@ -335,16 +371,13 @@ static uiGroup *gui_build_section(const struct ozzy_control_device *d, enum gui_
 			if (!group) {
 				group = uiNewGroup(gui_section_titles[s]);
 				uiGroupSetMargined(group, 1);
-				grid = uiNewGrid();
-				uiGridSetPadded(grid, 1);
-				uiGroupSetChild(group, uiControl(grid));
+				uiGroupSetChild(group, gui_rows_new(&rows));
 			}
 			if (setting) {
-				gui_add_setting(grid, top++, d, id);
+				gui_add_setting(&rows, d, id);
 			} else {
 				gui.fact_values[i] = uiNewLabel(gui.facts[i].value);
-				gui_grid_label(grid, top, gui.facts[i].label, uiAlignStart);
-				uiGridAppend(grid, uiControl(gui.fact_values[i]), 1, top++, 1, 1, 1, uiAlignFill, 0, uiAlignStart);
+				gui_rows_add(&rows, gui.facts[i].label, uiControl(gui.fact_values[i]), false);
 			}
 		}
 	}
@@ -543,6 +576,7 @@ int main(void)
 	}
 
 	gui.win = uiNewWindow("Ozzy", 860, 560, 0);
+	ozzy_icon_set(gui.win);
 	uiWindowSetMargined(gui.win, 1);
 	uiWindowOnClosing(gui.win, gui_on_closing, NULL);
 	uiOnShouldQuit(gui_on_should_quit, NULL);

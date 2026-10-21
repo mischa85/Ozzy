@@ -40,5 +40,6 @@ pw-jack ./rtlat "Allen&Heath Xone DB4 Pro:playback_AUX4" "Allen&Heath Xone DB4 P
 pw-metadata -n settings 0 clock.force-quantum 64    # smaller host buffers; 0 undoes it
 ```
 
-Use a channel nothing else plays on. The DB4's measurements are in
+Use a channel nothing else plays on. On macOS keep at least 2 PCM transfers in flight: with 1 the
+DB4 runs dry once per transfer. The DB4's measurements are in
 `.claude/re/ploytec_bulk_devices.md`.

@@ -155,10 +155,18 @@ go into one USB transfer, and how many transfers are queued, is up to the host:
   driver always used 80-frame IN transfers. 16 frames in with 1 queued records clean.
 - Ozzy offers only whole-packet sizes (`ozzy_pcm_step`, from the endpoints in the driver's info):
   the engine refuses the rest and rounds a kept value up at start.
-- **One transfer in flight ("no queue") works on Linux** (80 frames out / 16 in, 2026-10-21).
-  The device paces OUT itself (NAKs until it has room), so its own buffer covers the gap while
-  the next transfer is submitted. Not known: that buffer's depth, and whether the macOS kext's
-  and Windows' completion paths resubmit fast enough for one in flight.
+- **One transfer in flight ("no queue") works on Linux, not on macOS** (DB4, 2026-10-21).
+  Linux: 20 frames out / 16 in, one each, records clean at 48 and 96 kHz. The device paces OUT
+  itself (NAKs until it has room), so its own buffer covers the gap while the next transfer is
+  submitted. macOS (kext): one OUT transfer in flight glitches at every size (20, 40, 80 frames;
+  96 kHz: hundreds of glitches in 5 s, the audio about 1-3% longer), two are clean (20/16 x2,
+  40/32 x2, 80/80 x4). A sawtooth on output 5 shows why: the DB4 holds the last sample (a frame
+  played twice, ~15000 in 6 s) once per 20-frame transfer, so it runs dry before each next
+  packet. The kext resubmits 2-12 us after the completion (XHC0 capture: IOUSBHost submit after
+  complete), so the gap is below the driver, in how soon macOS's USB stack puts a newly submitted
+  interrupt transfer on the wire. One IN transfer in flight is mostly fine there (8 glitches in
+  5 s at 96 kHz). Ozzy still offers 1 on macOS (the user's choice: documented, not hidden).
+  Not known: the device buffer's depth, and Windows.
 - The queue of 4 Ozzy used had no basis in the protocol: d785fd4 (2026-10-17) copied Linux's old
   `OZZY_PCM_N_URBS`; before that the engine kept 2. It is a setting now too
   (`OZZY_SETTING_PCM_OUT_QUEUE` / `_IN_QUEUE`, 1-4, default 4).

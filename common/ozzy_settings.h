@@ -100,8 +100,10 @@ enum ozzy_spdif_out_mode {
  * OZZY_SETTING_PCM_OUT_QUEUE / _IN_QUEUE values: how many PCM transfers the driver keeps in
  * flight, value + 1 (1-4). With the transfer size it is the latency on USB: queue x frames. The
  * device paces the stream itself (it refuses OUT packets until it has room), so its own buffer
- * covers the gap while the next transfer is being submitted; one in flight with 10-frame out
- * transfers worked on the DB4 under Linux (.claude/re/ploytec_bulk_devices.md). Out, each
+ * covers the gap while the next transfer is being submitted; one in flight with 20-frame out
+ * transfers works on the DB4 under Linux, but not under macOS, whose USB stack puts the next
+ * transfer on the wire too late: the DB4 runs dry once per transfer (.claude/re/ploytec_bulk_devices.md;
+ * offered anyway, two in flight are clean there). Out, each
  * transfer queued is latency (a frame waits behind them all); in, the frames are there once
  * their one transfer completes, and the others queued are margin, buffers the device can fill
  * while the host is late. The default, 4, is what ran before the setting (the isochronous

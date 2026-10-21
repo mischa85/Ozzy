@@ -179,6 +179,15 @@ if (Test-Path $app) {
     $lnk = $shell.CreateShortcut((Join-Path $env:ProgramData "Microsoft\Windows\Start Menu\Programs\Ozzy.lnk"))
     $lnk.TargetPath = Join-Path $dest "ozzy.exe"
     $lnk.Description = "Ozzy device settings"
+    # The icon the Start menu and the taskbar show: Explorer caches it by path for good (a new
+    # ozzy.exe keeps the old icon), so the shortcut points at the icon under a name of its own hash
+    $ico = Join-Path $PSScriptRoot "..\..\apps\gui\ozzy.ico"
+    if (Test-Path $ico) {
+        $named = Join-Path $dest ("ozzy-" + (Get-FileHash $ico -Algorithm SHA256).Hash.Substring(0, 12).ToLower() + ".ico")
+        Get-ChildItem $dest -Filter "ozzy-*.ico" | Where-Object FullName -ne $named | Remove-Item -Force
+        Copy-Item $ico $named -Force
+        $lnk.IconLocation = "$named,0"
+    }
     $lnk.Save()
     Say "The ozzy app: Start menu > Ozzy ($dest\ozzy.exe)"
 }

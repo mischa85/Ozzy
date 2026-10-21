@@ -38,7 +38,7 @@ enum ozzy_ksevent_id {
 };
 
 /* Bump when struct ozzy_ksproperty_status changes */
-#define OZZY_KSPROPERTY_VERSION 3   /* 2: the PCM transfer size settings (value[] grew); 3: running */
+#define OZZY_KSPROPERTY_VERSION 4   /* 2: transfer size settings (value[] grew); 3: running; 4: streams */
 
 /*
  * struct ozzy_ksproperty_status - The device as the engine has it.
@@ -46,6 +46,10 @@ enum ozzy_ksevent_id {
  * @value:        each setting's value (what the next handshake sends, for device settings)
  * @clock_locked: locked to S/PDIF at the last handshake, at @lock_rate Hz
  * @running:      bit (1 << enum ozzy_pcm_dir) per direction a client streams now (its stream runs)
+ * By enum ozzy_pcm_dir, 0 where that direction has no stream:
+ * @packet_frames: the WaveRT packet, the period Windows' audio engine works in
+ * @packets:       packets in the stream's buffer
+ * @fifo_frames:   the latency the driver reports for it (the FIFO of KSPROPERTY_RTAUDIO_HWLATENCY)
  */
 struct ozzy_ksproperty_status {
 	uint32_t version;
@@ -57,6 +61,9 @@ struct ozzy_ksproperty_status {
 	uint8_t clock_locked;
 	uint32_t lock_rate;
 	uint32_t running;
+	uint32_t packet_frames[2];
+	uint32_t packets[2];
+	uint32_t fifo_frames[2];
 };
 
 /*

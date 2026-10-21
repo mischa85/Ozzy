@@ -70,8 +70,14 @@ static void wsettings_status(const struct wdev* dev, struct ozzy_ksproperty_stat
         st->clock_locked = dev->shm->audio.settings.clock_locked;
         st->lock_rate = dev->shm->audio.settings.lock_rate;
     }
-    for (unsigned int dir = 0; dir < OZZY_PCM_DIRS; dir++)
-        if (dev->streams[dir] && dev->streams[dir]->attached) st->running |= 1u << dir;
+    for (unsigned int dir = 0; dir < OZZY_PCM_DIRS; dir++) {
+        const struct wstream* s = dev->streams[dir];
+        if (!s) continue;
+        if (s->attached) st->running |= 1u << dir;
+        st->packet_frames[dir] = s->packet_frames;
+        st->packets[dir] = s->packet_count;
+        st->fifo_frames[dir] = wstream_fifo_frames(s);
+    }
 }
 
 /* OZZY_KSPROPERTY_STATUS (get) */

@@ -40,6 +40,9 @@ WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(wstream, wstream_get)
  * it; @qpc: KeQueryPerformanceCounter at completion */
 void wstream_progress(struct wstream* s, uint64_t frames, uint64_t qpc);
 
+/* The latency @s reports to Windows (its hardware FIFO), in frames */
+uint32_t wstream_fifo_frames(const struct wstream* s);
+
 /* The circuits' EvtAcxCircuitCreateStream */
 EVT_ACX_CIRCUIT_CREATE_STREAM wstream_evt_create;
 

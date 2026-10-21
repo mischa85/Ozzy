@@ -85,7 +85,7 @@ static int find_devices(struct ozzy_control_device *devs, int max, wchar_t (*fou
 		DWORD needed = 0, returned = 0;
 		unsigned int id;
 		bool dup = false;
-		int k;
+		int k, dir;
 
 		/* The device behind the interface: one of ours (by hardware ID), listed once */
 		SetupDiGetDeviceInterfaceDetailW(set, &ifd, NULL, 0, &needed, NULL);
@@ -138,6 +138,15 @@ static int find_devices(struct ozzy_control_device *devs, int max, wchar_t (*fou
 		d->has_clock = (st.available & (1u << OZZY_SETTING_CLOCK_SOURCE)) != 0;
 		d->clock.locked = st.clock_locked != 0;
 		d->host.running = st.running != 0;   /* a stream runs in either direction */
+		/* The WaveRT stream (output's if there is one): its packet is the audio engine's period */
+		dir = st.packet_frames[0] ? 0 : 1;
+		if (st.packet_frames[dir]) {
+			snprintf(d->host.format, sizeof(d->host.format), "S24_3LE");
+			d->host.buffer_frames = st.packet_frames[dir];
+			d->host.ring_frames = st.packet_frames[dir] * st.packets[dir];
+		}
+		d->host.latency[0] = st.fifo_frames[0];
+		d->host.latency[1] = st.fifo_frames[1];
 		d->clock.lock_rate = st.clock_locked ? st.lock_rate : 0;
 		snprintf(d->host.driver, sizeof(d->host.driver), "Ozzy (ACX)");
 		{

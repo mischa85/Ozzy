@@ -130,9 +130,13 @@ void wstream_progress(struct wstream* s, uint64_t frames, uint64_t qpc) {
     }
 }
 
+uint32_t wstream_fifo_frames(const struct wstream* s) {
+    return wstream_in_flight_frames(s);
+}
+
 static NTSTATUS wstream_get_hw_latency(ACXSTREAM stream, ULONG* fifo_size, ULONG* delay) {
     struct wstream* s = wstream_get(stream);
-    *fifo_size = wstream_in_flight_frames(s) * s->block_align;
+    *fifo_size = wstream_fifo_frames(s) * s->block_align;
     *delay = 0;
     return STATUS_SUCCESS;
 }

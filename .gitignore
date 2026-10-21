@@ -49,5 +49,7 @@ apps/cli/ozzy-cli
 apps/gui/build/
 apps/gui/build-*/
 apps/gui/subprojects/libui-ng/
+apps/gui/subprojects/libui-ng-*/
+apps/gui/subprojects/packagecache/
 apps/gui/subprojects/.wraplock
 apps/gui/.cache/

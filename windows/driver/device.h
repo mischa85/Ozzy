@@ -11,7 +11,7 @@
 #include "kmdf_bus.h"
 
 struct wmidi_stream;
-#include "../engine/shared/ozzy_shared_data.h"
+#include "../../engine/shared/ozzy_shared_data.h"
 
 #define OZZY_POOL_TAG 'yzzO'
 
@@ -56,7 +56,7 @@ NTSTATUS wcircuit_create(WDFDEVICE device, bool render, ACXCIRCUIT* circuit);
  * which a stream of the other direction would not survive, so that refuses it */
 NTSTATUS wdev_stream_rate(struct wdev* dev, bool render, uint32_t rate);
 
-/* settings.c: the control property set (windows/ozzy_ksproperty.h) on a circuit, and the settings
+/* settings.c: the control property set (windows/driver/ozzy_ksproperty.h) on a circuit, and the settings
  * the registry keeps, into the engine (PrepareHardware, after ozzy_engine_attach) */
 NTSTATUS wsettings_assign(PACXCIRCUIT_INIT init);
 void wsettings_restore(struct wdev* dev, WDFDEVICE device);

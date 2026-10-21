@@ -54,7 +54,7 @@ endif
 if os == 'windows'
 	c_args += ['-DUNICODE', '-D_UNICODE', '-D_CRT_SECURE_NO_WARNINGS', '-D_UI_STATIC']
 	# libui-ng linked in statically: the app carries the Common Controls 6 manifest itself
-	sources += import('windows').compile_resources('ozzy.rc', depend_files: ['ozzy.manifest'])
+	sources += import('windows').compile_resources('ozzy.rc', depend_files: ['ozzy.manifest', 'ozzy.ico'])
 	if cc.get_id() == 'msvc'
 		link_args += ['/ENTRY:mainCRTStartup']   # main() in a windowed app
 	endif

@@ -15,8 +15,8 @@
 #ifndef OZZY_KSPROPERTY_H
 #define OZZY_KSPROPERTY_H
 
-#include "../common/ozzy_settings.h"
-#include "../engine/shared/ozzy_info.h"
+#include "../../common/ozzy_settings.h"
+#include "../../engine/shared/ozzy_info.h"
 
 /* The property set: {5499d49d-b94c-4c8b-b547-08b3a0e494aa}, as a GUID initializer */
 #define OZZY_PROPSETID_SETTINGS_INIT \

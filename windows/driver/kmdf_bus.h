@@ -12,7 +12,7 @@
 #include <usb.h>
 #include <usbdlib.h>   /* GET_ISO_URB_SIZE, USBD_CLIENT_CONTRACT_VERSION_602 */
 #include <wdfusb.h>
-#include "../engine/core/ozzy_engine.h"
+#include "../../engine/core/ozzy_engine.h"
 
 struct wstream;
 

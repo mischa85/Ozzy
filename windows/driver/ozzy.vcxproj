@@ -1,6 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Ozzy ACX driver (ozzy.sys). Build: msbuild ozzy.vcxproj /p:Configuration=Release /p:Platform=x64 -->
+<!-- Ozzy ACX driver (ozzy.sys). Build: msbuild ozzy.vcxproj /p:Configuration=Release /p:Platform=x64
+     The package lands in windows\build\x64\Release\ozzy\ (ozzy.inf, ozzy.sys, ozzy.cat). -->
 <Project DefaultTargets="Build" ToolsVersion="12.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <!-- The WDK from NuGet (scripts\wdk.ps1 fetches it into windows\build\wdk\): no WDK or EWDK install
+       needed, only the MSVC build tools. Without it, the WDK of the environment (EWDK, VS + WDK). -->
+  <PropertyGroup>
+    <OzzyWdkDir Condition="'$(OzzyWdkDir)' == ''">$(MSBuildThisFileDirectory)..\build\wdk\</OzzyWdkDir>
+    <OzzyWdkNuGet Condition="Exists('$(OzzyWdkDir)Microsoft.Windows.WDK.x64\build\native\Microsoft.Windows.WDK.x64.props')">true</OzzyWdkNuGet>
+  </PropertyGroup>
+  <ImportGroup Condition="'$(OzzyWdkNuGet)' == 'true'">
+    <Import Project="$(OzzyWdkDir)Microsoft.Windows.SDK.CPP\build\native\Microsoft.Windows.SDK.cpp.props" />
+    <Import Project="$(OzzyWdkDir)Microsoft.Windows.SDK.CPP.x64\build\native\Microsoft.Windows.SDK.cpp.x64.props" />
+    <Import Project="$(OzzyWdkDir)Microsoft.Windows.WDK.x64\build\native\Microsoft.Windows.WDK.x64.props" />
+  </ImportGroup>
   <ItemGroup Label="ProjectConfigurations">
     <ProjectConfiguration Include="Debug|x64">
       <Configuration>Debug</Configuration>
@@ -45,6 +57,8 @@
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
   <PropertyGroup>
     <TargetName>ozzy</TargetName>
+    <OutDir>$(MSBuildThisFileDirectory)..\build\$(Platform)\$(Configuration)\</OutDir>
+    <IntDir>$(MSBuildThisFileDirectory)..\build\obj\$(Platform)\$(Configuration)\</IntDir>
   </PropertyGroup>
   <ItemDefinitionGroup>
     <ClCompile>
@@ -68,29 +82,29 @@
     <ClCompile Include="kmdf_bus.c" />
     <ClCompile Include="settings.c" />
     <ClCompile Include="midi.c" />
-    <ClCompile Include="..\engine\core\ozzy_engine.c" />
-    <ClCompile Include="..\engine\core\ozzy_isoc_output.c" />
-    <ClCompile Include="..\engine\devices\ploytec\ploytec_engine.c" />
-    <ClCompile Include="..\engine\devices\ploytec\ploytec_io.c" />
-    <ClCompile Include="..\engine\devices\ploytec\ploytec_isoc_engine.c" />
-    <ClCompile Include="..\engine\devices\usbmidi\usb_midi_engine.c" />
-    <ClCompile Include="..\common\devices\ploytec\ploytec_handshake.c" />
-    <ClCompile Include="..\common\devices\ploytec\ploytec_codec.c" />
-    <ClCompile Include="..\common\usb_midi.c" />
-    <ClCompile Include="..\common\midi_ump.c" />
+    <ClCompile Include="..\..\engine\core\ozzy_engine.c" />
+    <ClCompile Include="..\..\engine\core\ozzy_isoc_output.c" />
+    <ClCompile Include="..\..\engine\devices\ploytec\ploytec_engine.c" />
+    <ClCompile Include="..\..\engine\devices\ploytec\ploytec_io.c" />
+    <ClCompile Include="..\..\engine\devices\ploytec\ploytec_isoc_engine.c" />
+    <ClCompile Include="..\..\engine\devices\usbmidi\usb_midi_engine.c" />
+    <ClCompile Include="..\..\common\devices\ploytec\ploytec_handshake.c" />
+    <ClCompile Include="..\..\common\devices\ploytec\ploytec_codec.c" />
+    <ClCompile Include="..\..\common\usb_midi.c" />
+    <ClCompile Include="..\..\common\midi_ump.c" />
   </ItemGroup>
   <ItemGroup>
     <!-- Generated before the build from ozzy.inf.in (OzzyGenerateInf) -->
     <Inf Include="$(IntDir)ozzy.inf" />
   </ItemGroup>
   <ItemGroup>
-    <!-- The driver next to the INF in the package (x64\Release\ozzy\), where inf2cat and pnputil look -->
+    <!-- The driver next to the INF in the package (windows\build\x64\Release\ozzy\), where inf2cat and pnputil look -->
     <FilesToPackage Include="$(TargetPath)" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
-  <!-- ozzy.inf: the template with one model line per supported device in common/ozzy_devices.def.
-       GenInf.c is compiled for the host with the Visual Studio install's own compiler (vcvarsall),
-       so this works from the IDE as well as a developer prompt. -->
+  <ImportGroup Condition="'$(OzzyWdkNuGet)' == 'true'">
+    <Import Project="$(OzzyWdkDir)Microsoft.Windows.SDK.CPP\build\native\Microsoft.Windows.SDK.cpp.targets" />
+  </ImportGroup>
   <!-- The commit for the driver's record and log (common/ozzy_version.h): git describe, or
        /p:OzzyGitVersion=... (a build from a copy without .git says "unknown") -->
   <Target Name="OzzyGitVersion" BeforeTargets="ClCompile">
@@ -103,18 +117,21 @@
       <OzzyGitVersion Condition="'$(OzzyGitExit)' != '' and '$(OzzyGitExit)' != '0'"></OzzyGitVersion>
     </PropertyGroup>
     <!-- A header the compiler force-includes: a quoted string doesn't survive PreprocessorDefinitions -->
-    <MakeDir Directories="$(MSBuildProjectDirectory)\$(IntDir)" />
-    <WriteLinesToFile File="$(MSBuildProjectDirectory)\$(IntDir)ozzy_git_version.h" Lines="#define OZZY_GIT_VERSION &quot;$(OzzyGitVersion)&quot;" Overwrite="true"
+    <MakeDir Directories="$(IntDir)" />
+    <WriteLinesToFile File="$(IntDir)ozzy_git_version.h" Lines="#define OZZY_GIT_VERSION &quot;$(OzzyGitVersion)&quot;" Overwrite="true"
                       WriteOnlyWhenDifferent="true" Condition="'$(OzzyGitVersion)' != ''" />
     <ItemGroup Condition="'$(OzzyGitVersion)' != ''">
       <ClCompile>
-        <ForcedIncludeFiles>$(MSBuildProjectDirectory)\$(IntDir)ozzy_git_version.h;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+        <ForcedIncludeFiles>$(IntDir)ozzy_git_version.h;%(ForcedIncludeFiles)</ForcedIncludeFiles>
       </ClCompile>
     </ItemGroup>
   </Target>
+  <!-- ozzy.inf: the template with one model line per supported device in common/ozzy_devices.def.
+       GenInf.c is compiled for the host with the build's own MSVC and SDK (the UCRT), so this works
+       with the NuGet WDK, the EWDK and Visual Studio alike, without a developer prompt. -->
   <Target Name="OzzyGenerateInf" BeforeTargets="PrepareForBuild"
-          Inputs="ozzy.inf.in;GenInf.c;..\common\ozzy_devices.def;..\common\ozzy_devices.h" Outputs="$(IntDir)ozzy.inf">
+          Inputs="..\inf\ozzy.inf.in;..\inf\GenInf.c;..\..\common\ozzy_devices.def;..\..\common\ozzy_devices.h" Outputs="$(IntDir)ozzy.inf">
     <MakeDir Directories="$(IntDir)GenInf" />
-    <Exec Command="call &quot;$(VSInstallDir)VC\Auxiliary\Build\vcvarsall.bat&quot; %PROCESSOR_ARCHITECTURE% &gt;nul &amp;&amp; cl /nologo /W3 /Fo&quot;$(IntDir)GenInf\\&quot; /Fe&quot;$(IntDir)GenInf\GenInf.exe&quot; &quot;$(MSBuildThisFileDirectory)GenInf.c&quot; &gt;nul &amp;&amp; &quot;$(IntDir)GenInf\GenInf.exe&quot; &quot;$(MSBuildThisFileDirectory)ozzy.inf.in&quot; &gt; &quot;$(IntDir)ozzy.inf&quot;" />
+    <Exec Command="set &quot;INCLUDE=$(VCToolsInstallDir)include;$(UniversalCRT_IncludePath)&quot; &amp;&amp; set &quot;LIB=$(VC_LibraryPath_VC_x64_Desktop);$(UniversalCRT_LibraryPath_x64);$(WindowsSDK_LibraryPath_x64)&quot; &amp;&amp; &quot;$(VC_ExecutablePath_x64_x64)\cl.exe&quot; /nologo /W3 /MT /Fo&quot;$(IntDir)GenInf\\&quot; /Fe&quot;$(IntDir)GenInf\GenInf.exe&quot; &quot;$(MSBuildThisFileDirectory)..\inf\GenInf.c&quot; &gt;nul &amp;&amp; &quot;$(IntDir)GenInf\GenInf.exe&quot; &quot;$(MSBuildThisFileDirectory)..\inf\ozzy.inf.in&quot; &gt; &quot;$(IntDir)ozzy.inf&quot;" />
   </Target>
 </Project>

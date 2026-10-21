@@ -16,7 +16,7 @@
  * Without a stream, MIDI in is dropped, as with ALSA rawmidi closed. */
 
 #include "device.h"
-#include "../common/midi_ump.h"
+#include "../../common/midi_ump.h"
 
 /* One looped buffer shared with the client process */
 struct wmidi_ring {

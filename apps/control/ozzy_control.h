@@ -7,7 +7,7 @@
  * platform finds the devices, reads and writes their settings and tells when they change:
  *   - macOS: backend_macos.c, OzzyHAL's OZZY_PROPERTY_SETTING through CoreAudio
  *   - Linux: backend_linux.c, the driver's ALSA controls through alsa-lib
- *   - Windows: backend_windows.c, the ACX driver's property set (windows/ozzy_ksproperty.h)
+ *   - Windows: backend_windows.c, the ACX driver's property set (windows/driver/ozzy_ksproperty.h)
  *     through IOCTL_KS_PROPERTY
  *
  * Copyright (C) 2024 Marcel Bierling <marcel@hackerman.art>

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 /*
- * The control backend for Windows: the Ozzy ACX driver's property set (windows/ozzy_ksproperty.h)
+ * The control backend for Windows: the Ozzy ACX driver's property set (windows/driver/ozzy_ksproperty.h)
  * through IOCTL_KS_PROPERTY (the status and settings, and the driver's record struct ozzy_info).
  * Each device has a KSCATEGORY_AUDIO interface per endpoint; the
  * first one that answers the property stands for the device (the driver serves it on both).
@@ -21,7 +21,7 @@
 
 #include "ozzy_control.h"
 #include "../../common/ozzy_devices.h"
-#include "../../windows/ozzy_ksproperty.h"
+#include "../../windows/driver/ozzy_ksproperty.h"
 
 /* KSCATEGORY_AUDIO, here so no GUID library is needed */
 static const GUID ksaudio = { 0x6994ad04, 0x93ef, 0x11d0, { 0xa3, 0xcc, 0x00, 0xa0, 0xc9, 0x22, 0x31, 0x96 } };

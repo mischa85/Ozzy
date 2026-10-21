@@ -1,6 +1,6 @@
 #include "device.h"
 #include "midi.h"
-#include "../common/ozzy_version.h"
+#include "../../common/ozzy_version.h"
 
 static EVT_WDF_DEVICE_PREPARE_HARDWARE wdev_evt_prepare_hardware;
 static EVT_WDF_DEVICE_RELEASE_HARDWARE wdev_evt_release_hardware;

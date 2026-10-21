@@ -1,9 +1,10 @@
 # SPDX-License-Identifier: MIT
 #
-# Ozzy for Windows: remove the driver from every device and from the driver store. The devices fall
-# back to whatever other driver Windows has for them (or none) on the next plug-in.
+# Ozzy for Windows: remove the driver from every device and from the driver store, and the ozzy
+# app and ozzy-cli. The devices fall back to whatever other driver Windows has for them (or none)
+# on the next plug-in.
 #
-#   uninstall.cmd           the driver only
+#   uninstall.cmd           the driver, the app and ozzy-cli
 #   uninstall.cmd -All      also the certificate it was signed with, and test signing off again
 #
 # Copyright (C) 2024 Marcel Bierling <marcel@hackerman.art>
@@ -42,6 +43,16 @@ if (-not $packages) {
         pnputil /delete-driver $p /uninstall /force | Out-Null
         Write-Host "Removed $p"
     }
+}
+
+$dest = Join-Path $env:ProgramFiles "Ozzy"
+Remove-Item (Join-Path $env:ProgramData "Microsoft\Windows\Start Menu\Programs\Ozzy.lnk") -ErrorAction SilentlyContinue
+if (Test-Path $dest) {
+    Get-Process ozzy -ErrorAction SilentlyContinue | Where-Object Path -eq (Join-Path $dest "ozzy.exe") | Stop-Process -Force
+    Remove-Item -Recurse -Force $dest
+    $path = [Environment]::GetEnvironmentVariable("Path", "Machine")
+    [Environment]::SetEnvironmentVariable("Path", (($path -split ";") | Where-Object { $_ -and $_ -ne $dest }) -join ";", "Machine")
+    Write-Host "Removed the ozzy app and ozzy-cli"
 }
 
 if ($All) {

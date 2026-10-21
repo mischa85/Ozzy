@@ -194,7 +194,7 @@ echo "======================================================"
 
 # Compile Kext
 echo ""
-echo "🔨 [1/4] Compiling Kernel Extension..."
+echo "🔨 [1/5] Compiling Kernel Extension..."
 
 # Kext Configuration
 KEXT_NAME="OzzyKext"
@@ -332,7 +332,7 @@ echo "✅ Kernel Extension compiled and signed"
 
 # Compile HAL
 echo ""
-echo "🔨 [2/4] Compiling HAL Driver..."
+echo "🔨 [2/5] Compiling HAL Driver..."
 if ! xcodebuild -project "Ozzy.xcodeproj" \
            -scheme "OzzyHAL" \
            -configuration Release \
@@ -354,7 +354,7 @@ echo "✅ HAL Driver compiled and signed"
 
 # Compile MIDI
 echo ""
-echo "🔨 [3/4] Compiling MIDI Driver..."
+echo "🔨 [3/5] Compiling MIDI Driver..."
 if ! xcodebuild -project "Ozzy.xcodeproj" \
            -scheme "OzzyMIDI" \
            -configuration Release \
@@ -374,12 +374,53 @@ echo "✅ MIDI Driver compiled and signed"
 
 # Compile ozzy-cli (settings from the command line)
 echo ""
-echo "🔨 [4/4] Compiling ozzy-cli..."
+echo "🔨 [4/5] Compiling ozzy-cli..."
 if ! make -s -C "$DIR/../apps/cli" MACOSX_DEPLOYMENT_TARGET="$MIN_MACOS" > /dev/null; then
     echo "❌ Error: building ozzy-cli failed"
     exit 1
 fi
 echo "✅ ozzy-cli compiled"
+
+# Compile the ozzy app and make it Ozzy.app. Meson builds it (and fetches libui-ng); without a
+# meson and ninja of the system's, pinned ones go into a Python environment of the build's own
+# (meson 1.11: the last for the Command Line Tools' Python 3.9). Xcode's clang named, so meson
+# doesn't add a ccache it finds (a broken Homebrew one fails the build). The drivers don't need
+# the app: if it doesn't build, they install without it.
+echo ""
+echo "🔨 [5/5] Compiling the ozzy app..."
+APP_PATH="$BUILD_DIR/Ozzy.app"
+build_app() {
+    local gui_build="$BUILD_DIR/gui" venv="$BUILD_DIR/meson-venv"
+    if ! command -v meson > /dev/null 2>&1 || ! command -v ninja > /dev/null 2>&1; then
+        if [ ! -x "$venv/bin/meson" ] || [ ! -x "$venv/bin/ninja" ]; then
+            echo "   meson and ninja aren't installed: putting them in $venv"
+            python3 -m venv "$venv" && "$venv/bin/pip" install -q "meson==1.11.2" "ninja==1.13.0" || return 1
+        fi
+        PATH="$venv/bin:$PATH"
+    fi
+    if [ -f "$gui_build/build.ninja" ]; then
+        CC=clang OBJC=clang MACOSX_DEPLOYMENT_TARGET="$MIN_MACOS" meson setup --reconfigure "$gui_build" "$DIR/../apps/gui" || return 1
+    else
+        CC=clang OBJC=clang MACOSX_DEPLOYMENT_TARGET="$MIN_MACOS" meson setup "$gui_build" "$DIR/../apps/gui" || return 1
+    fi
+    meson compile -C "$gui_build" || return 1
+
+    rm -rf "$APP_PATH" &&
+        mkdir -p "$APP_PATH/Contents/MacOS" "$APP_PATH/Contents/Resources" &&
+        cp "$gui_build/ozzy" "$APP_PATH/Contents/MacOS/ozzy" &&
+        cp "$DIR/../apps/gui/ozzy.icns" "$APP_PATH/Contents/Resources/ozzy.icns" &&
+        sed -e "s/@VERSION@/$GIT_VERSION/g" -e "s/@MIN_MACOS@/$MIN_MACOS/g" "$DIR/../apps/gui/Info.plist.in" \
+            > "$APP_PATH/Contents/Info.plist" || return 1
+    codesign --sign "$CODE_SIGN_IDENTITY" --force --options runtime "$APP_PATH" 2>/dev/null ||
+        codesign --sign "$CODE_SIGN_IDENTITY" --force "$APP_PATH"
+}
+if build_app > "$BUILD_DIR/app.log" 2>&1; then
+    echo "✅ Ozzy.app compiled and signed"
+else
+    grep -E "error|ERROR" "$BUILD_DIR/app.log" | head -n 5 || tail -n 10 "$BUILD_DIR/app.log"
+    echo "⚠️  The ozzy app didn't build (log: $BUILD_DIR/app.log); the drivers install without it"
+    APP_PATH=""
+fi
 
 echo ""
 echo "======================================================"
@@ -471,6 +512,14 @@ sudo mkdir -p /usr/local/bin
 sudo install -m 755 "$DIR/../apps/cli/ozzy-cli" /usr/local/bin/ozzy-cli
 sudo rm -f /usr/local/bin/ozzyctl
 echo "✅ ozzy-cli installed to /usr/local/bin"
+
+# Install Ozzy.app (an open one quits first: it holds the old build)
+if [ -n "$APP_PATH" ]; then
+    pkill -x ozzy 2>/dev/null || true
+    sudo rm -rf "/Applications/Ozzy.app"
+    sudo cp -R "$APP_PATH" "/Applications/"
+    echo "✅ The ozzy app installed to /Applications/Ozzy.app"
+fi
 echo "✅ MIDI Driver installed"
 
 echo ""
@@ -528,6 +577,7 @@ if $KEXT_LOADED; then
     echo ""
     echo "Your audio device is ready to use!"
     echo "Check Audio MIDI Setup to verify your device."
+    [ -n "$APP_PATH" ] && echo "Its settings: Applications > Ozzy (or ozzy-cli in Terminal)."
     echo ""
     read -p "Press [Enter] to exit..."
 else

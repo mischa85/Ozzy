@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Ozzy.app's (macos/install.command fills in @VERSION@ and @MIN_MACOS@) -->
+<plist version="1.0">
+<dict>
+	<key>CFBundleName</key>
+	<string>Ozzy</string>
+	<key>CFBundleDisplayName</key>
+	<string>Ozzy</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.ozzy.app</string>
+	<key>CFBundleExecutable</key>
+	<string>ozzy</string>
+	<key>CFBundleIconFile</key>
+	<string>ozzy</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleShortVersionString</key>
+	<string>@VERSION@</string>
+	<key>CFBundleVersion</key>
+	<string>@VERSION@</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>@MIN_MACOS@</string>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.music</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>NSHumanReadableCopyright</key>
+	<string>MIT license</string>
+</dict>
+</plist>

@@ -74,6 +74,14 @@ if [ -d "/Library/Audio/Plug-Ins/HAL/OzzyHAL.driver" ]; then
     echo "✅ HAL Driver removed"
 fi
 
+# Remove the ozzy app
+if [ -d "/Applications/Ozzy.app" ]; then
+    echo "🗑️  Removing the ozzy app..."
+    pkill -x ozzy 2>/dev/null || true
+    sudo rm -rf "/Applications/Ozzy.app"
+    echo "✅ Ozzy.app removed"
+fi
+
 # Remove ozzy-cli (and ozzyctl, its old name)
 if [ -f "/usr/local/bin/ozzy-cli" ] || [ -f "/usr/local/bin/ozzyctl" ]; then
     echo "🗑️  Removing ozzy-cli..."

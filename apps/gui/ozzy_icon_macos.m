@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 /*
- * macOS: ozzy.png as the application's icon (Dock, app switcher). The app runs as a plain
- * executable, without a bundle and its icon file, so it sets its own once NSApp exists
- * (uiInit). Called from ozzy_icon.c.
+ * macOS: ozzy.png as the application's icon (Dock, app switcher), once NSApp exists (uiInit).
+ * Installed, the app is Ozzy.app with ozzy.icns (macos/install.command); this is for the plain
+ * executable meson builds, which has no bundle and so no icon of its own. Called from ozzy_icon.c.
  *
  * Copyright (C) 2024 Marcel Bierling <marcel@hackerman.art>
  */

@@ -54,27 +54,34 @@ registry key and applied when the device comes up.
 
 ## Build
 
-Visual Studio 2022 with the Windows Driver Kit (with ACX 1.1 headers, WDK 10.0.22621 or later):
+With the Enterprise WDK (EWDK: Build Tools, SDK and WDK in one ISO, no Visual Studio install;
+tested with the 26H1 EWDK, build 28000): mount the ISO, then
 
 ```
+D:\BuildEnv\SetupBuildEnv.cmd amd64
 msbuild ozzy.vcxproj /p:Configuration=Release /p:Platform=x64
 ```
 
-## Install (test signing)
+Visual Studio with the WDK works the same way. The build test-signs the package
+(`x64\Release\ozzy\`: `ozzy.inf`, `ozzy.sys`, `ozzy.cat`) with the WDK's test certificate.
 
-The driver is test-signed by the build. On the test PC, once:
+## Install
+
+Ozzy is test-signed, not signed by Microsoft, so Windows loads it only with **Secure Boot off** (in
+the PC's firmware settings) and test signing on. `install.cmd` does the rest (it asks for
+administrator rights):
 
 ```
-bcdedit /set testsigning on      (then reboot)
+install.cmd              the package already built next to it
+install.cmd -Build       build it first with the EWDK (a mounted one, or C:\ewdk\*.iso; -Ewdk <iso>)
 ```
 
-Then install it for the device (this replaces the official driver; roll it back in Device Manager):
-
-```
-pnputil /add-driver x64\Release\ozzy\ozzy.inf /install
-```
+It turns test signing on (a restart the first time), trusts the certificate the package is signed
+with, adds the package to the driver store and switches every connected supported device to Ozzy,
+also from the manufacturer's driver or WinUSB. `uninstall.cmd` removes the driver again
+(`-All`: also the certificate, and test signing off).
 
 Log output: DebugView (Capture Kernel) or WinDbg. It prints `[Ozzy]` / `[Ploytec]` lines under
 the IHVAUDIO component (`ed nt!Kd_IHVAUDIO_Mask 0xffffffff`).
 
-Distributing it to others needs attestation signing (EV certificate + Partner Center).
+Ozzy isn't attestation-signed (that needs a paid EV certificate), so Secure Boot stays off for it.

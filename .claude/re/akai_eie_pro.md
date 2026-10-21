@@ -476,6 +476,12 @@ A YamahaMusicians forum post says snd-usb-audio runs an "EIE Pro" with 2 ports o
 - Descriptors: endpoint numbers, alt settings and types are known from eie-pro-linux (section 2).
   Still unknown: bInterval of EP 0x02 and EP 0x81 (the kext branches on both) and wMaxPacketSize.
   Read them at probe time and log them.
+  Issue #73 (2026-10-19, `logs/github_issue_73/`) posted an `ioreg -p IOUSB` dump from an old
+  PowerPC Mac. It shows only the device descriptor, because the IOUSB plane on that OS lists no
+  interfaces: bcdUSB 0x0200, bcdDevice 0x0200, class/subclass/protocol FF/FF/FF, bMaxPacketSize0
+  64, one configuration, strings 1/2/3 ("Akai Professional, LP" / "EIE pro" / "no serial
+  number"), enumerated at High Speed. It contains no endpoint data. Ask for `lsusb -v` or
+  `ioreg -p IOService -l -w0 -r -n "EIE pro"` on a newer OS to get the endpoint data.
 - Feedback: the prototype confirms 3 bytes per microframe and what bytes 1-2 hold (section 2).
 - What `0x791` / `0x793` mean. They are never read. Both are 1, which matches the alt 1 the prototype sets on both interfaces (**inferred**).
 - The meaning of the MIDI control byte (out 0xE0|x, in byte 8).

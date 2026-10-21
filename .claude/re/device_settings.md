@@ -276,8 +276,12 @@ no); without, the families write none and publish no spacing. Where they're read
 a setting, framed as what it allows: `OZZY_SETTING_IO_BUFFER_MAX`, the largest IO buffer, 300 /
 600 / 1200 / 2400 frames (default 1200), anchors every 8/3 of it in whole out transfers (800 /
 1600 / 3200 / 6400 at 10-frame transfers; 3200 at the default, as before). The 3/8 cap is the one
-measurement we have (640 -> 240 frames); the user knows CoreAudio dislikes anchors too close and
-too far apart, the lower and upper bound are to be found on hardware.
+measurement we have (640 -> 240 frames). **Told by the user (2026-10-19): with too many
+timestamps (anchors too close together) CoreAudio "totally craps out": it spams the log and even
+crashes.** The spacing that did it isn't recorded; Ozzy ran for a long time at 640 frames (the
+#74 era), and the smallest it offers now is 800 (largest IO buffer 300, 10-frame transfers).
+Too few (too far apart) is also bad, symptoms not recorded yet. Both bounds are to be found on
+hardware before the choices are final.
 
 **ozzy, the app** (`apps/gui/`, 2026-10-18): one libui-ng window (C, native widgets: Cocoa, Win32, GTK 3),
 built with meson; libui-ng is a meson wrap pinned to 43ba1ef with a patch (its macOS flags as

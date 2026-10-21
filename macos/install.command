@@ -1,6 +1,9 @@
 #!/bin/bash
 set -e
 
+# System tools first: on a case-insensitive disk, libwww-perl's HEAD (/usr/local/bin) runs as head
+export PATH="/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
+
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd "$DIR"
 

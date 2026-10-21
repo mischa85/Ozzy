@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# System tools first: on a case-insensitive disk, libwww-perl's HEAD (/usr/local/bin) runs as head
+export PATH="/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
+
 # ==========================================
 #  Ozzy Debug Logger
 #  "The Black Box Logging Inspector"

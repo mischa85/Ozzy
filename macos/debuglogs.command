@@ -32,6 +32,27 @@ echo "   (This may take a few seconds)"
 
 echo "-----------------------------------------------------" >> "$LOGFILE"
 echo "OZZY DEBUG LOG - $(date)" >> "$LOGFILE"
+
+# What runs here, so a report doesn't depend on what gets pasted
+{
+    echo "macOS: $(sw_vers -productVersion) ($(sw_vers -buildVersion)), $(uname -m)"
+    echo "SIP: $(csrutil status 2>/dev/null | head -n 1)"
+    echo "Loaded kext:"
+    { kmutil showloaded 2>/dev/null || kextstat 2>/dev/null; } | grep -i "ozzy" || echo "   (none)"
+    echo "Installed kext UUID: $(dwarfdump --uuid /Library/Extensions/OzzyKext.kext/Contents/MacOS/OzzyKext 2>/dev/null | awk '{ print $2; exit }')"
+    echo "USB devices:"
+    ioreg -p IOUSB -w0 | sed 's/^/   /'
+    echo "-----------------------------------------------------"
+    INSTALL_LOG=$(ls -t "$HOME"/Desktop/Ozzy_Install_Log_*.txt 2>/dev/null | head -n 1)
+    if [ -n "$INSTALL_LOG" ]; then
+        echo "LATEST INSTALL LOG ($INSTALL_LOG)"
+        cat "$INSTALL_LOG"
+    else
+        echo "No install log on the Desktop"
+    fi
+    echo "-----------------------------------------------------"
+} >> "$LOGFILE" 2>&1
+
 echo "HISTORY (Start - Last 2h)" >> "$LOGFILE"
 
 # log show came with 10.12; 10.11 writes the kernel and plugin lines to system.log

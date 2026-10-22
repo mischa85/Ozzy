@@ -9,6 +9,30 @@ cd "$DIR"
 
 clear
 
+# Commit we build from, logged by the kext and HAL at startup (common/ozzy_version.h): git
+# describe only where the checkout is Ozzy's own, not a repository the sources sit in; else the
+# commit git archive / a GitHub ZIP wrote into ozzy_version.txt
+ROOT="$(cd "$DIR/.." && pwd -P)"
+if [ "$(git -C "$ROOT" rev-parse --show-toplevel 2>/dev/null)" = "$ROOT" ]; then
+    GIT_VERSION=$(git -C "$ROOT" describe --always --dirty)
+else
+    GIT_VERSION=$(cat "$ROOT/common/ozzy_version.txt" 2>/dev/null)
+    case "$GIT_VERSION" in ''|*Format*) GIT_VERSION=unknown ;; esac
+fi
+
+# Everything this script prints also goes to a log on the Desktop, which bug reports attach whole:
+# pasted excerpts tend to leave out the lines that matter (the build, the macOS version)
+LOGFILE="$HOME/Desktop/Ozzy_Install_Log_$(date "+%Y-%m-%d_%H-%M-%S").txt"
+exec > >(tee -a "$LOGFILE") 2>&1
+trap 'echo ""; echo "📄 Full log: $LOGFILE (attach the whole file to an issue)"' EXIT
+echo "Ozzy install $(date)"
+echo "Build: $GIT_VERSION"
+echo "macOS: $(sw_vers -productVersion) ($(sw_vers -buildVersion)), $(uname -m)"
+echo "Xcode: $(xcodebuild -version 2>/dev/null | tr '\n' ' ')SDK $(xcrun --sdk macosx --show-sdk-version 2>/dev/null)"
+echo "SIP: $(csrutil status 2>/dev/null | head -n 1)"
+echo "OZZY_DISABLE: ${OZZY_DISABLE:-none}"
+echo ""
+
 # Check for existing installations
 KEXT_INSTALLED=false
 DEXT_INSTALLED=false
@@ -228,16 +252,6 @@ fi
 
 SDKROOT=$(xcrun --sdk macosx --show-sdk-path)
 
-# Commit we build from, logged by the kext and HAL at startup (common/ozzy_version.h): git
-# describe only where the checkout is Ozzy's own, not a repository the sources sit in; else the
-# commit git archive / a GitHub ZIP wrote into ozzy_version.txt
-ROOT="$(cd "$DIR/.." && pwd -P)"
-if [ "$(git -C "$ROOT" rev-parse --show-toplevel 2>/dev/null)" = "$ROOT" ]; then
-    GIT_VERSION=$(git -C "$ROOT" describe --always --dirty)
-else
-    GIT_VERSION=$(cat "$ROOT/common/ozzy_version.txt" 2>/dev/null)
-    case "$GIT_VERSION" in ''|*Format*) GIT_VERSION=unknown ;; esac
-fi
 echo "   🏷️  Build: $GIT_VERSION"
 KERNEL_HEADERS="$SDKROOT/System/Library/Frameworks/Kernel.framework/Headers"
 

@@ -25,6 +25,18 @@
 #define kAudioObjectPropertyElementMain kAudioObjectPropertyElementMaster
 #endif
 
+/*
+ * CoreAudio's process objects came with macOS 14 and its SDK; older SDKs don't name them, so their
+ * values from it. What uses them asks CoreAudio first, so older systems go without (read_clients).
+ */
+#ifndef __MAC_14_0
+#define kAudioHardwarePropertyProcessObjectList 'prs#'
+#define kAudioHardwarePropertyTranslatePIDToProcessObject 'id2p'
+#define kAudioProcessPropertyDevices 'pdv#'
+#define kAudioProcessPropertyIsRunningInput 'piri'
+#define kAudioProcessPropertyIsRunningOutput 'piro'
+#endif
+
 /* Same values as engine/shared/ozzy_shared_data.h (its client side is C++, for the HAL) */
 #define OZZY_PROPERTY_SETTING 'ozst'
 #define OZZY_PROPERTY_INFO 'ozin'

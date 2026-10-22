@@ -386,14 +386,17 @@ MIDI_PATH="$DIR/Build/Release/OzzyMIDI.plugin"
 codesign --sign "$CODE_SIGN_IDENTITY" --force --options runtime "$MIDI_PATH" 2>/dev/null || codesign --sign "$CODE_SIGN_IDENTITY" --force "$MIDI_PATH"
 echo "✅ MIDI Driver compiled and signed"
 
-# Compile ozzy-cli (settings from the command line)
+# Compile ozzy-cli (settings from the command line). The drivers don't need it: if it doesn't
+# build, they install without it, as without the app.
 echo ""
 echo "🔨 [4/5] Compiling ozzy-cli..."
-if ! make -s -C "$DIR/../apps/cli" MACOSX_DEPLOYMENT_TARGET="$MIN_MACOS" > /dev/null; then
-    echo "❌ Error: building ozzy-cli failed"
-    exit 1
+CLI_PATH="$DIR/../apps/cli/ozzy-cli"
+if make -s -C "$DIR/../apps/cli" MACOSX_DEPLOYMENT_TARGET="$MIN_MACOS" > /dev/null; then
+    echo "✅ ozzy-cli compiled"
+else
+    CLI_PATH=""
+    echo "⚠️  ozzy-cli didn't build (errors above); the drivers install without it"
 fi
-echo "✅ ozzy-cli compiled"
 
 # Compile the ozzy app and make it Ozzy.app. Meson builds it (and fetches libui-ng); without a
 # meson and ninja of the system's, pinned ones go into a Python environment of the build's own
@@ -524,10 +527,12 @@ sudo chmod -R 755 "/Library/Audio/MIDI Drivers/OzzyMIDI.plugin"
 sudo touch "/Library/Audio/MIDI Drivers"
 
 # Install ozzy-cli (and drop ozzyctl, its old name)
-sudo mkdir -p /usr/local/bin
-sudo install -m 755 "$DIR/../apps/cli/ozzy-cli" /usr/local/bin/ozzy-cli
-sudo rm -f /usr/local/bin/ozzyctl
-echo "✅ ozzy-cli installed to /usr/local/bin"
+if [ -n "$CLI_PATH" ]; then
+    sudo mkdir -p /usr/local/bin
+    sudo install -m 755 "$CLI_PATH" /usr/local/bin/ozzy-cli
+    sudo rm -f /usr/local/bin/ozzyctl
+    echo "✅ ozzy-cli installed to /usr/local/bin"
+fi
 
 # Install Ozzy.app (an open one quits first: it holds the old build)
 if [ -n "$APP_PATH" ]; then

@@ -410,6 +410,39 @@ static int hs_esi_cpld(const struct ploytec_host_ops *ops, void *ctx)
 }
 
 /*
+ * hs_wm8776_defaults - The codec registers Windows' WM8776SetDefault writes at every
+ * configurationDone when the registry holds none: per codec R7 = 0x090 (stereo playback),
+ * R21 (ADC mux) = AIN1 Mic/Line on 1/2, AIN3 Aux on 3/4, R22 = 0x001 (playback, no direct
+ * monitoring).
+ */
+static int hs_wm8776_defaults(const struct ploytec_host_ops *ops, void *ctx)
+{
+	static const struct { uint16_t index; uint8_t reg; uint16_t value; } regs[] = {
+		{ PLOYTEC_WM8776_INDEX_12, 7, 0x090 },
+		{ PLOYTEC_WM8776_INDEX_12, 21, 0x001 },
+		{ PLOYTEC_WM8776_INDEX_12, 22, 0x001 },
+		{ PLOYTEC_WM8776_INDEX_34, 7, 0x090 },
+		{ PLOYTEC_WM8776_INDEX_34, 21, 0x004 },
+		{ PLOYTEC_WM8776_INDEX_34, 22, 0x001 },
+	};
+	unsigned int i;
+	int ret;
+
+	for (i = 0; i < sizeof(regs) / sizeof(regs[0]); i++) {
+		ret = ops->control(ctx, PLOYTEC_REQTYPE_VENDOR_OUT, PLOYTEC_CMD_ESI_A,
+				   (uint16_t)(regs[i].reg << 9 | (regs[i].value & 0x1FF)),
+				   regs[i].index, 0, 0);
+		if (ret < 0) {
+			hs_log(ops, ctx, true, "WM8776 write 0x%04X R%u failed (ret=%d)",
+			       regs[i].index, regs[i].reg, ret);
+			return ret;
+		}
+	}
+	hs_log(ops, ctx, false, "WM8776 defaults written");
+	return 0;
+}
+
+/*
  * hs_clear_pcm_halt - Reset both PCM endpoints before streaming starts.
  * The A&H Windows driver does this after the status confirm (abort + clear
  * ENDPOINT_HALT on EP 0x86, then EP 0x05), seen in captures of the Xone:DB2 and
@@ -472,7 +505,9 @@ int ploytec_handshake_eps(const struct ploytec_host_ops *ops, void *ctx, uint32_
 		goto err;
 
 	/* The official driver reads the firmware first (onServiceStart), then waits in configurationDone */
-	if (quirks & OZZY_QUIRK_WAIT_200MS)
+	if (quirks & OZZY_QUIRK_WAIT_1000MS)
+		ops->sleep_ms(ctx, 1000);
+	else if (quirks & OZZY_QUIRK_WAIT_200MS)
 		ops->sleep_ms(ctx, 200);
 	else if (quirks & OZZY_QUIRK_WAIT_100MS)
 		ops->sleep_ms(ctx, 100);
@@ -510,6 +545,11 @@ int ploytec_handshake_eps(const struct ploytec_host_ops *ops, void *ctx, uint32_
 	}
 	if (quirks & OZZY_QUIRK_ESI_CPLD) {
 		ret = hs_esi_cpld(ops, ctx);
+		if (ret < 0)
+			goto err;
+	}
+	if (quirks & OZZY_QUIRK_WM8776) {
+		ret = hs_wm8776_defaults(ops, ctx);
 		if (ret < 0)
 			goto err;
 	}

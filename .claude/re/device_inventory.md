@@ -94,7 +94,8 @@ independently confirming Ozzy's isochronous path.
 | 15E4:0026 | Numark 4Trak | 2 / 4 | 44.1k | plist (kInACR 8) | none | in Ozzy (experimental, NS7 MIDI framing) |
 | 15E4:0074 | Numark Omni Control (#93, lsusb) | 4 / 4 | 44.1–96k | Windows 2.9.13 nkc2_usb.sys (generic Ploytec build; `OEM_DRIVERS/Numark_OmniControl/findings.md`) | none | in Ozzy (experimental); MIDI IN is `M4_M4_C1` on Windows (Ozzy reads port 1); the driver takes the real counts from 'V' bytes 3/4 ×2, unverified on hardware |
 | 15E4:002C, 0070, 0078 | further Numark PIDs in the EIE 3.3.17 kext (0070, 0078 get the Omni Control's path on Windows) | ? | | kext list | | identify (#93) |
-| 0A4A:0014, 5B01 | unidentified | ? | | kext list | | identify (#93) |
+| 0A4A:5B01 | Musonik (ex-Terrasoniq) PHASE X64 USB (#93, lsusb) | 6 / 4 (4 analog + probably AK4114 S/PDIF in) | 44.1–96k | kext 2.0.4 (`PGKernelDeviceDrvPHASEX64`, hard-coded, no plist table), Windows 2.9.34 (`OEM_DRIVERS/Musonik_PhaseX64/findings.md`) | none | in Ozzy (experimental): AJ_BIT0, DIGITAL_IN, SPDIF_OUT (kext; Windows omits it), 1000 ms wait (Windows 600 ms), WM8776 defaults ('A' wValue reg<<9\|val, wIndex 0x0102 / 0x0106: Mic/Line on 1/2, Aux on 3/4, no direct monitoring). Missing: the input switches as settings, host RIAA for Phono (official driver: kernel on Windows, HAL on Mac), the sound module (AIN4), Windows' second MIDI port. Power-on codec state unknown |
+| 0A4A:0014 | unidentified | ? | | kext list | | identify (#93) |
 
 Tascam setup, from the official generic PGDevice code (EIE kext decompile; the us144mkii driver
 sends the same values, facts only):
@@ -171,7 +172,7 @@ quirk). Details in `findings_other_and_projects.md`.
 v3 (June 2026) used 0x1009 for the Jockey 3 ME, which this suggests is wrong (?).
 
 ## Open questions
-- Identify: 1ACC:0102, 1D03:005C, 200C:1006, 0A4A AFFE/CF00/CF04/DA01/0003/1016/6A02/F1A0/0014/5B01,
+- Identify: 1ACC:0102, 1D03:005C, 200C:1006, 0A4A AFFE/CF00/CF04/DA01/0003/1016/6A02/F1A0/0014,
   0644:8048, 0644:8012 ("US-144 Pro"), the extra Numark PIDs.
 - Decode the remaining flag bytes 0x143, 0x145, 0x146, 0x14a, 0x14b, 0x14e.
 - Alesis MultiMix real format; Dynacord original revision layout.

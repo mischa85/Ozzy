@@ -88,6 +88,14 @@ wLength:       0
 - wIndex=0x0101 → ESU clock source config
 - wIndex=0x0102/0x0106 → Wolfson codec register write
 
+The one known user is the Musonik PHASE X64 USB (0A4A:5B01, two WM8776). Its Windows 2.9.34
+driver (`WM8776SetDefault`, in configurationDone) writes the registry values, or else these
+defaults: codec 0 R7=0x090, R21=0x001, R22=0x001; codec 1 R7=0x090, R21=0x004, R22=0x001. The
+Mac kext 2.0.4 writes them only from its control panel. R21 is the ADC input mux (bit 0 Mic/Line/
+HiZ, 1 Phono, 2 Aux, 3 sound module, 4 loopback of the other output pair; 0xC0 = muted), R22
+the output mux (bit 0 playback, 1/2 direct monitoring), R7 0x090 stereo / 0x0F0 mono playback.
+Ozzy writes the defaults (`OZZY_QUIRK_WM8776`). Details: `OEM_DRIVERS/Musonik_PhaseX64/findings.md`.
+
 ### 'B' (0x42) — Reverb Buffer Write (VID 0x0644)
 
 From `startStreaming`, for 0x644 devices with `this[0x7DC]` set:

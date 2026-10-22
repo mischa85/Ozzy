@@ -137,6 +137,21 @@ enum ozzy_quirk {
 	 * harness); Linux and Windows report positions per transfer instead.
 	 */
 	OZZY_QUIRK_CLOCK_ANCHORS = 1u << 18,
+
+	/*
+	 * Wait 1000 ms before the setup requests (Musonik PHASE X64): the 2.0.4 kext's
+	 * initDeviceSpecificData sets PGDevice+0x2d8 = 1000, slept in configurationDone.
+	 * Windows 2.9.34 waits 600 ms, after the first configuration only.
+	 */
+	OZZY_QUIRK_WAIT_1000MS = 1u << 19,
+
+	/*
+	 * Write the WM8776 codec defaults in configurationDone (Musonik PHASE X64): Windows
+	 * 2.9.34's WM8776SetDefault, which sets inputs 1/2 to Mic/Line, inputs 3/4 to Aux,
+	 * playback on both output pairs and direct monitoring off. The Mac kext leaves the codecs
+	 * to its control panel, so their power-on state is unknown.
+	 */
+	OZZY_QUIRK_WM8776 = 1u << 20,
 };
 
 #endif /* OZZY_QUIRKS_H */

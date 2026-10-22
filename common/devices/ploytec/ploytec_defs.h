@@ -96,6 +96,14 @@ extern "C" {
 #define PLOYTEC_SPDIF_REG_FIRST     0x0D
 #define PLOYTEC_SPDIF_REGS          5
 
+/*
+ * 'A' writes to a WM8776 codec (WM8776Write; Musonik PHASE X64): wValue = (register << 9) |
+ * 9-bit value, wIndex picks the codec. Registers: 7 playback (stereo 0x090), 21 ADC input
+ * mux (one bit per AIN), 22 output mux.
+ */
+#define PLOYTEC_WM8776_INDEX_12     0x0102  /* codec 0: inputs / outputs 1/2 */
+#define PLOYTEC_WM8776_INDEX_34     0x0106  /* codec 1: inputs / outputs 3/4 */
+
 /* SET_CUR sample rate endpoint addresses (wIndex field) */
 #define PLOYTEC_EP_RATE_IN          0x0086
 #define PLOYTEC_EP_RATE_OUT         0x0005

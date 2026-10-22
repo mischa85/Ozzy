@@ -178,6 +178,21 @@ OZZY_DEVICE(NumarkOmniControl, 0x15E4, 0x0074, "Numark Omni Control", PLOYTEC_IS
 #endif
 
 /*
+ * Musonik (ex-Terrasoniq) PHASE X64 USB (#93), kext 2.0.4 (PGKernelDeviceDrvPHASEX64, no plist
+ * table) and Windows 2.9.34: 6 in (4 analog, lanes 5/6 probably the AK4114 S/PDIF in) / 4 out,
+ * 44.1-96k, M4_C1 MIDI. The kext's selector bit 0, digital in and S/PDIF out lists hold it,
+ * and it sleeps 1000 ms before the setup requests. The input switches are two WM8776 codecs;
+ * Ozzy writes Windows' defaults (Mic/Line on 1/2, Aux on 3/4). Phono needs host RIAA, which
+ * Ozzy doesn't do.
+ */
+#ifndef OZZY_DISABLE_MusonikPhaseX64
+OZZY_DEVICE(MusonikPhaseX64, 0x0A4A, 0x5B01, "Musonik PHASE X64 USB", PLOYTEC_ISOC, 6, 4,
+	    OZZY_RATE_44K1 | OZZY_RATE_48K | OZZY_RATE_88K2 | OZZY_RATE_96K, EXPERIMENTAL,
+	    OZZY_QUIRK_AJ_BIT0 | OZZY_QUIRK_DIGITAL_IN | OZZY_QUIRK_SPDIF_OUT |
+	    OZZY_QUIRK_WAIT_1000MS | OZZY_QUIRK_WM8776)
+#endif
+
+/*
  * Reloop Jockey 3 Master Edition 3.4.10 kext (kConfigurationData, same flags as the DB2/DB4):
  * 6 in / 4 out, 44.1-96k, kInACR 1 (the Xone MIDI rule). The upstream Linux jockey3 patch v3
  * uses 0x1009 for it; Reloop's kexts say 0x1009 is the Digital Jockey 2 ME and 0x1019 this.

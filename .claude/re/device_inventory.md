@@ -92,7 +92,8 @@ independently confirming Ozzy's isochronous path.
 | 15E4:0079 | Numark NS6 | 4 / 4 | 44.1k | plist (kInACR 8) | none | in Ozzy (experimental, NS7 MIDI framing) |
 | 15E4:0040 | Numark MixDeck | 4 / 4 | 44.1/88.2k | plist (kInACR 2) | none | in Ozzy (experimental) |
 | 15E4:0026 | Numark 4Trak | 2 / 4 | 44.1k | plist (kInACR 8) | none | in Ozzy (experimental, NS7 MIDI framing) |
-| 15E4:002C, 0070, 0074, 0078 | further Numark PIDs in the EIE 3.3.17 kext | ? | | kext list | | identify (#93) |
+| 15E4:0074 | Numark Omni Control (#93, lsusb) | 4 / 4 | 44.1–96k | Windows 2.9.13 nkc2_usb.sys (generic Ploytec build; `OEM_DRIVERS/Numark_OmniControl/findings.md`) | none | in Ozzy (experimental); MIDI IN is `M4_M4_C1` on Windows (Ozzy reads port 1); the driver takes the real counts from 'V' bytes 3/4 ×2, unverified on hardware |
+| 15E4:002C, 0070, 0078 | further Numark PIDs in the EIE 3.3.17 kext (0070, 0078 get the Omni Control's path on Windows) | ? | | kext list | | identify (#93) |
 | 0A4A:0014, 5B01 | unidentified | ? | | kext list | | identify (#93) |
 
 Tascam setup, from the official generic PGDevice code (EIE kext decompile; the us144mkii driver

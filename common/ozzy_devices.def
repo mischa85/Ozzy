@@ -168,6 +168,16 @@ OZZY_DEVICE(NumarkMixDeck, 0x15E4, 0x0040, "Numark MixDeck", PLOYTEC_ISOC, 4, 4,
 #endif
 
 /*
+ * Omni Control (#93), Windows driver 2.9.13 (generic Ploytec nkc2_usb.sys, no Mac plist): 4 in /
+ * 4 out at High Speed, 44.1-96k, two-port MIDI frame (M4_M4_C1, Ozzy reads port 1), no
+ * device-specific requests. The driver overrides the counts from the 'V' reply (bytes 3/4 x2).
+ */
+#ifndef OZZY_DISABLE_NumarkOmniControl
+OZZY_DEVICE(NumarkOmniControl, 0x15E4, 0x0074, "Numark Omni Control", PLOYTEC_ISOC, 4, 4,
+	    OZZY_RATE_44K1 | OZZY_RATE_48K | OZZY_RATE_88K2 | OZZY_RATE_96K, EXPERIMENTAL, 0)
+#endif
+
+/*
  * Reloop Jockey 3 Master Edition 3.4.10 kext (kConfigurationData, same flags as the DB2/DB4):
  * 6 in / 4 out, 44.1-96k, kInACR 1 (the Xone MIDI rule). The upstream Linux jockey3 patch v3
  * uses 0x1009 for it; Reloop's kexts say 0x1009 is the Digital Jockey 2 ME and 0x1019 this.

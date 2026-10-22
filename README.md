@@ -69,6 +69,7 @@ These use the same Ploytec chip. Their channels, rates and setup requests come f
 | **Numark MixDeck** | 4 / 4 | 44.1/88.2 kHz |  |
 | **Numark NS6** | 4 / 4 | 44.1 kHz |  |
 | **Numark NS7** | 4 / 4 | 44.1 kHz |  |
+| **Numark Omni Control** | 4 / 4 | 44.1–96 kHz | First MIDI port only |
 | **Numark V7** | 4 / 4 | 44.1 kHz |  |
 | **Reloop Contour Interface Edition** | 2 / 10 | 44.1 kHz |  |
 | **Reloop Digital Jockey 2 Master Edition** | 6 / 4 | 44.1 kHz |  |

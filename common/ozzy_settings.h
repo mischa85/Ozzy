@@ -5,8 +5,9 @@
  * The user-facing settings a device can have, their values and names. Which device has
  * which setting follows its quirk bits (ozzy_quirks.h) and, for routing, its channel
  * counts. Two kinds:
- *   - device settings (clock source, S/PDIF out mode): the family's protocol code sends
- *     them in its handshake (ploytec_handshake.c), so a change restarts streaming
+ *   - device settings (clock source, S/PDIF out mode, codec switches): the family's
+ *     protocol code sends them in its handshake (ploytec_handshake.c), so a change restarts
+ *     streaming (as the PHASE X64's own panels stop streaming around a codec change)
  *   - routes and output pairs: which stereo pair goes where, applied by the host's codecs
  *     (ozzy_route.h, the family's encoder), no request and no restart
  * Platforms only map the settings onto their own tooling:
@@ -52,6 +53,15 @@ enum ozzy_setting {
 	OZZY_SETTING_PCM_OUT_QUEUE,   /* PCM out transfers in flight (Ploytec bulk / interrupt) */
 	OZZY_SETTING_PCM_IN_QUEUE,    /* PCM in transfers in flight (Ploytec bulk / interrupt) */
 	OZZY_SETTING_IO_BUFFER_MAX,   /* the largest IO buffer the host may use: the clock anchors' spacing */
+	OZZY_SETTING_WM_INPUT_12,     /* WM8776 codecs (PHASE X64): what inputs 1-2 record */
+	OZZY_SETTING_WM_INPUT_34,
+	OZZY_SETTING_WM_PLAYBACK_12,  /* outputs 1-2 play the host */
+	OZZY_SETTING_WM_MONO_12,      /* ... in mono */
+	OZZY_SETTING_WM_DIRECT_12,    /* outputs 1-2 play inputs 1-2 (direct monitoring) */
+	OZZY_SETTING_WM_PLAYBACK_34,
+	OZZY_SETTING_WM_MONO_34,
+	OZZY_SETTING_WM_DIRECT_34,
+	OZZY_SETTING_WM_MODULE_34,    /* outputs 3-4 play the sound module */
 	OZZY_NUM_SETTINGS
 };
 
@@ -84,6 +94,43 @@ enum ozzy_spdif_out_mode {
 	OZZY_SPDIF_OUT_PROFESSIONAL = 1,
 	OZZY_NUM_SPDIF_OUT_MODES
 };
+
+/*
+ * The WM8776 settings (OZZY_QUIRK_WM8776, Musonik PHASE X64): the official control panels'
+ * switches, which the handshake writes to the two codecs (ploytec_handshake.c). Defaults: what
+ * the Windows driver writes without saved ones. Inputs: one source per pair, as the Windows
+ * panel offers them (the Mac panel can mix several, except Phono). Phono is recorded flat: the
+ * RIAA curve is the user's to add. The unit's side switches (Aux/Phono, Mic/Line, Line/Hi-Z)
+ * pick the jack before this and have to match.
+ */
+enum ozzy_wm_input_12 {
+	OZZY_WM_IN12_MIC_LINE,
+	OZZY_WM_IN12_PHONO,
+	OZZY_WM_IN12_AUX,
+	OZZY_WM_IN12_MODULE,
+	OZZY_WM_IN12_OUT34,           /* what outputs 3-4 play (their analog signal) */
+	OZZY_WM_IN12_OFF,
+	OZZY_NUM_WM_IN12
+};
+
+enum ozzy_wm_input_34 {
+	OZZY_WM_IN34_PHONO,
+	OZZY_WM_IN34_AUX,
+	OZZY_WM_IN34_MODULE,
+	OZZY_WM_IN34_OUT12,
+	OZZY_WM_IN34_OFF,
+	OZZY_NUM_WM_IN34
+};
+
+/* OZZY_SETTING_WM_DIRECT_12: the Mac panel offers Mono only with Mic/Line and Direct on */
+enum ozzy_wm_direct {
+	OZZY_WM_DIRECT_OFF,
+	OZZY_WM_DIRECT_ON,
+	OZZY_WM_DIRECT_MONO,
+	OZZY_NUM_WM_DIRECT
+};
+
+#define OZZY_NUM_OFF_ON 2
 
 /*
  * OZZY_SETTING_PCM_OUT_FRAMES / _IN_FRAMES values: how many of the device's sub-packets one PCM
@@ -231,6 +278,12 @@ static const char *const ozzy_pcm_queue_names[OZZY_NUM_PCM_QUEUES] = {
 	"1 transfer", "2 transfers", "3 transfers", "4 transfers" };
 static const char *const ozzy_io_buffer_names[OZZY_NUM_IO_BUFFERS] = {
 	"300 frames", "600 frames", "1200 frames", "2400 frames" };
+static const char *const ozzy_wm_input_12_names[OZZY_NUM_WM_IN12] = {
+	"Mic/Line", "Phono", "Aux", "Sound Module", "Outputs 3-4", "Off" };
+static const char *const ozzy_wm_input_34_names[OZZY_NUM_WM_IN34] = {
+	"Phono", "Aux", "Sound Module", "Outputs 1-2", "Off" };
+static const char *const ozzy_wm_direct_names[OZZY_NUM_WM_DIRECT] = { "Off", "On", "Mono" };
+static const char *const ozzy_off_on_names[OZZY_NUM_OFF_ON] = { "Off", "On" };
 
 static const struct ozzy_setting_desc ozzy_setting_descs[OZZY_NUM_SETTINGS] = {
 	/* Positional: the macOS kext compiles this as C++11 */
@@ -261,6 +314,24 @@ static const struct ozzy_setting_desc ozzy_setting_descs[OZZY_NUM_SETTINGS] = {
 	  OZZY_QUIRK_PCM_IN_QUEUE, OZZY_SETTING_DEVICE, 0 },
 	{ "Largest IO Buffer", ozzy_io_buffer_names, OZZY_NUM_IO_BUFFERS, 2,
 	  OZZY_QUIRK_CLOCK_ANCHORS, OZZY_SETTING_DEVICE, 0 },
+	{ "Input 1-2 Source", ozzy_wm_input_12_names, OZZY_NUM_WM_IN12, OZZY_WM_IN12_MIC_LINE,
+	  OZZY_QUIRK_WM8776, OZZY_SETTING_DEVICE, 0 },
+	{ "Input 3-4 Source", ozzy_wm_input_34_names, OZZY_NUM_WM_IN34, OZZY_WM_IN34_AUX,
+	  OZZY_QUIRK_WM8776, OZZY_SETTING_DEVICE, 0 },
+	{ "Output 1-2 Playback", ozzy_off_on_names, OZZY_NUM_OFF_ON, 1,
+	  OZZY_QUIRK_WM8776, OZZY_SETTING_DEVICE, 0 },
+	{ "Output 1-2 Mono", ozzy_off_on_names, OZZY_NUM_OFF_ON, 0,
+	  OZZY_QUIRK_WM8776, OZZY_SETTING_DEVICE, 0 },
+	{ "Output 1-2 Direct", ozzy_wm_direct_names, OZZY_NUM_WM_DIRECT, OZZY_WM_DIRECT_OFF,
+	  OZZY_QUIRK_WM8776, OZZY_SETTING_DEVICE, 0 },
+	{ "Output 3-4 Playback", ozzy_off_on_names, OZZY_NUM_OFF_ON, 1,
+	  OZZY_QUIRK_WM8776, OZZY_SETTING_DEVICE, 0 },
+	{ "Output 3-4 Mono", ozzy_off_on_names, OZZY_NUM_OFF_ON, 0,
+	  OZZY_QUIRK_WM8776, OZZY_SETTING_DEVICE, 0 },
+	{ "Output 3-4 Direct", ozzy_off_on_names, OZZY_NUM_OFF_ON, 0,
+	  OZZY_QUIRK_WM8776, OZZY_SETTING_DEVICE, 0 },
+	{ "Output 3-4 Sound Module", ozzy_off_on_names, OZZY_NUM_OFF_ON, 0,
+	  OZZY_QUIRK_WM8776, OZZY_SETTING_DEVICE, 0 },
 };
 
 /*

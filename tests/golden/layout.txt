@@ -1,4 +1,4 @@
-version 9 size 2117440
+version 10 size 2117440
 magic                              0
 version                            4
 session_id                         8
@@ -36,11 +36,11 @@ audio.safety_offset_frames         20008
 audio.input_safety_offset_frames   20012
 audio.settings                     20016
 audio.settings.value               20020
-audio.settings.clock_locked        20033
-audio.settings.lock_rate           20036
-audio.timestamp.sequence           20040
-audio.timestamp.sample_time        20048
-audio.timestamp.host_time          20056
+audio.settings.clock_locked        20042
+audio.settings.lock_rate           20044
+audio.timestamp.sequence           20048
+audio.timestamp.sample_time        20056
+audio.timestamp.host_time          20064
 audio.hal_write_position           20160
 audio.input_buffer                 20232
 audio.output_buffer                1068808

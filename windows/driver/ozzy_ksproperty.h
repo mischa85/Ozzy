@@ -39,7 +39,8 @@ enum ozzy_ksevent_id {
 };
 
 /* Bump when struct ozzy_ksproperty_status changes */
-#define OZZY_KSPROPERTY_VERSION 5   /* 2: transfer size settings (value[] grew); 3: running; 4: streams; 5: clients */
+#define OZZY_KSPROPERTY_VERSION 6   /* 2: transfer size settings (value[] grew); 3: running; 4: streams; 5: clients;
+                                       6: WM8776 settings (value[] grew) */
 
 /*
  * How a running stream reaches the device, from who opened it and who has its buffer mapped:

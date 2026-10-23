@@ -35,6 +35,7 @@ enum gui_section {
 	GUI_SECTION_DEVICE,
 	GUI_SECTION_AUDIO,
 	GUI_SECTION_DIGITAL_OUT,
+	GUI_SECTION_CODEC,
 	GUI_SECTION_ROUTING,
 	GUI_SECTION_STREAM,
 	GUI_SECTION_HEALTH,
@@ -46,7 +47,7 @@ enum gui_section {
 #define GUI_LEFT_SECTIONS GUI_SECTION_STREAM
 
 static const char *const gui_section_titles[GUI_NUM_SECTIONS] = {
-	"Device", "Audio", "Digital output", "Routing", "Stream", "Stream health", "Endpoints", "Operating system"
+	"Device", "Audio", "Digital output", "Inputs and outputs", "Routing", "Stream", "Stream health", "Endpoints", "Operating system"
 };
 
 /* Where each group of facts goes */
@@ -77,6 +78,15 @@ static const struct {
 	[OZZY_SETTING_PCM_OUT_QUEUE]  = { GUI_SECTION_STREAM, "Out queue" },
 	[OZZY_SETTING_PCM_IN_QUEUE]   = { GUI_SECTION_STREAM, "In queue" },
 	[OZZY_SETTING_IO_BUFFER_MAX]  = { GUI_SECTION_HOST, "Largest IO buffer" },
+	[OZZY_SETTING_WM_INPUT_12]    = { GUI_SECTION_CODEC, "Inputs 1-2 record" },
+	[OZZY_SETTING_WM_INPUT_34]    = { GUI_SECTION_CODEC, "Inputs 3-4 record" },
+	[OZZY_SETTING_WM_PLAYBACK_12] = { GUI_SECTION_CODEC, "Outputs 1-2 playback" },
+	[OZZY_SETTING_WM_MONO_12]     = { GUI_SECTION_CODEC, "Outputs 1-2 mono" },
+	[OZZY_SETTING_WM_DIRECT_12]   = { GUI_SECTION_CODEC, "Outputs 1-2 direct" },
+	[OZZY_SETTING_WM_PLAYBACK_34] = { GUI_SECTION_CODEC, "Outputs 3-4 playback" },
+	[OZZY_SETTING_WM_MONO_34]     = { GUI_SECTION_CODEC, "Outputs 3-4 mono" },
+	[OZZY_SETTING_WM_DIRECT_34]   = { GUI_SECTION_CODEC, "Outputs 3-4 direct" },
+	[OZZY_SETTING_WM_MODULE_34]   = { GUI_SECTION_CODEC, "Outputs 3-4 sound module" },
 };
 
 /* One setting's row: its combobox */

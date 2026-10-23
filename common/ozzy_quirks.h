@@ -146,10 +146,11 @@ enum ozzy_quirk {
 	OZZY_QUIRK_WAIT_1000MS = 1u << 19,
 
 	/*
-	 * Write the WM8776 codec defaults in configurationDone (Musonik PHASE X64): Windows
-	 * 2.9.34's WM8776SetDefault, which sets inputs 1/2 to Mic/Line, inputs 3/4 to Aux,
-	 * playback on both output pairs and direct monitoring off. The Mac kext leaves the codecs
-	 * to its control panel, so their power-on state is unknown.
+	 * Write the two WM8776 codecs in configurationDone (Musonik PHASE X64), from the
+	 * Input / Output settings (ozzy_settings.h). Their defaults are Windows 2.9.34's
+	 * WM8776SetDefault: inputs 1/2 Mic/Line, inputs 3/4 Aux, playback on both output pairs,
+	 * direct monitoring off. The Mac kext leaves the codecs to its control panel, so their
+	 * power-on state is unknown.
 	 */
 	OZZY_QUIRK_WM8776 = 1u << 20,
 };

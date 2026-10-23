@@ -29,7 +29,7 @@ typedef std::atomic<bool>     ozzy_atomic_bool;
 
 #define OZZY_SHARED_MEM_NAME            "/ozzy_shared_mem"
 #define OZZY_MAGIC                      0x4F5A5A59   /* "OZZY" */
-#define OZZY_SHARED_VERSION             9            /* bump when ozzy_shared_memory changes layout */
+#define OZZY_SHARED_VERSION             10           /* bump when ozzy_shared_memory changes layout */
 
 /* OzzyKext user client: external method selectors */
 #define OZZY_METHOD_MIDI_OUT_PENDING    0            /* OzzyMIDI queued bytes in midi_out */

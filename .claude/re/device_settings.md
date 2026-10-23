@@ -105,6 +105,26 @@ the OS can't show. Order: external clock first (it's what users need, and it bui
   property for it, so no UI yet; the HAL restores a stored value, and the app can set it through
   the user client.
 
+## WM8776 codec switches (PHASE X64): how they are built
+
+- Nine device settings on `OZZY_QUIRK_WM8776`: Input 1-2 Source (Mic/Line, Phono, Aux, Sound
+  Module, Outputs 3-4, Off), Input 3-4 Source (Phono, Aux, Sound Module, Outputs 1-2, Off),
+  Output 1-2 Playback / Mono / Direct (Off, On, Mono), Output 3-4 Playback / Mono / Direct /
+  Sound Module. `hs_wm8776()` turns them into R7, R21, R22 per codec (bits in `ploytec_defs.h`)
+  and writes them in configurationDone, as both official drivers do at every stream start.
+- Register values from the Mac panel (`USBBridge updateWolfson:` @0x6022): R21 one bit per input,
+  0xC0 when none; R22 playback 0x01, direct 0x04, direct mono / sound module 0x02; R7 0x090 /
+  0x0F0. Direct mono writes 0x06 (direct + mono), as the Mac panel only allows mono with direct
+  on. Defaults = Windows WM8776SetDefault; with them the writes equal the Windows trace.
+- One input per pair, as the Windows panel's radio buttons (the Mac panel lets inputs mix,
+  except Phono). Mixing could be added as more enum values if anyone asks.
+- Both official panels stop streaming around a codec write (Mac `updateWolfson` suspend/resume;
+  Windows resyncs). Ozzy: device settings restart the engine, the same path.
+- Phono is recorded flat; RIAA is left to the user (not a driver's job). The side switches
+  (Aux/Phono, Mic/Line, Line/Hi-Z) sit before R21 and can't be read: they have to match.
+- The Mac panel's "ForceInternal" is the existing Clock Source setting (Internal).
+- Untested on hardware.
+
 ## Facts from the official driver (EIE kext 3.3.17 decompile `AKAI_EIE/AKAI_EIE_kext_all.c`, DB2 `DB2_decompile/XONE_DB2_kext_all.c`)
 
 **Clock source = bit 1 of 'I' wIndex 0** (generic `updateAjInputSelector`): setting AjExtData[1] = 0

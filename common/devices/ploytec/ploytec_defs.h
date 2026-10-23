@@ -104,6 +104,32 @@ extern "C" {
 #define PLOYTEC_WM8776_INDEX_12     0x0102  /* codec 0: inputs / outputs 1/2 */
 #define PLOYTEC_WM8776_INDEX_34     0x0106  /* codec 1: inputs / outputs 3/4 */
 
+/*
+ * WM8776 register bits as the PHASE X64 wires them (official control panels, Mac
+ * USBBridge updateWolfson and Windows CPL). R21, the ADC input mux: one bit per AIN, both
+ * mutes when none is picked. R22, the output mux: DAC (playback), AUX (direct mono on 1/2, the
+ * sound module on 3/4), BYPASS (direct monitoring). R7: playback in stereo or mono.
+ */
+enum ploytec_wm8776_reg {
+	PLOYTEC_WM8776_R7_DAC_MIX   = 7,
+	PLOYTEC_WM8776_R21_ADC_MUX  = 21,
+	PLOYTEC_WM8776_R22_OUT_MUX  = 22,
+};
+
+enum ploytec_wm8776_bits {
+	PLOYTEC_WM8776_AIN1         = 0x001,  /* 1/2: Mic/Line (codec 1 has none) */
+	PLOYTEC_WM8776_AIN2         = 0x002,  /* Phono */
+	PLOYTEC_WM8776_AIN3         = 0x004,  /* Aux */
+	PLOYTEC_WM8776_AIN4         = 0x008,  /* sound module */
+	PLOYTEC_WM8776_AIN5         = 0x010,  /* the other output pair */
+	PLOYTEC_WM8776_ADC_MUTE     = 0x0C0,  /* both ADC channels muted: no input */
+	PLOYTEC_WM8776_OUT_DAC      = 0x001,
+	PLOYTEC_WM8776_OUT_AUX      = 0x002,
+	PLOYTEC_WM8776_OUT_BYPASS   = 0x004,
+	PLOYTEC_WM8776_MIX_STEREO   = 0x090,
+	PLOYTEC_WM8776_MIX_MONO     = 0x0F0,
+};
+
 /* SET_CUR sample rate endpoint addresses (wIndex field) */
 #define PLOYTEC_EP_RATE_IN          0x0086
 #define PLOYTEC_EP_RATE_OUT         0x0005

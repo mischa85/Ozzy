@@ -410,35 +410,64 @@ static int hs_esi_cpld(const struct ploytec_host_ops *ops, void *ctx)
 }
 
 /*
- * hs_wm8776_defaults - The codec registers Windows' WM8776SetDefault writes at every
- * configurationDone when the registry holds none: per codec R7 = 0x090 (stereo playback),
- * R21 (ADC mux) = AIN1 Mic/Line on 1/2, AIN3 Aux on 3/4, R22 = 0x001 (playback, no direct
- * monitoring).
+ * hs_wm8776 - The codec registers from the WM8776 settings (ozzy_settings.h; NULL: their
+ * defaults), as the official drivers write them at every stream start: R7, R21, R22 of codec
+ * 0 (1/2), then of codec 1 (3/4). The defaults are Windows' WM8776SetDefault: R7 = 0x090,
+ * R21 = 0x001 (Mic/Line) / 0x004 (Aux), R22 = 0x001 (playback, no direct monitoring).
  */
-static int hs_wm8776_defaults(const struct ploytec_host_ops *ops, void *ctx)
+static int hs_wm8776(const struct ploytec_host_ops *ops, void *ctx, const struct ozzy_settings *settings)
 {
-	static const struct { uint16_t index; uint8_t reg; uint16_t value; } regs[] = {
-		{ PLOYTEC_WM8776_INDEX_12, 7, 0x090 },
-		{ PLOYTEC_WM8776_INDEX_12, 21, 0x001 },
-		{ PLOYTEC_WM8776_INDEX_12, 22, 0x001 },
-		{ PLOYTEC_WM8776_INDEX_34, 7, 0x090 },
-		{ PLOYTEC_WM8776_INDEX_34, 21, 0x004 },
-		{ PLOYTEC_WM8776_INDEX_34, 22, 0x001 },
+	static const struct { uint16_t index; uint8_t reg; } where[6] = {
+		{ PLOYTEC_WM8776_INDEX_12, PLOYTEC_WM8776_R7_DAC_MIX },
+		{ PLOYTEC_WM8776_INDEX_12, PLOYTEC_WM8776_R21_ADC_MUX },
+		{ PLOYTEC_WM8776_INDEX_12, PLOYTEC_WM8776_R22_OUT_MUX },
+		{ PLOYTEC_WM8776_INDEX_34, PLOYTEC_WM8776_R7_DAC_MIX },
+		{ PLOYTEC_WM8776_INDEX_34, PLOYTEC_WM8776_R21_ADC_MUX },
+		{ PLOYTEC_WM8776_INDEX_34, PLOYTEC_WM8776_R22_OUT_MUX },
 	};
+	static const uint16_t in12[OZZY_NUM_WM_IN12] = {
+		PLOYTEC_WM8776_AIN1, PLOYTEC_WM8776_AIN2, PLOYTEC_WM8776_AIN3, PLOYTEC_WM8776_AIN4,
+		PLOYTEC_WM8776_AIN5, PLOYTEC_WM8776_ADC_MUTE };
+	static const uint16_t in34[OZZY_NUM_WM_IN34] = {
+		PLOYTEC_WM8776_AIN2, PLOYTEC_WM8776_AIN3, PLOYTEC_WM8776_AIN4, PLOYTEC_WM8776_AIN5,
+		PLOYTEC_WM8776_ADC_MUTE };
+	static const uint16_t direct12[OZZY_NUM_WM_DIRECT] = {
+		0, PLOYTEC_WM8776_OUT_BYPASS, PLOYTEC_WM8776_OUT_BYPASS | PLOYTEC_WM8776_OUT_AUX };
+	struct ozzy_settings defaults;
+	uint16_t value[6];
+	const uint8_t *v;
 	unsigned int i;
 	int ret;
 
-	for (i = 0; i < sizeof(regs) / sizeof(regs[0]); i++) {
+	if (!settings) {
+		ozzy_settings_defaults(&defaults);
+		settings = &defaults;
+	}
+	v = settings->value;
+
+	value[0] = v[OZZY_SETTING_WM_MONO_12] ? PLOYTEC_WM8776_MIX_MONO : PLOYTEC_WM8776_MIX_STEREO;
+	value[1] = in12[v[OZZY_SETTING_WM_INPUT_12] % OZZY_NUM_WM_IN12];
+	value[2] = (v[OZZY_SETTING_WM_PLAYBACK_12] ? PLOYTEC_WM8776_OUT_DAC : 0) |
+		   direct12[v[OZZY_SETTING_WM_DIRECT_12] % OZZY_NUM_WM_DIRECT];
+	value[3] = v[OZZY_SETTING_WM_MONO_34] ? PLOYTEC_WM8776_MIX_MONO : PLOYTEC_WM8776_MIX_STEREO;
+	value[4] = in34[v[OZZY_SETTING_WM_INPUT_34] % OZZY_NUM_WM_IN34];
+	value[5] = (v[OZZY_SETTING_WM_PLAYBACK_34] ? PLOYTEC_WM8776_OUT_DAC : 0) |
+		   (v[OZZY_SETTING_WM_MODULE_34] ? PLOYTEC_WM8776_OUT_AUX : 0) |
+		   (v[OZZY_SETTING_WM_DIRECT_34] ? PLOYTEC_WM8776_OUT_BYPASS : 0);
+
+	for (i = 0; i < 6; i++) {
 		ret = ops->control(ctx, PLOYTEC_REQTYPE_VENDOR_OUT, PLOYTEC_CMD_ESI_A,
-				   (uint16_t)(regs[i].reg << 9 | (regs[i].value & 0x1FF)),
-				   regs[i].index, 0, 0);
+				   (uint16_t)(where[i].reg << 9 | (value[i] & 0x1FF)),
+				   where[i].index, 0, 0);
 		if (ret < 0) {
 			hs_log(ops, ctx, true, "WM8776 write 0x%04X R%u failed (ret=%d)",
-			       regs[i].index, regs[i].reg, ret);
+			       where[i].index, where[i].reg, ret);
 			return ret;
 		}
 	}
-	hs_log(ops, ctx, false, "WM8776 defaults written");
+	hs_log(ops, ctx, false,
+	       "WM8776: 1/2 R7=0x%03X R21=0x%03X R22=0x%03X, 3/4 R7=0x%03X R21=0x%03X R22=0x%03X",
+	       value[0], value[1], value[2], value[3], value[4], value[5]);
 	return 0;
 }
 
@@ -549,7 +578,7 @@ int ploytec_handshake_eps(const struct ploytec_host_ops *ops, void *ctx, uint32_
 			goto err;
 	}
 	if (quirks & OZZY_QUIRK_WM8776) {
-		ret = hs_wm8776_defaults(ops, ctx);
+		ret = hs_wm8776(ops, ctx, settings);
 		if (ret < 0)
 			goto err;
 	}

@@ -179,9 +179,9 @@ OZZY_DEVICE(NumarkOmniControl, 0x15E4, 0x0074, "Numark Omni Control", PLOYTEC_IS
 
 /*
  * Musonik (ex-Terrasoniq) PHASE X64 USB (#93), kext 2.0.4 (PGKernelDeviceDrvPHASEX64, no plist
- * table) and Windows 2.9.34: 6 in (4 analog, lanes 5/6 probably the AK4114 S/PDIF in) / 4 out,
- * 44.1-96k, M4_C1 MIDI. The kext's selector bit 0, digital in and S/PDIF out lists hold it,
- * and it sleeps 1000 ms before the setup requests. The input switches are two WM8776 codecs;
+ * table) and Windows 2.9.34: 6 in (4 analog; lanes 5/6 a bit-exact copy of what plays on
+ * out 1/2) / 4 out, 44.1-96k, M4_C1 MIDI. The kext's selector bit 0, digital in and S/PDIF
+ * out lists hold it, and it sleeps 1000 ms before the setup requests. The input switches are two WM8776 codecs;
  * Ozzy writes Windows' defaults (Mic/Line on 1/2, Aux on 3/4). Phono needs host RIAA, which
  * Ozzy doesn't do.
  */

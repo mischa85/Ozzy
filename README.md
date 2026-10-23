@@ -65,7 +65,7 @@ These use the same Ploytec chip. Their channels, rates and setup requests come f
 | **Lexicon I-ONIX U82S / IO82** | 10 / 4 | 44.1–96 kHz |  |
 | **M-Audio M-Track Quad** | 4 / 4 | 44.1–96 kHz |  |
 | **Midiplus AudioLink PLUS 4x4** | 6 / 6 | 44.1–96 kHz |  |
-| **Musonik PHASE X64 USB** | 6 / 4 | 44.1–96 kHz | Inputs 1/2 Mic/Line, 3/4 Aux; no phono RIAA |
+| **Musonik PHASE X64 USB** | 6 / 4 | 44.1–96 kHz | Inputs 1/2 Mic/Line, 3/4 Aux, 5/6 record outputs 1/2; no phono RIAA |
 | **Numark 4Trak** | 2 / 4 | 44.1 kHz |  |
 | **Numark MixDeck** | 4 / 4 | 44.1/88.2 kHz |  |
 | **Numark NS6** | 4 / 4 | 44.1 kHz |  |

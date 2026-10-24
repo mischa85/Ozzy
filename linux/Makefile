@@ -65,10 +65,39 @@ all:
 
 clean:
 	@echo "Cleaning..."
-	$(MAKE) -C $(KERNELDIR) M=$(PWD) clean
+	@if [ -f "$(KERNELDIR)/Makefile" ]; then \
+		$(MAKE) -C "$(KERNELDIR)" M="$(PWD)" clean; \
+	else \
+		echo "Kernel build directory unavailable; removing known local build artifacts."; \
+		rm -f $(MODULE_NAME).ko $(MODULE_NAME).o $(MODULE_NAME).mod \
+			$(MODULE_NAME).mod.c $(MODULE_NAME).mod.o \
+			ozzy_core.o ozzy_pcm.o ozzy_midi.o devices/ploytec.o \
+			Module.symvers modules.order .modules.order.cmd \
+			.Module.symvers.cmd .$(MODULE_NAME).ko.cmd \
+			.$(MODULE_NAME).o.cmd .$(MODULE_NAME).mod.cmd \
+			.$(MODULE_NAME).mod.o.cmd .$(MODULE_NAME).mod.c.cmd \
+			.ozzy_core.o.cmd .ozzy_pcm.o.cmd .ozzy_midi.o.cmd \
+			devices/.ploytec.o.cmd; \
+		rm -rf .tmp_versions; \
+	fi; \
+	rm -f ../common/devices/ploytec/ploytec_codec.o \
+		../common/devices/ploytec/.ploytec_codec.o.cmd
+
+# Reproducible CI entrypoint. KERNELDIR must identify the headers under test.
+ci:
+	@test -f "$(KERNELDIR)/Makefile" || { \
+		echo "KERNELDIR does not contain prepared kernel headers: $(KERNELDIR)" >&2; \
+		exit 2; \
+	}
+	$(MAKE) clean KERNELDIR="$(KERNELDIR)"
+	$(MAKE) all KERNELDIR="$(KERNELDIR)" W=1
+
+# Fast, non-mutating source checks suitable for local use and CI.
+check:
+	@git -C "$(PWD)/.." diff --check
 
 # Standard install (installs to /lib/modules/$(uname -r)/extra/)
 modules_install:
 	$(MAKE) -C $(KERNELDIR) M=$(PWD) modules_install
 
-.PHONY: all clean modules_install
+.PHONY: all clean ci check modules_install

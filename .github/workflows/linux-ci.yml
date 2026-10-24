@@ -1,0 +1,173 @@
+name: Linux driver CI
+
+on:
+  push:
+    paths:
+      - "linux/**"
+      - "common/**"
+      - "Makefile"
+      - ".github/workflows/linux-ci.yml"
+      - "README.md"
+      - "docs/**"
+  pull_request:
+    paths:
+      - "linux/**"
+      - "common/**"
+      - "Makefile"
+      - ".github/workflows/linux-ci.yml"
+      - "README.md"
+      - "docs/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: linux-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: build-ubuntu-22.04
+            runner: ubuntu-22.04
+            headers: linux-headers-generic
+            header_glob: /usr/src/linux-headers-5.15.*-generic
+          - name: build-ubuntu-24.04
+            runner: ubuntu-24.04
+            headers: linux-headers-generic
+            header_glob: /usr/src/linux-headers-6.8.*-generic
+          - name: build-ubuntu-24.04-hwe
+            runner: ubuntu-24.04
+            headers: linux-headers-6.14.0-37-generic
+            header_glob: /usr/src/linux-headers-6.14.0-37-generic
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            build-essential file kmod "${{ matrix.headers }}"
+
+      - name: Locate installed kernel headers
+        id: kernel
+        shell: bash
+        run: |
+          set -euo pipefail
+          kernel_dir="$(compgen -G '${{ matrix.header_glob }}' | sort -V | tail -n 1)"
+          test -n "$kernel_dir"
+          kernel_dir="$(readlink -f "$kernel_dir")"
+          test -f "$kernel_dir/Makefile"
+          echo "kernel-dir=$kernel_dir" >> "$GITHUB_OUTPUT"
+          echo "Using kernel headers at $kernel_dir"
+
+      - name: Build module with additional warnings
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          {
+            printf 'runner=%s\n' "${{ matrix.runner }}"
+            printf 'header_package=%s\n' "${{ matrix.headers }}"
+            printf 'kernel_dir=%s\n' "${{ steps.kernel.outputs.kernel-dir }}"
+            gcc --version | sed -n '1p'
+            make --version | sed -n '1p'
+            dpkg-query -W -f='${Package}=${Version}\n' "${{ matrix.headers }}"
+            make -C linux ci KERNELDIR="${{ steps.kernel.outputs.kernel-dir }}"
+          } 2>&1 | tee artifacts/build.log
+
+      - name: Inspect module
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s linux/snd-usb-ozzy.ko
+          file linux/snd-usb-ozzy.ko | tee artifacts/file.txt
+          file linux/snd-usb-ozzy.ko | grep -q 'ELF 64-bit LSB relocatable, x86-64'
+          modinfo linux/snd-usb-ozzy.ko | tee artifacts/modinfo.txt
+          test "$(modinfo -F name linux/snd-usb-ozzy.ko)" = "snd_usb_ozzy"
+          cp linux/snd-usb-ozzy.ko artifacts/
+
+      - name: Upload build evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: artifacts/
+          if-no-files-found: warn
+          retention-days: 14
+
+  static-checks:
+    name: static-checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out source and history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve changed commit range
+        id: range
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT_NAME" == "pull_request" ]]; then
+            base="$PR_BASE_SHA"
+          elif [[ -n "${PUSH_BEFORE_SHA:-}" && ! "$PUSH_BEFORE_SHA" =~ ^0+$ ]]; then
+            base="$PUSH_BEFORE_SHA"
+          else
+            base="HEAD^"
+          fi
+          git rev-parse --verify "$base^{commit}"
+          echo "base=$base" >> "$GITHUB_OUTPUT"
+
+      - name: Check whitespace
+        run: git diff --check "${{ steps.range.outputs.base }}" HEAD
+
+      - name: Run Linux checkpatch on changed C sources
+        shell: bash
+        env:
+          BASE: ${{ steps.range.outputs.base }}
+        run: |
+          set -euo pipefail
+          curl --fail --location --silent --show-error \
+            --output /tmp/checkpatch.pl \
+            https://raw.githubusercontent.com/torvalds/linux/v6.14/scripts/checkpatch.pl
+          chmod +x /tmp/checkpatch.pl
+          if ! git diff --quiet "$BASE" HEAD -- '*.c' '*.h'; then
+            git diff --no-ext-diff --unified=80 "$BASE" HEAD -- '*.c' '*.h' \
+              > /tmp/ozzy.patch
+          else
+            echo "No changed C or header files to check."
+            exit 0
+          fi
+          set +e
+          output="$(/tmp/checkpatch.pl --no-tree --terse --show-types \
+            --max-line-length=100 /tmp/ozzy.patch 2>&1)"
+          status=$?
+          set -e
+          printf '%s\n' "$output"
+          while IFS= read -r warning; do
+            [[ -z "$warning" ]] || echo "::warning::$warning"
+          done < <(grep 'WARNING:' <<< "$output" || true)
+          if grep -q 'ERROR:' <<< "$output"; then
+            echo "checkpatch found blocking errors." >&2
+            exit 1
+          fi
+          if (( status != 0 )) && ! grep -Eq '(WARNING|CHECK):' <<< "$output"; then
+            echo "checkpatch failed unexpectedly with status $status." >&2
+            exit "$status"
+          fi

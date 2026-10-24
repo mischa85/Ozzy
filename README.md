@@ -184,6 +184,33 @@ The installer automatically:
 
 ### 🐧 Linux
 
+**Recommended: DKMS**
+
+DKMS rebuilds and reinstalls the module automatically whenever your kernel is updated, so the driver keeps working across kernel upgrades without manual intervention.
+
+1.  Install DKMS and your kernel headers (e.g. on Debian/Ubuntu: `sudo apt install dkms linux-headers-$(uname -r)`).
+2.  Clone the repository and install it with DKMS (reads name/version from `dkms.conf`, so no need to pass them):
+    ```bash
+    git clone https://github.com/mischa85/Ozzy
+    sudo dkms install ./Ozzy
+    ```
+3.  Load the module immediately (DKMS autoloads it after reboot):
+    ```bash
+    sudo modprobe snd-usb-ozzy
+    ```
+
+To uninstall, find the registered module/version with `dkms status`, then run `sudo dkms remove ozzy/<version> --all`.
+
+To pick up driver source changes (e.g. `git pull`), DKMS copied your source at install time so it won't see edits on its own — reinstall to refresh it:
+```bash
+sudo dkms remove ozzy/1.0.0 --all
+sudo dkms install ./Ozzy
+```
+
+**Manual build (no DKMS)**
+
+Without DKMS, the module must be rebuilt by hand after every kernel update.
+
 1.  Clone and build:
     ```bash
     git clone https://github.com/mischa85/Ozzy
@@ -518,6 +545,7 @@ Whether you need to support your own legacy hardware or understand how professio
 **Linux module issues?**
 - Check kernel logs: `sudo dmesg | grep -i ozzy`
 - Verify module loaded: `lsmod | grep snd_usb_ozzy`
+- DKMS build failing? Run `sudo dkms status` to see the module/version, then check the build log at `/var/lib/dkms/ozzy/<version>/build/make.log`
 
 **Reporting Issues:**
 When filing a bug report, please include:

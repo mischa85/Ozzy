@@ -1205,7 +1205,7 @@ submit 86 off=527112 size=5120 xfer=303
 submit 05 off=1192200 size=3856 xfer=303
 abort 12
 midi_in 296: 40 41 42 43 44 45 46 47 48 49 4a 4b 4c 4d 4e 4f 50 51 52 53 54 55 56 57
-shm bde00eb3224d735d out_ring faf6a38fd6bec783 in_ring 3d3bcebb0ddb8a83
+shm 3077becec4549edd out_ring faf6a38fd6bec783 in_ring 3d3bcebb0ddb8a83
 == ESI ESU1808
 control c0 56 0000 0000 15
 control c0 49 0000 0000 1
@@ -2414,7 +2414,7 @@ submit 86 off=527112 size=5120 xfer=303
 submit 05 off=1261320 size=4096 xfer=303
 abort 12
 midi_in 296: 40 41 42 43 44 45 46 47 48 49 4a 4b 4c 4d 4e 4f 50 51 52 53 54 55 56 57
-shm bcfe7a5065c02ac1 out_ring faf6a38fd6bec783 in_ring b4ca0831869394c3
+shm 0d861481e6e48939 out_ring faf6a38fd6bec783 in_ring b4ca0831869394c3
 == Akai EIE Pro
 control c0 56 0000 0000 15
 control c0 49 0000 0000 1

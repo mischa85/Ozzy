@@ -3,7 +3,7 @@
 cd "$(dirname "$0")" || exit 1
 B=${1:-build}
 fail=0
-for t in test_endpoints test_settings test_info test_transfers test_midi_queue test_ump test_routing test_isoc_ring test_memory test_running_status test_stats test_latency; do
+for t in test_endpoints test_settings test_info test_transfers test_midi_queue test_ump test_routing test_isoc_ring test_memory test_running_status test_stats test_latency test_clock; do
 	"$B/$t" 2>/dev/null || fail=1
 done
 for g in trace layout; do

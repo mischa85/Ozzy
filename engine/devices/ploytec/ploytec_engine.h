@@ -46,6 +46,13 @@ struct ploytec_engine {
 	uint32_t out_queue;    /* PCM transfers in flight this run (OZZY_SETTING_PCM_OUT_QUEUE at start) */
 	uint32_t in_queue;
 	uint32_t anchor_frames;   /* frames between clock anchors: a whole number of out transfers */
+	/* The out completions since the last anchor (update_timestamp): the first one's time and
+	 * frames, and the sums of every one's ticks and frames after the first */
+	uint64_t period_time;
+	uint64_t period_frames;
+	uint64_t period_ticks_sum;
+	uint64_t period_frames_sum;
+	uint32_t period_count;
 };
 
 void ploytec_engine_init(struct ploytec_engine *pe, const struct ozzy_device *model);

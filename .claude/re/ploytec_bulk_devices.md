@@ -263,8 +263,20 @@ through the real engine (djengine) and capturing with a second IOProc, all on th
   the audio clock (74HC4040 divider), with no RAM and the microcontroller out of the sample
   path: only the endpoint buffers, at most two packets each way. If the DB4's USB side is that
   design, the ~140 output frames are beyond it (its mixer/DSP), not on the USB board.
-- The DB4's timestamps carry up to ~125 us of their own: OzzyHAL's clock anchors are OUT
-  completions, scheduled on the host's 125 us microframes, so they follow the nominal rate and
-  slip one microframe whenever the device's clock (21 ppm slow here) has drifted that far, every
-  ~6 s. CoreAudio passes them on to clients as steps of up to ~150 us, with its default filter
-  (simple IIR) and equally with its 12-point moving average (tried 2026-10-25).
+- The clock anchors slipped by a microframe every ~6 s (fixed 2026-10-25). An OUT transfer
+  completes on the host's 125 us microframe grid (the device takes a packet only when it has
+  room, the host offers one per microframe), plus up to ~30 us before the completion runs:
+  every gap between anchors was a whole number of microframes within +-30 us (552 of 552). An
+  anchor was one completion, and 6400 frames at 44.1 kHz are 1161.0 microframes, so every
+  anchor rounded alike until the device's drift (21 ppm slow here) carried it across one: steps
+  of ~125 us that CoreAudio passed on to clients, with its default filter (simple IIR), its
+  12-point moving average and with kAudioDevicePropertyClockIsStable 0 alike. IOUSBHost gives
+  bulk and interrupt completions no timestamp (isochronous ones only the observed time), so no
+  better time exists. The fix is in update_timestamp: the completions between two anchors fall
+  on every phase of the grid (a 160-frame transfer is 29.025 microframes), so each anchor is
+  their mean along the nominal rate. Measured over 40 s: anchors 37 us rms from the device's
+  line with 7 slips, now 6.4 us at 44.1 kHz and 12 us at 48 and 96 kHz with none; CoreAudio's
+  timestamps stepped 38-57 times over 20 us (to 159 us), now 3 (to 24 us) at 44.1 kHz and 25-28
+  (to 46 us) at 48 and 96 kHz, where 40 transfers aren't whole cycles of the grid's three
+  phases. Averaging can't help where a transfer is a whole number of microframes (48 kHz in
+  120-frame transfers: 20.0).

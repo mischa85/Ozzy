@@ -113,6 +113,8 @@ static int ozzy_pcm_prepare(struct snd_pcm_substream *substream)
 	st->pos = 0;
 	st->period_next = runtime->period_size;
 	spin_unlock_irqrestore(&st->lock, flags);
+	/* What the device adds beyond the transfers, which ALSA adds to every delay it reports */
+	runtime->delay = ozzy_device_latency(chip->model, runtime->rate, substream_dir(substream) == OZZY_PCM_IN);
 	ozzy_controls_stream_changed(chip);
 	return 0;
 }

@@ -187,10 +187,13 @@ uint32_t wstream_fifo_frames(const struct wstream* s) {
     return wstream_in_flight_frames(s);
 }
 
+/* The FIFO is the transfers in flight; the delay, in 100 ns units, what the device adds beyond
+ * them (common/ozzy_devices.def) */
 static NTSTATUS wstream_get_hw_latency(ACXSTREAM stream, ULONG* fifo_size, ULONG* delay) {
     struct wstream* s = wstream_get(stream);
+    uint32_t frames = ozzy_device_latency(s->dev->model, s->rate, !s->render);
     *fifo_size = wstream_fifo_frames(s) * s->block_align;
-    *delay = 0;
+    *delay = s->rate ? (ULONG)((uint64_t)frames * 10000000u / s->rate) : 0;
     return STATUS_SUCCESS;
 }
 

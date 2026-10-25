@@ -79,7 +79,8 @@ public:
     // to stop IO and call PerformConfigurationChange
     OSStatus SetSampleRate(AudioServerPlugInHostRef host, Float64 rate);
 
-    UInt32 GetLatency() const { return 0; }
+    // Frames the device itself adds that way at the current rate (common/ozzy_devices.def)
+    UInt32 GetLatency(AudioObjectPropertyScope scope) const;
     // Output: frames the engine reads ahead; input: frames behind the clock it is complete (ApplyDeviceConfig)
     UInt32 GetSafetyOffset(AudioObjectPropertyScope scope) const {
         return scope == kAudioObjectPropertyScopeInput ? mInputSafetyOffset : mSafetyOffset;
@@ -148,6 +149,7 @@ private:
     AudioBufferList mOutputConfig;
     uint32_t mHostRates[OZZY_MAX_RATES] = { 96000 };   // ApplyDeviceConfig
     uint32_t mHostRateCount = 1;
+    const struct ozzy_device* mModel = nullptr;   // its row, null if not listed (ApplyDeviceConfig)
 
     // Settings as the kext applied them (ApplyDeviceConfig)
     uint32_t mSettingsAvailable = 0;   // bit (1 << enum ozzy_setting) per setting the device has

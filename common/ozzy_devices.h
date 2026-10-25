@@ -70,12 +70,17 @@ struct ozzy_device {
 	uint8_t status;       /* enum ozzy_status */
 	uint32_t rates;       /* OZZY_RATE_xxx bits */
 	uint32_t quirks;      /* enum ozzy_quirk bits (ozzy_quirks.h) */
+	uint16_t latency[2 * OZZY_MAX_RATES];  /* frames out, in, out, in, ... per rate of rates,
+	                                         * ascending; 0: unknown */
 };
 
+#define OZZY_LATENCY(...)  { __VA_ARGS__ }
+#define OZZY_NO_LATENCY    { 0 }
+
 static const struct ozzy_device ozzy_devices[] = {
-#define OZZY_DEVICE(key_, vid_, pid_, name_, family_, in_, out_, rates_, status_, quirks_) \
+#define OZZY_DEVICE(key_, vid_, pid_, name_, family_, in_, out_, rates_, status_, quirks_, latency_) \
 	{ #key_, name_, vid_, pid_, OZZY_FAMILY_##family_, in_, out_, OZZY_STATUS_##status_, \
-	  rates_, quirks_ },
+	  rates_, quirks_, latency_ },
 #include "ozzy_devices.def"
 #undef OZZY_DEVICE
 };
@@ -122,6 +127,21 @@ static inline bool ozzy_device_has_rate(const struct ozzy_device *dev, uint32_t 
 		if (hz[i] == rate)
 			return true;
 	return false;
+}
+
+/*
+ * ozzy_device_latency - Frames @dev itself adds at @rate Hz on its output (@input false) or
+ * input, beyond the transfers (the latency column of ozzy_devices.def); 0 where unknown.
+ */
+static inline uint32_t ozzy_device_latency(const struct ozzy_device *dev, uint32_t rate, bool input)
+{
+	uint32_t hz[OZZY_MAX_RATES];
+	unsigned int i, n = dev ? ozzy_device_rates(dev, hz) : 0;
+
+	for (i = 0; i < n; i++)
+		if (hz[i] == rate)
+			return dev->latency[2 * i + (input ? 1 : 0)];
+	return 0;
 }
 
 /* Upper case of an ASCII letter (UTF-16 or char), anything else as it is */

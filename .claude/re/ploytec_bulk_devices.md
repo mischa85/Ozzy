@@ -229,3 +229,42 @@ So the host's latency is transfers in flight × transfer size, in steps of one p
 (DB4: 20 frames out, 16 in)
 (plus the device's own buffer, which the host can't see). MIDI out
 waits behind the same queue (its slot is in every out sub-packet), so it gets faster with it.
+
+**The device's own latency** (DB4 fw 1.4.1, macOS, Ozzy 160 x 4 transfers both ways, 2026-10-25;
+the latency column of `common/ozzy_devices.def`). What CoreAudio's timestamps can't see: output
+from the HAL's time for a frame (its OUT transfer completed) to the sound at the socket; input
+from a sound at the socket to the HAL's time for its frame. Measured in one process playing
+through the real engine (djengine) and capturing with a second IOProc, all on the host clock:
+
+| Rate | Loopback, USB 1-2 to 7-8 (digital) | Input: Mac out to RCA in, USB 7 | Output: USB 1-2 to DB4 headphones |
+|---|---|---|---|
+| 44.1 kHz | 141 frames (3.20 ms) | 22 frames (0.50 ms) | 155 frames (3.51 ms) |
+| 48 kHz | 145 (3.02 ms) | 31 (0.64 ms) | 157 (3.28 ms) |
+| 88.2 kHz | 230 (2.61 ms) | 107 (1.21 ms) | 217 (2.46 ms) |
+| 96 kHz | 240 (2.50 ms) | 110 (1.15 ms) | 226 (2.35 ms) |
+
+- Loopback: single-sample clicks, every one of 20-262 per run within a few frames. It stayed at
+  132-142 frames at 44.1 kHz with 256 to 800 frames queued (`ozzy-cli`), so it is the device's,
+  not the transfers'. A round trip can't be split, hence the two measurements against the
+  MacBook Pro's own audio, whose reported latency is taken as true.
+- Input: the Mac's headphone out (Apple's timestamps smooth to 0.3 us) into the RCA input, on
+  USB 7-8; four runs per rate within 3 frames.
+- Output: a 2 kHz, 10 ms Hann-windowed burst on the DB4's headphone out, an HD25's shells on
+  the MacBook's microphones, found by correlation; minus the same burst from the Mac's headphone
+  out with the shells unmoved (19.935 ms, three runs within 7 us), which cancels the distance and
+  Apple's microphone processing (it reports 2413 frames, 50 ms, and is ~20 ms off). Two runs per
+  rate within 2 frames.
+- Output plus input exceeds the loopback by 36, 43, 94, 96 frames: the converters' filters,
+  which a digital loop does not pass through. So nearly all the ~140 frames of the loop are on
+  the output side; the input side is about one converter at 44.1/48 kHz and gains ~80 frames
+  at 88.2/96 kHz, cause unknown.
+- Ploytec's reference schematic (USB2 Audio Launchpad v3, 2010: ISP1583, ATmega8515, WM8776,
+  AK4114) puts the ISP1583's 16-bit DMA bus straight on the serial audio lines, strobed from
+  the audio clock (74HC4040 divider), with no RAM and the microcontroller out of the sample
+  path: only the endpoint buffers, at most two packets each way. If the DB4's USB side is that
+  design, the ~140 output frames are beyond it (its mixer/DSP), not on the USB board.
+- The DB4's timestamps carry up to ~125 us of their own: OzzyHAL's clock anchors are OUT
+  completions, scheduled on the host's 125 us microframes, so they follow the nominal rate and
+  slip one microframe whenever the device's clock (21 ppm slow here) has drifted that far, every
+  ~6 s. CoreAudio passes them on to clients as steps of up to ~150 us, with its default filter
+  (simple IIR) and equally with its 12-point moving average (tried 2026-10-25).

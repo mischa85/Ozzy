@@ -39,7 +39,7 @@ static struct usb_driver ozzy_driver;
 #define OZZY_LINUX_ROW_USB_MIDI(vid, pid)
 
 static const struct usb_device_id ozzy_id_table[] = {
-#define OZZY_DEVICE(key, vid, pid, name, family, in, out, rates, status, quirks) \
+#define OZZY_DEVICE(key, vid, pid, name, family, in, out, rates, status, quirks, latency) \
 	OZZY_LINUX_ROW_##family(vid, pid)
 #include "../common/ozzy_devices.def"
 #undef OZZY_DEVICE

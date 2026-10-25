@@ -252,6 +252,7 @@ void OzzyHALDevice::ApplyDeviceConfig() {
 
     // The rates CoreAudio may pick: the device's, or only the S/PDIF lock rate
     const struct ozzy_device* model = ozzy_device_lookup(shm->vendor_id, shm->product_id);
+    mModel = model;
     mHostRateCount = model ? ozzy_device_host_rates(model, mClockLocked ? mLockRate : 0, mHostRates) : 0;
     if (!mHostRateCount) {
         mHostRates[0] = rate;
@@ -501,12 +502,15 @@ void OzzyHALDevice::NotifyDeviceChanged(AudioServerPlugInHostRef host) {
             { kAudioDevicePropertyStreamConfiguration, kAudioObjectPropertyScopeInput, kAudioObjectPropertyElementMain },
             { kAudioDevicePropertyStreamConfiguration, kAudioObjectPropertyScopeOutput, kAudioObjectPropertyElementMain } };
         host->PropertiesChanged(host, dev, 2, cfgAddr);
-        // The transfer sizes (device settings) set the safety offsets and the clock spacing
-        AudioObjectPropertyAddress timingAddr[3] = {
+        // The transfer sizes (device settings) set the safety offsets and the clock spacing; the
+        // rate sets the device's latency
+        AudioObjectPropertyAddress timingAddr[5] = {
             { kAudioDevicePropertySafetyOffset, kAudioObjectPropertyScopeOutput, kAudioObjectPropertyElementMain },
             { kAudioDevicePropertySafetyOffset, kAudioObjectPropertyScopeInput, kAudioObjectPropertyElementMain },
-            { kAudioDevicePropertyZeroTimeStampPeriod, kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMain } };
-        host->PropertiesChanged(host, dev, 3, timingAddr);
+            { kAudioDevicePropertyZeroTimeStampPeriod, kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMain },
+            { kAudioDevicePropertyLatency, kAudioObjectPropertyScopeOutput, kAudioObjectPropertyElementMain },
+            { kAudioDevicePropertyLatency, kAudioObjectPropertyScopeInput, kAudioObjectPropertyElementMain } };
+        host->PropertiesChanged(host, dev, 5, timingAddr);
         AudioObjectPropertyAddress fmtAddr[2] = {
             { kAudioStreamPropertyVirtualFormat, kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMain },
             { kAudioStreamPropertyPhysicalFormat, kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMain } };
@@ -730,6 +734,10 @@ UInt32 OzzyHALDevice::GetTransportType() const { return kAudioDeviceTransportTyp
 // Every device runs on its own clock, so CoreAudio must not treat two as synchronous
 UInt32 OzzyHALDevice::GetClockDomain() const { return 0x504C4F59 + mSlot; }
 Float64 OzzyHALDevice::GetNominalSampleRate() const { return mCurrentStreamFormat.mSampleRate; }
+
+UInt32 OzzyHALDevice::GetLatency(AudioObjectPropertyScope scope) const {
+    return ozzy_device_latency(mModel, (uint32_t)GetNominalSampleRate(), scope == kAudioObjectPropertyScopeInput);
+}
 UInt32 OzzyHALDevice::CopySampleRates(AudioValueRange* out, UInt32 max) const {
     UInt32 n = out ? (mHostRateCount < max ? mHostRateCount : max) : mHostRateCount;
     for (UInt32 i = 0; out && i < n; i++) out[i].mMinimum = out[i].mMaximum = mHostRates[i];
@@ -1195,7 +1203,7 @@ extern "C" HRESULT OzzyGetPropertyData(AudioServerPlugInDriverRef, AudioObjectID
                 if (outData) { if (inMax < actualSize) return kAudioHardwareBadPropertySizeError; memcpy(outData, config, actualSize); } return kAudioHardwareNoError;
             }
             case kAudioDevicePropertyClockDomain: return WriteUInt32(inMax, outSize, outData, dev->GetClockDomain());
-            case kAudioDevicePropertyLatency: return WriteUInt32(inMax, outSize, outData, dev->GetLatency());
+            case kAudioDevicePropertyLatency: return WriteUInt32(inMax, outSize, outData, dev->GetLatency(inAddress->mScope));
             case kAudioDevicePropertySafetyOffset: return WriteUInt32(inMax, outSize, outData, dev->GetSafetyOffset(inAddress->mScope));
             case kAudioDevicePropertyZeroTimeStampPeriod: return WriteUInt32(inMax, outSize, outData, dev->GetZeroTimestampPeriod());
             case kAudioDevicePropertyPreferredChannelLayout: {
@@ -1259,7 +1267,8 @@ extern "C" HRESULT OzzyGetPropertyData(AudioServerPlugInDriverRef, AudioObjectID
         case kAudioStreamPropertyDirection: return WriteUInt32(inMax, outSize, outData, (isOutput ? 0 : 1));
         case kAudioStreamPropertyTerminalType: return WriteUInt32(inMax, outSize, outData, kAudioStreamTerminalTypeSpeaker);
         case kAudioStreamPropertyStartingChannel: return WriteUInt32(inMax, outSize, outData, 1);
-        case kAudioStreamPropertyLatency: return WriteUInt32(inMax, outSize, outData, dev->GetLatency());
+        // All of it is the device's (kAudioDevicePropertyLatency), which CoreAudio adds to this
+        case kAudioStreamPropertyLatency: return WriteUInt32(inMax, outSize, outData, 0);
         case kAudioStreamPropertyVirtualFormat: case kAudioStreamPropertyPhysicalFormat:
             if (outData && inMax < sizeof(AudioStreamBasicDescription)) return kAudioHardwareBadPropertySizeError;
             if (outData) *(AudioStreamBasicDescription*)outData = dev->GetStreamFormat(isOutput);

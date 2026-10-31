@@ -394,9 +394,11 @@ void OzzyKext::free() {
 }
 
 bool OzzyKext::MapSharedMemory() {
-    // FIX: Store the descriptor in member variable, don't leak it!
+    /* Every USB transfer prepares and completes a slice of this buffer, and slices forward that
+     * to it: from the completion thread calls and the timer at the same time. Without
+     * kIOMemoryThreadSafe its wire count races, and complete() panics (#73). */
     mShmDescriptor = IOBufferMemoryDescriptor::inTaskWithPhysicalMask(
-        kernel_task, kIOMemoryPhysicallyContiguous, sizeof(ozzy_shared_memory), 0);
+        kernel_task, kIOMemoryPhysicallyContiguous | kIOMemoryThreadSafe, sizeof(ozzy_shared_memory), 0);
     
     if (!mShmDescriptor) return false;
     

@@ -294,7 +294,7 @@ bool KextBus::SubmitUSBPacket(uint8_t pipeID, void* buffer, uint32_t size, void*
     if (!slice) return false;
     
     // 3. Prepare DMA
-    slice->prepare(dir);
+    if (slice->prepare(dir) != kIOReturnSuccess) { slice->release(); return false; }
 
     // 4. Create Context (Keep 'slice' alive)
     TransferContext* ctx = new TransferContext;
@@ -336,7 +336,7 @@ bool KextBus::SubmitIsoc(uint8_t pipeID, void* buffer, uint32_t bufferSize,
         ? IOSubMemoryDescriptor::withSubRange(mMainShmDesc, (uintptr_t)buffer - mShmBase, bufferSize, dir)
         : IsocFrameSlice(pipeID, buffer, bufferSize, packets, count, dir);
     if (!slice) return false;
-    slice->prepare(dir);
+    if (slice->prepare(dir) != kIOReturnSuccess) { slice->release(); return false; }
 
     IsocContext* ctx = new IsocContext;
     if (!ctx) { slice->complete(dir); slice->release(); return false; }

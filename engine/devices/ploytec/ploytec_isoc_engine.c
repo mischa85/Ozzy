@@ -123,7 +123,9 @@ static bool isoc_start(struct ozzy_engine *e)
 	ploytec_log("model: %s, %u in / %u out", model->name, model->in_channels, model->out_channels);
 
 	/* 2. Handshake with the settings, with the rate requests on the PCM endpoints found;
-	 * locked to S/PDIF it sets the lock rate */
+	 * locked to S/PDIF it sets the lock rate. A restart settles first (ploytec_restart_settle) */
+	if (pe->streamed)
+		ploytec_restart_settle(e);
 	eps.pcm_in = pe->in_addr;
 	eps.pcm_out = pe->out_addr;
 	memset(&hs, 0, sizeof(hs));
@@ -159,6 +161,7 @@ static bool isoc_start(struct ozzy_engine *e)
 	shm->audio.timestamp.sample_time = 0;
 	ozzy_store_release_bool(&pe->midi_out_busy, false);
 	pe->running = true;
+	pe->streamed = true;
 
 	/* 3. Transfers: PCM in, PCM out with feedback, MIDI in; MIDI out from the timer */
 	for (i = 0; i < pe->in_queue; i++)
@@ -355,6 +358,7 @@ void ploytec_isoc_engine_init(struct ploytec_isoc_engine *pe, const struct ozzy_
 	pe->in_frames = ozzy_pcm_frames(true, ozzy_engine_setting_default(&pe->base, OZZY_SETTING_PCM_IN_FRAMES));
 	pe->in_queue = ozzy_pcm_queue(IN_QUEUE_DEFAULT);
 	pe->out_interval = 1;
+	pe->streamed = false;
 
 	p->interface_count = PLOYTEC_NUM_INTERFACES;
 	p->interfaces[0] = 0;

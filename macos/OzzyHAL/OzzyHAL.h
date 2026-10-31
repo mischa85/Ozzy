@@ -107,6 +107,7 @@ public:
     CFDataRef CopyStatsData();
     // The monitor thread: true once for a change in the stats' incidents (ozzy_stats_incidents)
     bool StatsChanged();
+    bool InfoChanged();
     // The custom properties the device has (kAudioObjectPropertyCustomPropertyInfoList): the
     // info, the stats, and the settings if it has any
     UInt32 CustomPropertyCount() const { return HasSettings() ? 4 : 3; }

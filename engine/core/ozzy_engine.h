@@ -382,10 +382,19 @@ static inline void ozzy_engine_suspend(struct ozzy_engine *e)
 
 /*
  * ozzy_engine_restart - Take the rate and device settings that changed: suspend, then the
- * handshake again. False if the device didn't take it; the engine is stopped then. Process
- * context, not concurrently with itself or stop.
+ * handshake again (a family's start may select the interfaces again first: ozzy_engine_reselect).
+ * False if the device didn't take it; the engine is stopped then. Process context, not
+ * concurrently with itself or stop.
  */
 bool ozzy_engine_restart(struct ozzy_engine *e);
+/*
+ * The bus's reselect (SET_INTERFACE 0, then the profile's alternate setting) for a device that
+ * has one, from a family's start when it is a restart. The WZ4 stops streaming for good when a
+ * restart keeps OUT dry, and the halts the handshake clears don't bring it back; SET_INTERFACE
+ * does (#85). The official driver goes further on every rate change (SET_CONFIGURATION 0 then 1,
+ * .claude/re/ploytec_sample_rates.md §5a).
+ */
+void ozzy_engine_reselect(struct ozzy_engine *e);
 
 /*
  * The shared memory's stats (ozzy_stats.h): a completion on @pipe (with @failed isochronous

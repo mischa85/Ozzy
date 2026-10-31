@@ -379,6 +379,17 @@ bool OzzyHALDevice::StatsChanged() {
     return true;
 }
 
+/* Monitor thread: the kext started the engine again on its own (a wake, a stall recovery), so its
+ * info (the handshake count, the firmware's answers) is newer than the copy from the last
+ * ApplyDeviceConfig */
+bool OzzyHALDevice::InfoChanged() {
+    ozzy_shared_memory* shm = AcquireSHM();
+    bool changed = shm && shm->info.starts != mInfo.starts;
+    if (changed) memcpy(&mInfo, (const void*)&shm->info, sizeof(mInfo));
+    ReleaseSHM();
+    return changed;
+}
+
 /* OZZY_PROPERTY_SETTING set: each name -> value in @dict. Returns the first error, after trying all. */
 OSStatus OzzyHALDevice::SetSettingsDictionary(AudioServerPlugInHostRef host, CFDictionaryRef dict) {
     if (!dict || CFGetTypeID(dict) != CFDictionaryGetTypeID()) return kAudioHardwareIllegalOperationError;
@@ -908,9 +919,15 @@ void OzzyHAL::MonitorLoop() {
         }
         // The stats: the clients hear of an incident within a round of this loop
         for (uint32_t i = 0; i < kOzzyMaxDevices && mHost; i++) {
-            if (!mDevices[i].IsConnected() || !mDevices[i].StatsChanged()) continue;
-            AudioObjectPropertyAddress statsAddr = { OZZY_PROPERTY_STATS, kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMain };
-            mHost->PropertiesChanged(mHost, mDevices[i].GetDeviceID(), 1, &statsAddr);
+            if (!mDevices[i].IsConnected()) continue;
+            if (mDevices[i].StatsChanged()) {
+                AudioObjectPropertyAddress statsAddr = { OZZY_PROPERTY_STATS, kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMain };
+                mHost->PropertiesChanged(mHost, mDevices[i].GetDeviceID(), 1, &statsAddr);
+            }
+            if (mDevices[i].InfoChanged()) {
+                AudioObjectPropertyAddress infoAddr = { OZZY_PROPERTY_INFO, kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMain };
+                mHost->PropertiesChanged(mHost, mDevices[i].GetDeviceID(), 1, &infoAddr);
+            }
         }
         if (listChanged && mHost) {
             AudioObjectPropertyAddress listAddr[2] = {

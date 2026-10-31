@@ -23,6 +23,7 @@ public:
                     struct ozzy_isoc_packet* packets, uint32_t count, void* contextID);
     bool VendorRequest(uint8_t type, uint8_t req, uint16_t val, uint16_t idx, void* data, uint16_t len);
     int ClearHalt(uint8_t address);
+    bool Reselect(uint8_t alt);
     void Abort();
     void Sleep(uint32_t ms);
     uint64_t GetTime();
@@ -35,6 +36,14 @@ public:
     
     void SetPipePool(IOUSBHostPipe** pipes, int count);
     struct ozzy_engine* GetEngine();
+
+    // The stall watchdog's view (OzzyKext): when each pipe last completed, any status
+    // and whether the engine submitted on it since the last start (a pipe it doesn't use isn't dead)
+    void NoteCompletion(uint8_t address) { mLastDone[PipeSlot(address)] = mach_absolute_time(); }
+    uint64_t LastCompletion(uint8_t address) const { return mLastDone[PipeSlot(address)]; }
+    bool Submitted(uint8_t address) const { return mSubmitted[PipeSlot(address)]; }
+    // Every pipe as if it just completed: after a start, which takes longer than the watchdog's limit
+    void WatchReset();
 
     // Legacy Stub
     static void StaticCompletion(void* owner, void* parameter, IOReturn status, uint32_t bytesTransferred);
@@ -56,6 +65,8 @@ private:
     static constexpr int kPipeSlots = 32;
     static int PipeSlot(uint8_t address) { return (address & 0x0F) | ((address & 0x80) >> 3); }
     IOUSBHostPipe* mPipeByAddress[kPipeSlots];
+    volatile uint64_t mLastDone[kPipeSlots];
+    volatile bool mSubmitted[kPipeSlots];
 
     IOUSBHostPipe* FindPipe(uint8_t address);
     IOMemoryDescriptor* IsocFrameSlice(uint8_t pipeID, void* buffer, uint32_t bufferSize,

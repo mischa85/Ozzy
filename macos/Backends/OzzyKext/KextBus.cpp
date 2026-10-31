@@ -1,4 +1,5 @@
 #include "KextBus.h"
+#include "OzzyKext.h"
 #include "../../../engine/shared/ozzy_log.h"
 #include <stdarg.h>
 #include <Availability.h>
@@ -63,6 +64,7 @@ void KextBus_GlobalCompletion(void* owner, void* parameter, IOReturn status, uin
 
     // 4. NOTIFY ENGINE
     if (bus) {
+        bus->NoteCompletion(pipeID);
         struct ozzy_engine* engine = bus->GetEngine();
         if (engine) {
             ozzy_engine_complete(engine, pipeID, originalUserContext, status, bytesTransferred);
@@ -114,6 +116,7 @@ static void KextBus_IsocFinish(IsocContext* ctx, IOReturn status) {
     uint32_t count = ctx->count;
     delete ctx;
 
+    if (bus) bus->NoteCompletion(pipeID);
     struct ozzy_engine* engine = bus ? bus->GetEngine() : nullptr;
     if (engine) ozzy_engine_isoc_complete(engine, pipeID, userContext, status, packets, count);
 }
@@ -165,6 +168,8 @@ static void OpsStopTimer(void* ctx) { ((KextBus*)ctx)->StopTimer(); }
 static void OpsSleep(void* ctx, unsigned int ms) { ((KextBus*)ctx)->Sleep(ms); }
 static uint64_t OpsTime(void* ctx) { return ((KextBus*)ctx)->GetTime(); }
 static void OpsAbort(void* ctx) { ((KextBus*)ctx)->Abort(); }
+/* The interfaces and pipes are the driver's (OzzyKext::Reselect) */
+static bool OpsReselect(void* ctx, uint8_t alt) { return ((KextBus*)ctx)->Reselect(alt); }
 static uint64_t OpsTimeHz(void* ctx) {
     uint64_t ticks = 0;
     nanoseconds_to_absolutetime(1000000000ULL, &ticks);   // mach_absolute_time ticks a second
@@ -175,13 +180,15 @@ static uint64_t OpsTimeHz(void* ctx) {
 // reads the stats from the shared memory and tells its clients (OzzyHAL's monitor thread).
 const struct ozzy_bus_ops KextBus::sOps = {
     OpsSubmit, OpsSubmitIsoc, OpsControl, OpsClearHalt, OpsStartTimer, OpsStopTimer, nullptr, OpsSleep, OpsTime,
-    OpsAbort, OpsTimeHz, nullptr
+    OpsAbort, OpsTimeHz, nullptr, OpsReselect
 };
 
 KextBus::KextBus(IOUSBHostDevice* device, IOService* driver) 
     : mDevice(device), mDriver(driver), mPipes(nullptr), mPipeCount(0), mEngine(nullptr), mMainShmDesc(nullptr), mShmBase(0) {
     for (int i = 0; i < kPipeSlots; i++) mPipeByAddress[i] = nullptr;
     for (int i = 0; i < kPipeSlots; i++) mIsocNextFrame[i] = 0;
+    for (int i = 0; i < kPipeSlots; i++) mLastDone[i] = 0;
+    for (int i = 0; i < kPipeSlots; i++) mSubmitted[i] = false;
     mOzzyBus.ops = &sOps;
     mOzzyBus.ctx = this;
 }
@@ -243,16 +250,29 @@ void KextBus::TimerFired(thread_call_param_t param, thread_call_param_t) {
     bus->mTimerBusy = false;
 }
 
-/* Index pipes by endpoint address so SubmitUSBPacket finds them without searching */
+/* Index pipes by endpoint address so SubmitUSBPacket finds them without searching. Pipes
+ * renewed (a reselect) start their isochronous schedule afresh. */
 void KextBus::SetPipePool(IOUSBHostPipe** pipes, int count) {
     mPipes = pipes;
     mPipeCount = count;
     for (int i = 0; i < kPipeSlots; i++) mPipeByAddress[i] = nullptr;
+    for (int i = 0; i < kPipeSlots; i++) mIsocNextFrame[i] = 0;
     for (int i = 0; i < count; i++) {
         if (!pipes[i]) continue;
         const StandardUSB::EndpointDescriptor* d = pipes[i]->getEndpointDescriptor();
         if (d) mPipeByAddress[PipeSlot(d->bEndpointAddress)] = pipes[i];
     }
+}
+
+bool KextBus::Reselect(uint8_t alt) {
+    OzzyKext* driver = OSDynamicCast(OzzyKext, mDriver);
+    return driver && driver->Reselect(alt);
+}
+
+void KextBus::WatchReset() {
+    uint64_t now = mach_absolute_time();
+    for (int i = 0; i < kPipeSlots; i++) mLastDone[i] = now;
+    for (int i = 0; i < kPipeSlots; i++) mSubmitted[i] = false;
 }
 
 void KextBus::SetEngine(struct ozzy_engine* engine) {
@@ -319,7 +339,7 @@ bool KextBus::SubmitUSBPacket(uint8_t pipeID, void* buffer, uint32_t size, void*
         delete ctx;
         return false;
     }
-    
+    mSubmitted[PipeSlot(pipeID)] = true;
     return true;
 }
 
@@ -388,6 +408,7 @@ bool KextBus::SubmitIsoc(uint8_t pipeID, void* buffer, uint32_t bufferSize,
         delete ctx;
         return false;
     }
+    mSubmitted[PipeSlot(pipeID)] = true;
     return true;
 }
 

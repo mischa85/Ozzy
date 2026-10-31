@@ -119,6 +119,24 @@ static inline void ploytec_midi_in_to_ring(const struct ploytec_midi *midi, vola
  */
 void ploytec_decode_pcm_in(struct ozzy_engine *e, ploytec_frame_fn decode, uint32_t frames, uint32_t t, uint32_t bytes);
 
+/*
+ * After the streaming transfers stop, no request for this long: the official Windows driver's
+ * ~100 ms of silence before it talks to the device again (ploytec_sample_rates.md §5a). The DB4
+ * (fw 1.4.1) stalls whatever comes sooner, SET_INTERFACE too, and answers again at ~115 ms.
+ */
+#define PLOYTEC_RESTART_QUIET_MS 120
+
+/*
+ * A restart's start, before its handshake: the quiet, then the interfaces selected again
+ * (ozzy_engine_reselect). The WZ4 doesn't stream again without the reselect (#85); the official
+ * driver unconfigures and reconfigures every device here.
+ */
+static inline void ploytec_restart_settle(struct ozzy_engine *e)
+{
+	e->bus->ops->sleep_ms(e->bus->ctx, PLOYTEC_RESTART_QUIET_MS);
+	ozzy_engine_reselect(e);
+}
+
 #ifdef __cplusplus
 }
 #endif

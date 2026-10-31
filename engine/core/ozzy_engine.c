@@ -353,6 +353,16 @@ void ozzy_engine_publish_info(struct ozzy_engine *e)
 	memcpy((void *)&shm->info, &info, sizeof(info));
 }
 
+void ozzy_engine_reselect(struct ozzy_engine *e)
+{
+	const struct ozzy_bus *bus = e->bus;
+
+	if (!e->profile.alt_setting || !bus || !bus->ops->reselect)
+		return;
+	if (!bus->ops->reselect(bus->ctx, e->profile.alt_setting))
+		ozzy_log("selecting alternate setting %u again failed", e->profile.alt_setting);
+}
+
 bool ozzy_engine_restart(struct ozzy_engine *e)
 {
 	ozzy_engine_suspend(e);

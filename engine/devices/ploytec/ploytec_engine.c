@@ -16,11 +16,6 @@
 #define EP_PCM_IN    (PLOYTEC_EP_PCM_IN | 0x80)
 #define EP_MIDI_IN   (PLOYTEC_EP_MIDI_IN | 0x80)
 
-/* After the streaming transfers stop, no request for this long: the official Windows driver's
- * ~100 ms of silence before it talks to the DB4 again (ploytec_sample_rates.md §5), which then
- * stalls nothing; the engine's first request came 2 ms in and stalled until ~115 ms */
-#define PLOYTEC_RESTART_QUIET_MS 120
-
 /* --- Host services for the shared handshake (common/devices/ploytec/ploytec_handshake.c) --- */
 
 /* Right after a restart killed the streaming transfers, the DB4 (fw 1.4.1) stalls whichever
@@ -191,9 +186,10 @@ static bool ploytec_start(struct ozzy_engine *e)
 		    model->out_channels, pe->out_frames, pe->in_frames);
 
 	/* 2. The handshake, with the settings; locked to S/PDIF it sets the lock rate. A restart
-	 * first lets the device settle from the transfers just stopped */
+	 * first lets the device settle from the transfers just stopped, and selects the interfaces
+	 * again */
 	if (pe->streamed)
-		e->bus->ops->sleep_ms(e->bus->ctx, PLOYTEC_RESTART_QUIET_MS);
+		ploytec_restart_settle(e);
 	memset(&hs, 0, sizeof(hs));
 	if (ploytec_handshake(&xone_host_ops, (void *)e->bus, ozzy_engine_start_rate(e, pe->default_rate), model->quirks,
 			      &e->settings, &hs) < 0)

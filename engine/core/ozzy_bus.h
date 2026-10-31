@@ -73,6 +73,11 @@ enum ozzy_pcm_dir {
  * @stats_changed: an incident counter in the shared memory's stats moved (ozzy_stats.h): tell
  *                the clients, the way a setting change is told, at most a few times a second.
  *                From the completion path. Optional.
+ * @reselect:     select alternate setting 0, then @alt_setting again, on each claimed interface
+ *                (SET_INTERFACE), with the pipes usable afterwards; @alt_setting even when the
+ *                0 fails, and a stalled request asked again. A restart's start does it before
+ *                its handshake (ozzy_engine_reselect). Process context, nothing in flight.
+ *                Optional.
  */
 struct ozzy_bus_ops {
 	bool (*submit)(void *ctx, uint8_t pipe, void *buf, uint32_t size, void *xfer);
@@ -89,6 +94,7 @@ struct ozzy_bus_ops {
 	void (*abort)(void *ctx);
 	uint64_t (*time_hz)(void *ctx);
 	void (*stats_changed)(void *ctx);
+	bool (*reselect)(void *ctx, uint8_t alt_setting);
 };
 
 struct ozzy_bus {

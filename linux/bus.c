@@ -264,6 +264,43 @@ static void ozzy_urb_abort(void *ctx)
 	usb_kill_anchored_urbs(&to_lbus(ctx)->anchor);
 }
 
+/* SET_INTERFACE @alt on interface @intf; a stall asked again, as the handshake's requests
+ * (up to 10 times, 20 ms apart) */
+static int ozzy_urb_set_interface(struct usb_device *dev, unsigned int intf, unsigned int alt)
+{
+	int attempt, ret = 0;
+
+	for (attempt = 0; attempt < 10; attempt++) {
+		if (attempt)
+			msleep(20);
+		ret = usb_set_interface(dev, intf, alt);
+		if (ret != -EPIPE)
+			break;
+	}
+	if (ret)
+		dev_err(&dev->dev, "[ozzy] interface %u: alternate setting %u failed (%d)", intf, alt, ret);
+	return ret;
+}
+
+/* SET_INTERFACE 0, then @alt again, on each interface (ozzy_engine_reselect); @alt even when 0
+ * failed, or the interface is left without endpoints. The URBs keep only pipe numbers, so they
+ * stay usable. */
+static bool ozzy_urb_reselect(void *ctx, uint8_t alt)
+{
+	struct ozzy_chip *chip = to_lbus(ctx)->chip;
+	const struct ozzy_device_profile *p = &chip->engine->profile;
+	bool ok = true;
+	unsigned int i;
+
+	for (i = 0; i < p->interface_count; i++) {
+		if (ozzy_urb_set_interface(chip->dev, p->interfaces[i], 0))
+			ok = false;
+		if (ozzy_urb_set_interface(chip->dev, p->interfaces[i], alt))
+			ok = false;
+	}
+	return ok;
+}
+
 static const struct ozzy_bus_ops ozzy_urb_ops = {
 	.submit       = ozzy_urb_submit,
 	.submit_isoc  = ozzy_urb_submit_isoc,
@@ -277,6 +314,7 @@ static const struct ozzy_bus_ops ozzy_urb_ops = {
 	.abort        = ozzy_urb_abort,
 	.time_hz      = ozzy_urb_time_hz,
 	.stats_changed = ozzy_urb_stats_changed,
+	.reselect     = ozzy_urb_reselect,
 };
 
 int ozzy_urb_init(struct ozzy_urb_bus *bus, struct ozzy_chip *chip)

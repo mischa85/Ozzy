@@ -229,12 +229,19 @@ bool OzzyKext::start(IOService* provider) {
         ozzy_log("engine start failed");
         return false;
     }
+    mBus->WatchReset();
 
     ozzy_log("driver ready");
 
     // OzzyHAL only attaches to devices with audio (the Xone:1D is MIDI only)
     setProperty(OZZY_AUDIO_PROPERTY_KEY, mSHM->audio.input_channels + mSHM->audio.output_channels > 0);
     mRunning = true;
+
+    // Sleep and wake (setPowerState), as a child of the USB device in the power plane
+    PMinit();
+    provider->joinPMtree(this);
+    mPMInited = registerPowerDriver(this, sPowerStates, kPowerStates) == kIOReturnSuccess;
+    StartWatch();
 
     registerService();
 
@@ -281,7 +288,10 @@ IOReturn OzzyKext::SetRate(uint32_t rate) {
 }
 
 IOReturn OzzyKext::RestartLocked() {
-    if (ozzy_engine_restart(mEngine)) return kIOReturnSuccess;
+    if (ozzy_engine_restart(mEngine)) {
+        mBus->WatchReset();
+        return kIOReturnSuccess;
+    }
     // The device didn't take it: let the HAL drop it, as on a failed start
     mRunning = false;
     return kIOReturnIOError;
@@ -337,7 +347,10 @@ void OzzyKext::stop(IOService* provider) {
         mSHM->magic = 0;
     }
     
-    // 1. Stop the engine first (clears flags, signals HAL, aborts every transfer)
+    // 1. No more recoveries or power changes, then stop the engine (clears flags, signals HAL,
+    // aborts every transfer)
+    StopWatch();
+    if (mPMInited) { PMstop(); mPMInited = false; }
     mRunning = false;
     if (mEngine) { 
         ozzy_engine_stop(mEngine);
@@ -350,12 +363,7 @@ void OzzyKext::stop(IOService* provider) {
     IOSleep(100);
     
     // 4. Now safe to release pipes
-    for (int i = 0; i < kMaxPipes; i++) {
-        if (mPipes[i]) { 
-            mPipes[i]->release(); 
-            mPipes[i] = nullptr; 
-        }
-    }
+    ReleasePipes();
     
     // 5. Release interfaces (closed in CloseProviders)
     for (int i = 0; i < kMaxInterfaces; i++) {
@@ -482,18 +490,191 @@ bool OzzyKext::ConfigureHardware() {
     const struct ozzy_usb_endpoint* bound[OZZY_PIPE_ROLES];
     ozzy_engine_bind_endpoints(mEngine, eps, n, bound);
 
-    int pipeCount = 0;
+    mPipeCount = 0;
     for (int k = 0; k < OZZY_PIPE_ROLES; k++) {
         if (!bound[k]) continue;
-        IOUSBHostPipe* p = pipeCount < kMaxPipes
-            ? ((IOUSBHostInterface*)bound[k]->handle)->copyPipe(bound[k]->address) : nullptr;
-        if (!p) {
-            ozzy_log("  failed to open pipe 0x%02x", bound[k]->address);
+        int i = 0;
+        while (i < profile.interface_count && mInterfaces[i] != bound[k]->handle) i++;
+        if (mPipeCount >= kMaxPipes || i == profile.interface_count) return false;
+        mPipeInterface[mPipeCount] = (uint8_t)i;
+        mPipeAddress[mPipeCount++] = bound[k]->address;
+    }
+    return CopyPipes();
+}
+
+/* Open the pipes ConfigureHardware picked, on the interfaces' current alternate setting */
+bool OzzyKext::CopyPipes() {
+    for (int k = 0; k < mPipeCount; k++) {
+        IOUSBHostInterface* iface = mInterfaces[mPipeInterface[k]];
+        mPipes[k] = iface ? iface->copyPipe(mPipeAddress[k]) : nullptr;
+        if (!mPipes[k]) {
+            ozzy_log("  failed to open pipe 0x%02x", mPipeAddress[k]);
             return false;
         }
-        mPipes[pipeCount++] = p;
     }
     return true;
+}
+
+void OzzyKext::ReleasePipes() {
+    for (int i = 0; i < kMaxPipes; i++) {
+        if (mPipes[i]) {
+            mPipes[i]->release();
+            mPipes[i] = nullptr;
+        }
+    }
+}
+
+/* SET_INTERFACE @alt on @iface; a stall asked again, as the handshake's requests (up to 10 times,
+ * 20 ms apart) */
+static bool SelectAlternate(IOUSBHostInterface* iface, uint8_t alt) {
+    IOReturn err = kIOReturnError;
+    for (int attempt = 0; attempt < 10; attempt++) {
+        if (attempt) IOSleep(20);
+        err = iface->selectAlternateSetting(alt);
+        if (err != kUSBHostReturnPipeStalled && err != kIOReturnNotResponding) break;
+    }
+    if (err != kIOReturnSuccess)
+        ozzy_log("interface %u: alternate setting %u failed (0x%x)",
+                 iface->getInterfaceDescriptor() ? iface->getInterfaceDescriptor()->bInterfaceNumber : 0, alt, err);
+    return err == kIOReturnSuccess;
+}
+
+/* SET_INTERFACE 0, then @alt, on each interface (ozzy_engine_reselect, with the engine suspended:
+ * nothing in flight, nothing submitted); @alt even when 0 failed. The pipes belong to the old
+ * setting: the bus forgets them, they're released, and the new setting's are opened. */
+bool OzzyKext::Reselect(uint8_t alt) {
+    if (!mBus) return false;
+    mBus->SetPipePool(nullptr, 0);
+    ReleasePipes();
+    bool ok = true;
+    for (int i = 0; i < kMaxInterfaces; i++) {
+        if (!mInterfaces[i]) continue;
+        if (!SelectAlternate(mInterfaces[i], 0)) ok = false;
+        if (!SelectAlternate(mInterfaces[i], alt)) ok = false;
+        IOSleep(50);   // as after the first selection (ConfigureHardware)
+    }
+    if (!CopyPipes()) ok = false;
+    mBus->SetPipePool(mPipes, kMaxPipes);
+    return ok;
+}
+
+/* --- Stall watchdog --- */
+
+static const uint32_t kWatchPeriodMs = 250;
+static const uint32_t kWatchDeadMs = 500;        // ~100 transfer periods: no late completion
+static const uint32_t kWatchRecoverS = 10;       // between recoveries: not forever on a dead device
+
+static uint64_t MsToAbs(uint64_t ms) {
+    uint64_t abs = 0;
+    nanoseconds_to_absolutetime(ms * 1000000ULL, &abs);
+    return abs;
+}
+
+void OzzyKext::StartWatch() {
+    if (!mWatch) mWatch = thread_call_allocate_with_options(&OzzyKext::WatchFired, this, THREAD_CALL_PRIORITY_KERNEL, 0);
+    if (!mWatch) return;
+    mWatchOn = true;
+    mWatchArmed = true;
+    __atomic_thread_fence(__ATOMIC_SEQ_CST);
+    thread_call_enter_delayed(mWatch, mach_absolute_time() + MsToAbs(kWatchPeriodMs));
+}
+
+/* Wait until no call is queued or running (as KextBus::StopTimer), then free it */
+void OzzyKext::StopWatch() {
+    mWatchOn = false;
+    __atomic_thread_fence(__ATOMIC_SEQ_CST);
+    if (!mWatch) return;
+    for (;;) {
+        if (thread_call_cancel(mWatch)) mWatchArmed = false;
+        __atomic_thread_fence(__ATOMIC_SEQ_CST);
+        if (!mWatchArmed && !mWatchBusy) break;
+        IOSleep(1);
+    }
+    thread_call_free(mWatch);
+    mWatch = nullptr;
+}
+
+void OzzyKext::WatchFired(thread_call_param_t param, thread_call_param_t) {
+    OzzyKext* self = (OzzyKext*)param;
+    self->mWatchBusy = true;
+    __atomic_thread_fence(__ATOMIC_SEQ_CST);
+    self->mWatchArmed = false;
+    if (self->mWatchOn) {
+        IOLockLock(self->mSettingsLock);
+        self->WatchLocked();
+        IOLockUnlock(self->mSettingsLock);
+    }
+    if (self->mWatchOn) {
+        self->mWatchArmed = true;
+        __atomic_thread_fence(__ATOMIC_SEQ_CST);
+        thread_call_enter_delayed(self->mWatch, mach_absolute_time() + MsToAbs(kWatchPeriodMs));
+    }
+    __atomic_thread_fence(__ATOMIC_SEQ_CST);
+    self->mWatchBusy = false;
+}
+
+/* Under mSettingsLock, so never in the middle of a restart: a PCM pipe that stopped completing
+ * gets the device a reselect and a new start, counted in the stats (ozzy-cli shows it) */
+void OzzyKext::WatchLocked() {
+    if (!mRunning || mSleeping || !mEngine || !mBus) return;
+    static const enum ozzy_pipe_role roles[] = { OZZY_PIPE_PCM_OUT, OZZY_PIPE_PCM_IN };
+    uint64_t now = mach_absolute_time();
+    uint8_t dead = 0;
+    for (unsigned i = 0; i < sizeof(roles) / sizeof(roles[0]) && !dead; i++) {
+        uint8_t address = mEngine->pipe[roles[i]].address;
+        if (address && mBus->Submitted(address) && now - mBus->LastCompletion(address) > MsToAbs(kWatchDeadMs))
+            dead = address;
+    }
+    if (!dead || (mRecoveredAt && now - mRecoveredAt < MsToAbs(kWatchRecoverS * 1000ULL))) return;
+
+    mRecoveredAt = now;
+    ozzy_log("pipe 0x%02x: no completion for %u ms, recovering the device", dead,
+             (unsigned)(kWatchDeadMs));
+    ozzy_engine_suspend(mEngine);
+    bool streaming = ozzy_engine_start(mEngine);   // a restart: it selects the interfaces again
+    ozzy_engine_stats_recovery(mEngine, streaming);
+    if (streaming) {
+        mBus->WatchReset();
+        ozzy_log("recovered: streaming");
+    } else {
+        // As a failed restart: the HAL drops the device
+        ozzy_log("recovered: start failed");
+        ozzy_engine_stop(mEngine);
+        mRunning = false;
+    }
+}
+
+/* --- Sleep and wake --- */
+
+IOPMPowerState OzzyKext::sPowerStates[kPowerStates] = {
+    { kIOPMPowerStateVersion1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 },
+    { kIOPMPowerStateVersion1, kIOPMDeviceUsable, kIOPMPowerOn, kIOPMPowerOn, 0, 0, 0, 0, 0, 0, 0, 0 },
+};
+
+/* Sleep: suspend (the HAL keeps the device). Wake: the transfers in flight across the sleep never
+ * complete on some devices (the WZ4, #85), so the interfaces again and a new start. */
+IOReturn OzzyKext::setPowerState(unsigned long state, IOService*) {
+    if (!mSettingsLock) return kIOPMAckImplied;
+    IOLockLock(mSettingsLock);
+    if (state == 0 && mRunning && !mSleeping) {
+        ozzy_log("sleep: suspending");
+        ozzy_engine_suspend(mEngine);
+        mSleeping = true;
+    } else if (state != 0 && mSleeping) {
+        mSleeping = false;
+        if (mRunning) {
+            ozzy_log("wake: starting again");
+            if (ozzy_engine_start(mEngine)) {   // a restart: it selects the interfaces again
+                mBus->WatchReset();
+            } else {
+                ozzy_log("start after wake failed");
+                ozzy_engine_stop(mEngine);
+                mRunning = false;
+            }
+        }
+    }
+    IOLockUnlock(mSettingsLock);
+    return kIOPMAckImplied;
 }
 
 extern "C" {

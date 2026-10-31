@@ -63,6 +63,10 @@ struct OzzyMidiParser {
 static OzzyMidiPort gPorts[kMaxPorts];
 static MIDIDriverRef gDriverRef = nullptr;
 
+// Our devices stay in the MIDI setup across MIDIServer restarts (Start gets them back); this
+// property is the USB port each was on, to give it back to the same device
+static const CFStringRef kLocationProperty = CFSTR("com.ozzy.locationID");
+
 // Held around every use of a port's shared memory and pending MIDI out by Send and the poll
 // thread, and while the main thread maps or unmaps it. Never held across a CoreMIDI call.
 static pthread_mutex_t gPortLock = PTHREAD_MUTEX_INITIALIZER;
@@ -71,7 +75,9 @@ static std::atomic<bool> gThreadShouldRun{false};
 static pthread_t gPollThread = nullptr;
 static CFRunLoopTimerRef gScanTimer = nullptr;
 
-static void SetPortDevice(OzzyMidiPort* port, const ozzy_shared_memory* shm) {
+/* The device of @port for the device in @shm on USB port @locationID: the port's own (renamed if
+ * it was another's), else a new one, added to the MIDI setup */
+static void SetPortDevice(OzzyMidiPort* port, const ozzy_shared_memory* shm, uint32_t locationID) {
 	const char* name = shm->product_name[0] ? shm->product_name : "Ozzy MIDI";
 	const char* mfg = shm->manufacturer_name[0] ? shm->manufacturer_name : "Ozzy";
 	CFStringRef deviceName = CFStringCreateWithCString(NULL, name, kCFStringEncodingUTF8);
@@ -88,13 +94,19 @@ static void SetPortDevice(OzzyMidiPort* port, const ozzy_shared_memory* shm) {
 			MIDIDeviceAddEntity(port->device, CFSTR("MIDI"), false, 1, 1, &ent);
 			port->source = MIDIEntityGetSource(ent, 0);
 			MIDIEndpointSetRefCons(MIDIEntityGetDestination(ent, 0), port, nullptr);
-			MIDIObjectSetIntegerProperty(port->device, kMIDIPropertyDriverOwner, 1);
+			// Without this the device exists but no client sees it (only a rescan's FindDevices
+			// showed it)
+			err = MIDISetupAddDevice(port->device);
+			if (err != noErr) LogOzzyMIDIError("failed to add the device to the MIDI setup: %{public}d", (int)err);
 		} else {
 			LogOzzyMIDIError("failed to create device: %{public}d", (int)err);
 			port->device = 0;
 		}
 	}
-	if (port->device) MIDIObjectSetIntegerProperty(port->device, kMIDIPropertyOffline, 0);
+	if (port->device) {
+		MIDIObjectSetIntegerProperty(port->device, kLocationProperty, (SInt32)locationID);
+		MIDIObjectSetIntegerProperty(port->device, kMIDIPropertyOffline, 0);
+	}
 	strlcpy(port->name, name, sizeof(port->name));
 
 	if (deviceName) CFRelease(deviceName);
@@ -129,10 +141,14 @@ static bool PortIsConnected(uint64_t registryID) {
 }
 
 /* A free port for a device called @name on USB port @locationID: preferably the one it had
- * before, else an unused one, else any disconnected port (its device gets renamed). */
+ * before (or one of that name from the setup without a USB port: added by a rescan), else an
+ * unused one, else any disconnected port (its device gets renamed). */
 static OzzyMidiPort* PortForDevice(const char* name, uint32_t locationID) {
 	for (int i = 0; i < kMaxPorts; i++)
 		if (!gPorts[i].shm && gPorts[i].device && gPorts[i].locationID == locationID &&
+		    strcmp(gPorts[i].name, name) == 0) return &gPorts[i];
+	for (int i = 0; i < kMaxPorts; i++)
+		if (!gPorts[i].shm && gPorts[i].device && gPorts[i].locationID == 0 &&
 		    strcmp(gPorts[i].name, name) == 0) return &gPorts[i];
 	for (int i = 0; i < kMaxPorts; i++)
 		if (!gPorts[i].shm && !gPorts[i].device) return &gPorts[i];
@@ -171,7 +187,7 @@ static void ConnectService(io_service_t service, uint64_t registryID) {
 		return;
 	}
 
-	SetPortDevice(port, shm);
+	SetPortDevice(port, shm, OzzyUSBLocationID(service));
 
 	pthread_mutex_lock(&gPortLock);
 	port->registryID = registryID;
@@ -329,8 +345,75 @@ static OSStatus EnableSource(MIDIDriverRef, MIDIEndpointRef, Boolean) { return n
 static OSStatus Flush(MIDIDriverRef, MIDIEndpointRef, void*, void*) { return noErr; }
 static OSStatus Monitor(MIDIDriverRef, MIDIEndpointRef, const MIDIPacketList*) { return noErr; }
 
+static void CopyName(MIDIObjectRef obj, char* buf, size_t size) {
+	CFStringRef name = nullptr;
+	buf[0] = 0;
+	MIDIObjectGetStringProperty(obj, kMIDIPropertyName, &name);
+	if (name) {
+		CFStringGetCString(name, buf, (CFIndex)size, kCFStringEncodingUTF8);
+		CFRelease(name);
+	}
+}
+
+/* One of our devices from the setup takes a port, offline until its hardware is found. A second
+ * device for the same name and USB port is a duplicate and goes. */
+static void AdoptDevice(MIDIDeviceRef dev) {
+	char name[64];
+	SInt32 location = 0;
+	CopyName(dev, name, sizeof(name));
+	MIDIObjectGetIntegerProperty(dev, kLocationProperty, &location);
+	for (int i = 0; i < kMaxPorts; i++) {
+		if (gPorts[i].device == dev) return;
+		if (gPorts[i].device && gPorts[i].locationID == (uint32_t)location && strcmp(gPorts[i].name, name) == 0) {
+			OSStatus err = MIDISetupRemoveDevice(dev);
+			LogOzzyMIDI("removing a duplicate of '%{public}s' from the MIDI setup: %{public}d", name, (int)err);
+			return;
+		}
+	}
+	OzzyMidiPort* port = nullptr;
+	for (int i = 0; i < kMaxPorts && !port; i++)
+		if (!gPorts[i].device) port = &gPorts[i];
+	if (!port || MIDIDeviceGetNumberOfEntities(dev) < 1) return;
+	MIDIEntityRef ent = MIDIDeviceGetEntity(dev, 0);
+	if (MIDIEntityGetNumberOfSources(ent) < 1 || MIDIEntityGetNumberOfDestinations(ent) < 1) return;
+
+	strlcpy(port->name, name, sizeof(port->name));
+	port->device = dev;
+	port->locationID = (uint32_t)location;
+	port->source = MIDIEntityGetSource(ent, 0);
+	MIDIEndpointSetRefCons(MIDIEntityGetDestination(ent, 0), port, nullptr);
+	MIDIObjectSetIntegerProperty(dev, kMIDIPropertyOffline, 1);
+	LogOzzyMIDI("'%{public}s' from the MIDI setup", port->name);
+}
+
+/* Start: our devices already in the setup (from an earlier MIDIServer run, @devList) take ports;
+ * ScanDevices gives each back to its device. Devices with our location property but no driver
+ * owner are from builds that set kMIDIPropertyDriverOwner to a number: MIDIServer doesn't hand
+ * them back, won't let us remove them, and setting the owner again doesn't make their endpoints
+ * ours. They stay offline; Audio MIDI Setup can delete them. */
+static void AdoptDevices(MIDIDeviceListRef devList) {
+	ItemCount count = devList ? MIDIDeviceListGetNumberOfDevices(devList) : 0;
+	for (ItemCount d = 0; d < count; d++)
+		AdoptDevice(MIDIDeviceListGetDevice(devList, d));
+
+	for (ItemCount i = 0; i < MIDIGetNumberOfDevices(); i++) {
+		MIDIDeviceRef dev = MIDIGetDevice(i);
+		SInt32 location = 0;
+		CFStringRef owner = nullptr;
+		if (MIDIObjectGetIntegerProperty(dev, kLocationProperty, &location) != noErr) continue;
+		if (MIDIObjectGetStringProperty(dev, kMIDIPropertyDriverOwner, &owner) == noErr && owner) {
+			CFRelease(owner);
+			continue;
+		}
+		char name[64];
+		CopyName(dev, name, sizeof(name));
+		LogOzzyMIDI("'%{public}s' in the MIDI setup is from an older build; delete it in Audio MIDI Setup", name);
+	}
+}
+
 static OSStatus Start(MIDIDriverRef self, MIDIDeviceListRef devList) {
 	gDriverRef = self;
+	AdoptDevices(devList);
 	ScanDevices();
 	if (!gScanTimer) {
 		// Look for new and departed devices every 50 ms

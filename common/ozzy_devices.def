@@ -216,7 +216,9 @@ OZZY_DEVICE(NumarkOmniControl, 0x15E4, 0x0074, "Numark Omni Control", PLOYTEC_IS
  * out 1/2) / 4 out, 44.1-96k, M4_C1 MIDI. The kext's selector bit 0, digital in and S/PDIF
  * out lists hold it, and it sleeps 1000 ms before the setup requests. The input switches are two WM8776 codecs;
  * Ozzy writes Windows' defaults (Mic/Line on 1/2, Aux on 3/4). Phono needs host RIAA, which
- * Ozzy doesn't do.
+ * Ozzy doesn't do. Hardware-checked facts (lanes 5/6, MIDI only while a stream runs, a locked
+ * S/PDIF input overrides the clock) from flarkflarkflark's GPL ALSA driver, facts only (#97):
+ * https://github.com/flarkflarkflark/phasex64-linux
  */
 #ifndef OZZY_DISABLE_MusonikPhaseX64
 OZZY_DEVICE(MusonikPhaseX64, 0x0A4A, 0x5B01, "Musonik PHASE X64 USB", PLOYTEC_ISOC, 6, 4,

@@ -305,10 +305,11 @@ void ozzy_engine_publish_info(struct ozzy_engine *e)
 	info.family = model->family;
 	info.status = model->status;
 	info.usb_speed = e->usb_speed;
-	info.alt_setting = e->profile.alt_setting;
 	info.interface_count = e->profile.interface_count < 4 ? e->profile.interface_count : 4;
-	for (i = 0; i < info.interface_count; i++)
+	for (i = 0; i < info.interface_count; i++) {
 		info.interfaces[i] = e->profile.interfaces[i];
+		info.alt_settings[i] = e->profile.alt_settings[i];
+	}
 	info.output = r->output;
 	info.feedback = r->feedback;
 	info.firmware_valid = r->firmware_valid;
@@ -356,11 +357,15 @@ void ozzy_engine_publish_info(struct ozzy_engine *e)
 void ozzy_engine_reselect(struct ozzy_engine *e)
 {
 	const struct ozzy_bus *bus = e->bus;
+	unsigned int i;
+	bool any = false;
 
-	if (!e->profile.alt_setting || !bus || !bus->ops->reselect)
+	for (i = 0; i < e->profile.interface_count && i < 4; i++)
+		any |= e->profile.alt_settings[i] != 0;
+	if (!any || !bus || !bus->ops->reselect)
 		return;
-	if (!bus->ops->reselect(bus->ctx, e->profile.alt_setting))
-		ozzy_log("selecting alternate setting %u again failed", e->profile.alt_setting);
+	if (!bus->ops->reselect(bus->ctx, e->profile.alt_settings))
+		ozzy_log("selecting the alternate settings again failed");
 }
 
 bool ozzy_engine_restart(struct ozzy_engine *e)

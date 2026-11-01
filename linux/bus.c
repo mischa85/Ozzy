@@ -282,20 +282,22 @@ static int ozzy_urb_set_interface(struct usb_device *dev, unsigned int intf, uns
 	return ret;
 }
 
-/* SET_INTERFACE 0, then @alt again, on each interface (ozzy_engine_reselect); @alt even when 0
- * failed, or the interface is left without endpoints. The URBs keep only pipe numbers, so they
- * stay usable. */
-static bool ozzy_urb_reselect(void *ctx, uint8_t alt)
+/* SET_INTERFACE 0, then @alts[i] again, on each interface i with a setting other than 0
+ * (ozzy_engine_reselect); the setting even when 0 failed, or the interface is left without
+ * endpoints. The URBs keep only pipe numbers, so they stay usable. */
+static bool ozzy_urb_reselect(void *ctx, const uint8_t alts[4])
 {
 	struct ozzy_chip *chip = to_lbus(ctx)->chip;
 	const struct ozzy_device_profile *p = &chip->engine->profile;
 	bool ok = true;
 	unsigned int i;
 
-	for (i = 0; i < p->interface_count; i++) {
+	for (i = 0; i < p->interface_count && i < 4; i++) {
+		if (!alts[i])
+			continue;
 		if (ozzy_urb_set_interface(chip->dev, p->interfaces[i], 0))
 			ok = false;
-		if (ozzy_urb_set_interface(chip->dev, p->interfaces[i], alt))
+		if (ozzy_urb_set_interface(chip->dev, p->interfaces[i], alts[i]))
 			ok = false;
 	}
 	return ok;

@@ -33,7 +33,7 @@ public:
     IOReturn ApplySetting(uint32_t id, uint32_t value);
     IOReturn SetRate(uint32_t rate);
     ozzy_shared_memory* GetSHM() { return mSHM; }
-    bool Reselect(uint8_t alt);   // the bus's reselect (ozzy_engine_reselect), engine suspended
+    bool Reselect(const uint8_t alts[4]);   // the bus's reselect (ozzy_engine_reselect), engine suspended
 
 private:
     bool MapSharedMemory();

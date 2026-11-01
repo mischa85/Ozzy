@@ -169,7 +169,7 @@ static void OpsSleep(void* ctx, unsigned int ms) { ((KextBus*)ctx)->Sleep(ms); }
 static uint64_t OpsTime(void* ctx) { return ((KextBus*)ctx)->GetTime(); }
 static void OpsAbort(void* ctx) { ((KextBus*)ctx)->Abort(); }
 /* The interfaces and pipes are the driver's (OzzyKext::Reselect) */
-static bool OpsReselect(void* ctx, uint8_t alt) { return ((KextBus*)ctx)->Reselect(alt); }
+static bool OpsReselect(void* ctx, const uint8_t alts[4]) { return ((KextBus*)ctx)->Reselect(alts); }
 static uint64_t OpsTimeHz(void* ctx) {
     uint64_t ticks = 0;
     nanoseconds_to_absolutetime(1000000000ULL, &ticks);   // mach_absolute_time ticks a second
@@ -264,9 +264,9 @@ void KextBus::SetPipePool(IOUSBHostPipe** pipes, int count) {
     }
 }
 
-bool KextBus::Reselect(uint8_t alt) {
+bool KextBus::Reselect(const uint8_t alts[4]) {
     OzzyKext* driver = OSDynamicCast(OzzyKext, mDriver);
-    return driver && driver->Reselect(alt);
+    return driver && driver->Reselect(alts);
 }
 
 void KextBus::WatchReset() {

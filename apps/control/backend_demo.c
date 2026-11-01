@@ -139,7 +139,7 @@ static void demo_info(struct ozzy_control_device *d, const struct ozzy_device *m
 	in->interface_count = isoc ? 2 : 1;
 	in->interfaces[0] = 0;
 	in->interfaces[1] = 1;
-	in->alt_setting = 1;
+	in->alt_settings[0] = in->alt_settings[1] = 1;
 	in->output = isoc ? OZZY_INFO_OUTPUT_ISOC : OZZY_INFO_OUTPUT_PLOYTEC_INTERRUPT;
 	in->feedback = isoc ? OZZY_INFO_FEEDBACK_COUNT : OZZY_INFO_FEEDBACK_NONE;
 	in->firmware_valid = 1;

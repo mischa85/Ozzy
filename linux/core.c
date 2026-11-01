@@ -107,10 +107,10 @@ static int ozzy_chip_claim(struct ozzy_chip *chip, struct usb_interface *probed)
 			}
 		}
 		chip->intf[chip->num_intf++] = intf;
-		if (p->alt_setting) {
-			ret = usb_set_interface(chip->dev, p->interfaces[i], p->alt_setting);
+		if (p->alt_settings[i]) {
+			ret = usb_set_interface(chip->dev, p->interfaces[i], p->alt_settings[i]);
 			if (ret < 0) {
-				chip_err(chip, "interface %u: alternate setting %u failed", p->interfaces[i], p->alt_setting);
+				chip_err(chip, "interface %u: alternate setting %u failed", p->interfaces[i], p->alt_settings[i]);
 				return ret;
 			}
 		}
@@ -326,8 +326,9 @@ static int ozzy_chip_post_reset(struct usb_interface *intf)
 	if (!chip || intf != chip->intf[0])
 		return 0;
 	p = &chip->engine->profile;
-	for (i = 0; i < p->interface_count && p->alt_setting; i++)
-		usb_set_interface(chip->dev, p->interfaces[i], p->alt_setting);
+	for (i = 0; i < p->interface_count && i < OZZY_MAX_INTERFACES; i++)
+		if (p->alt_settings[i])
+			usb_set_interface(chip->dev, p->interfaces[i], p->alt_settings[i]);
 	chip->running = ozzy_engine_start(chip->engine);
 	ozzy_controls_handshake(chip);
 	if (!chip->running)

@@ -540,7 +540,8 @@ void ploytec_engine_init(struct ploytec_engine *pe, const struct ozzy_device *mo
 	p->interface_count = PLOYTEC_NUM_INTERFACES;
 	p->interfaces[0] = 0;
 	p->interfaces[1] = 1;
-	p->alt_setting = PLOYTEC_ALT_SETTING;
+	p->alt_settings[0] = PLOYTEC_ALT_SETTING;
+	p->alt_settings[1] = PLOYTEC_ALT_SETTING;
 	p->pipes[OZZY_PIPE_PCM_OUT].address = EP_PCM_OUT;
 	p->pipes[OZZY_PIPE_PCM_OUT].intf = 0;
 	p->pipes[OZZY_PIPE_PCM_IN].address = EP_PCM_IN;

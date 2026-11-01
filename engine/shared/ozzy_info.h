@@ -27,7 +27,7 @@ extern "C" {
 #endif
 
 /* Bump when struct ozzy_info changes */
-#define OZZY_INFO_VERSION 1
+#define OZZY_INFO_VERSION 2   /* 2: alt_settings per interface */
 
 /* One per enum ozzy_pipe_role (engine/core/ozzy_engine.h), in its order */
 enum ozzy_info_pipe_role {
@@ -85,8 +85,8 @@ struct ozzy_info_pipe {
  *                   device setting is one)
  * @family/@status:  enum ozzy_family / enum ozzy_status of its ozzy_devices.def row
  * @usb_speed:       enum ozzy_usb_speed
- * @interfaces:      the claimed interfaces (bInterfaceNumber), @interface_count of them, each
- *                   at @alt_setting
+ * @interfaces:      the claimed interfaces (bInterfaceNumber), @interface_count of them,
+ *                   interface i at alternate setting @alt_settings[i]
  * @output:          enum ozzy_info_output
  * @feedback:        enum ozzy_info_feedback
  * @firmware_valid:  @firmware (a version, three parts: 1.4.1) and @firmware_chip (a chip id)
@@ -115,9 +115,9 @@ struct ozzy_info {
 	uint8_t family;
 	uint8_t status;
 	uint8_t usb_speed;
-	uint8_t alt_setting;
 	uint8_t interface_count;
 	uint8_t interfaces[4];
+	uint8_t alt_settings[4];
 	uint8_t output;
 	uint8_t feedback;
 	uint8_t firmware_valid;
@@ -126,7 +126,7 @@ struct ozzy_info {
 	uint8_t input_selector_valid;
 	uint8_t input_selector;
 	uint8_t clock_locked;
-	uint8_t reserved;
+	uint8_t reserved[2];
 
 	uint32_t sample_rate;
 	uint32_t boot_rate;

@@ -44,6 +44,8 @@ enum ozzy_pipe_role {
 
 /*
  * struct ozzy_device_profile - What the platform has to claim.
+ * @alt_settings: per claimed interface (the US-366 runs interfaces 1 and 2 at alternate setting 2
+ *         and its MIDI interface at 0)
  * @pipes: per role a fixed endpoint address, or (address 0) the first endpoint on its
  *         interface of the given types and direction, the way the official Ploytec driver
  *         finds pipes (common/ozzy_ep.h, as on Linux). All zero: the role is unused.
@@ -51,7 +53,7 @@ enum ozzy_pipe_role {
 struct ozzy_device_profile {
 	uint8_t interface_count;
 	uint8_t interfaces[4];   /* bInterfaceNumber of each */
-	uint8_t alt_setting;     /* selected on each claimed interface */
+	uint8_t alt_settings[4]; /* selected on each, as @interfaces; 0: left at alternate setting 0 */
 	struct ozzy_ep pipes[OZZY_PIPE_ROLES];
 };
 
@@ -388,8 +390,8 @@ static inline void ozzy_engine_suspend(struct ozzy_engine *e)
  */
 bool ozzy_engine_restart(struct ozzy_engine *e);
 /*
- * The bus's reselect (SET_INTERFACE 0, then the profile's alternate setting) for a device that
- * has one, from a family's start when it is a restart. The WZ4 stops streaming for good when a
+ * The bus's reselect (SET_INTERFACE 0, then the profile's alternate setting, on each interface
+ * that has one), from a family's start when it is a restart. The WZ4 stops streaming for good when a
  * restart keeps OUT dry, and the halts the handshake clears don't bring it back; SET_INTERFACE
  * does (#85). The official driver goes further on every rate change (SET_CONFIGURATION 0 then 1,
  * .claude/re/ploytec_sample_rates.md §5a).

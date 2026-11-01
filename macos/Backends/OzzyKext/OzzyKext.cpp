@@ -457,8 +457,8 @@ bool OzzyKext::ConfigureHardware() {
                         iface->retain();
                         mInterfaces[i] = iface;
                         foundCount++;
-                        if (profile.alt_setting) {
-                            iface->selectAlternateSetting(profile.alt_setting);
+                        if (profile.alt_settings[i]) {
+                            iface->selectAlternateSetting(profile.alt_settings[i]);
                             IOSleep(50);
                         }
                     }
@@ -539,18 +539,19 @@ static bool SelectAlternate(IOUSBHostInterface* iface, uint8_t alt) {
     return err == kIOReturnSuccess;
 }
 
-/* SET_INTERFACE 0, then @alt, on each interface (ozzy_engine_reselect, with the engine suspended:
- * nothing in flight, nothing submitted); @alt even when 0 failed. The pipes belong to the old
- * setting: the bus forgets them, they're released, and the new setting's are opened. */
-bool OzzyKext::Reselect(uint8_t alt) {
+/* SET_INTERFACE 0, then @alts[i], on each interface i whose setting isn't 0 (ozzy_engine_reselect,
+ * with the engine suspended: nothing in flight, nothing submitted); the setting even when 0
+ * failed. The pipes belong to the old setting: the bus forgets them, they're released, and the
+ * new setting's are opened. */
+bool OzzyKext::Reselect(const uint8_t alts[4]) {
     if (!mBus) return false;
     mBus->SetPipePool(nullptr, 0);
     ReleasePipes();
     bool ok = true;
     for (int i = 0; i < kMaxInterfaces; i++) {
-        if (!mInterfaces[i]) continue;
+        if (!mInterfaces[i] || !alts[i]) continue;
         if (!SelectAlternate(mInterfaces[i], 0)) ok = false;
-        if (!SelectAlternate(mInterfaces[i], alt)) ok = false;
+        if (!SelectAlternate(mInterfaces[i], alts[i])) ok = false;
         IOSleep(50);   // as after the first selection (ConfigureHardware)
     }
     if (!CopyPipes()) ok = false;

@@ -444,7 +444,7 @@ NTSTATUS kbus_configure(struct kmdf_bus* kb) {
     const struct ozzy_device_profile* profile = &kb->engine->profile;
     NTSTATUS status;
 
-    /* The profile's interfaces, with its alternate setting */
+    /* The profile's interfaces, each with its alternate setting */
     WDFUSBINTERFACE by_index[4] = { 0 };
     UCHAR count = WdfUsbTargetDeviceGetNumInterfaces(kb->usb);
     for (int i = 0; i < profile->interface_count; i++) {
@@ -456,13 +456,13 @@ NTSTATUS kbus_configure(struct kmdf_bus* kb) {
             kbus_log("[Ozzy] interface %u not found", profile->interfaces[i]);
             return STATUS_DEVICE_CONFIGURATION_ERROR;
         }
-        if (profile->alt_setting) {
+        if (profile->alt_settings[i]) {
             WDF_USB_INTERFACE_SELECT_SETTING_PARAMS params;
-            WDF_USB_INTERFACE_SELECT_SETTING_PARAMS_INIT_SETTING(&params, profile->alt_setting);
+            WDF_USB_INTERFACE_SELECT_SETTING_PARAMS_INIT_SETTING(&params, profile->alt_settings[i]);
             status = WdfUsbInterfaceSelectSetting(by_index[i], WDF_NO_OBJECT_ATTRIBUTES, &params);
             if (!NT_SUCCESS(status)) {
                 kbus_log("[Ozzy] interface %u: alternate setting %u: 0x%08x", profile->interfaces[i],
-                         profile->alt_setting, status);
+                         profile->alt_settings[i], status);
                 return status;
             }
         }

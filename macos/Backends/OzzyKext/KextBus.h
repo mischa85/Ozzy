@@ -23,7 +23,7 @@ public:
                     struct ozzy_isoc_packet* packets, uint32_t count, void* contextID);
     bool VendorRequest(uint8_t type, uint8_t req, uint16_t val, uint16_t idx, void* data, uint16_t len);
     int ClearHalt(uint8_t address);
-    bool Reselect(uint8_t alt);
+    bool Reselect(const uint8_t alts[4]);
     void Abort();
     void Sleep(uint32_t ms);
     uint64_t GetTime();

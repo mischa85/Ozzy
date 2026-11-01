@@ -31,7 +31,7 @@ int main(void)
 
 	printf("info version %d size %zu\n", OZZY_INFO_VERSION, sizeof(struct ozzy_info));
 	I(version); I(size); I(starts); I(vendor_id); I(product_id); I(family); I(status); I(usb_speed);
-	I(alt_setting); I(interface_count); I(interfaces); I(output); I(feedback); I(firmware_valid);
+	I(interface_count); I(interfaces); I(alt_settings); I(output); I(feedback); I(firmware_valid);
 	I(firmware_chip); I(firmware); I(input_selector_valid); I(input_selector); I(clock_locked);
 	I(sample_rate); I(boot_rate); I(lock_rate); I(device_rates); I(host_rates); I(in_channels);
 	I(out_channels); I(transfer_frames); I(out_bytes_per_frame);

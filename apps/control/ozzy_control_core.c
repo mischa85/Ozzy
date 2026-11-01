@@ -297,6 +297,7 @@ int ozzy_control_facts(const struct ozzy_control_device *dev, struct ozzy_contro
 	char a[64], b[64], c[64];
 	unsigned int i;
 	size_t len;
+	bool same;
 
 	f.rate = dev->has_info && in->sample_rate ? in->sample_rate : dev->sample_rate;
 
@@ -312,13 +313,19 @@ int ozzy_control_facts(const struct ozzy_control_device *dev, struct ozzy_contro
 			     in->firmware_chip);
 		if (in->usb_speed && in->usb_speed < sizeof(speeds) / sizeof(speeds[0]))
 			fact(&f, "Connection", "%s", speeds[in->usb_speed]);
+		/* One setting for all: "0, 1, alternate setting 1"; else each: "1, 2, 3, alternate settings 2, 2, 0" */
 		len = 0;
-		a[0] = 0;
-		for (i = 0; i < in->interface_count && i < 4; i++)
+		a[0] = b[0] = 0;
+		same = true;
+		for (i = 0; i < in->interface_count && i < 4; i++) {
 			len += (size_t)snprintf(a + len, sizeof(a) - len, "%s%u", i ? ", " : "", in->interfaces[i]);
+			same &= in->alt_settings[i] == in->alt_settings[0];
+		}
+		for (i = 0, len = 0; i < (same ? 1u : in->interface_count) && i < 4; i++)
+			len += (size_t)snprintf(b + len, sizeof(b) - len, "%s%u", i ? ", " : "", in->alt_settings[i]);
 		if (in->interface_count)
-			fact(&f, in->interface_count == 1 ? "Interface" : "Interfaces", "%s, alternate setting %u", a,
-			     in->alt_setting);
+			fact(&f, in->interface_count == 1 ? "Interface" : "Interfaces", "%s, alternate setting%s %s", a,
+			     same ? "" : "s", b);
 		fact(&f, "Handshakes", "%u since connected", in->starts);
 	}
 	if (h->driver[0] || (dev->has_info && in->driver_version[0]))

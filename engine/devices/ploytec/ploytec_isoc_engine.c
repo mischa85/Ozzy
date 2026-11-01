@@ -363,7 +363,8 @@ void ploytec_isoc_engine_init(struct ploytec_isoc_engine *pe, const struct ozzy_
 	p->interface_count = PLOYTEC_NUM_INTERFACES;
 	p->interfaces[0] = 0;
 	p->interfaces[1] = 1;
-	p->alt_setting = PLOYTEC_ALT_SETTING;
+	p->alt_settings[0] = PLOYTEC_ALT_SETTING;
+	p->alt_settings[1] = PLOYTEC_ALT_SETTING;
 	p->pipes[OZZY_PIPE_PCM_OUT] = pcm_out;
 	p->pipes[OZZY_PIPE_MIDI_OUT] = midi_out;
 	p->pipes[OZZY_PIPE_MIDI_IN] = midi_in;

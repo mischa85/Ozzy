@@ -278,7 +278,7 @@ void wbus_close(struct winusb_bus* wb) {
 bool wbus_configure(struct winusb_bus* wb) {
     const struct ozzy_device_profile* profile = &wb->engine->profile;
 
-    /* The profile's interfaces, with its alternate setting */
+    /* The profile's interfaces, each with its alternate setting */
     WINUSB_INTERFACE_HANDLE by_index[4] = { 0 };
     for (int i = 0; i < profile->interface_count; i++) {
         for (int k = 0; k < wb->intf_count; k++) {
@@ -289,10 +289,10 @@ bool wbus_configure(struct winusb_bus* wb) {
                      profile->interfaces[i]);
             return false;
         }
-        if (profile->alt_setting) {
-            if (!WinUsb_SetCurrentAlternateSetting(by_index[i], profile->alt_setting)) {
+        if (profile->alt_settings[i]) {
+            if (!WinUsb_SetCurrentAlternateSetting(by_index[i], profile->alt_settings[i])) {
                 wbus_log("[WinUsbBus] interface %u: alternate setting %u failed: %lu", profile->interfaces[i],
-                         profile->alt_setting, GetLastError());
+                         profile->alt_settings[i], GetLastError());
                 return false;
             }
             Sleep(50);

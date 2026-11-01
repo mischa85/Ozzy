@@ -201,7 +201,7 @@ void usb_midi_engine_init(struct usb_midi_engine *me, const struct ozzy_device *
 	me->base.model = model;
 	p->interface_count = 1;
 	p->interfaces[0] = MIDI_INTERFACE;
-	p->alt_setting = 0;
+	p->alt_settings[0] = 0;
 	p->pipes[OZZY_PIPE_MIDI_IN].address = EP_MIDI_IN;
 	p->pipes[OZZY_PIPE_MIDI_IN].intf = MIDI_INTERFACE;
 	p->pipes[OZZY_PIPE_MIDI_OUT].address = EP_MIDI_OUT;

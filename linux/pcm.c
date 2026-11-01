@@ -76,8 +76,13 @@ static int ozzy_pcm_open(struct snd_pcm_substream *substream)
 static int ozzy_pcm_close(struct snd_pcm_substream *substream)
 {
 	struct ozzy_chip *chip = snd_pcm_substream_chip(substream);
+	struct ozzy_pcm_stream *st = &chip->stream[substream_dir(substream)];
+	unsigned long flags;
 
-	chip->stream[substream_dir(substream)].substream = NULL;
+	/* Under the lock, as ozzy_pcm_progress reads it */
+	spin_lock_irqsave(&st->lock, flags);
+	st->substream = NULL;
+	spin_unlock_irqrestore(&st->lock, flags);
 	ozzy_controls_stream_changed(chip);
 	return 0;
 }

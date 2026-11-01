@@ -129,3 +129,15 @@ related to level metering or some control protocol. Has its own pipe assignment 
   Mach-O layout. Not tested: USB matching vs IOResources, the IOUSBHostFamily dependency, Info.plist.
   Same bug class as Apple forums 133822 ("kext log output slides") and 133313 ("os_log using
   incorrect or stale text"); Apple only asked for bug reports. The HAL's log lines are reliable.
+- **A wrong byte 0 in Ploytec PCM IN frames, seen only by userspace macOS drivers.** Byte 0 of
+  the 64-byte input frame holds bit 23 of the first channels, so a wrong byte 0 is a full-scale
+  click on a quiet input. nkurence (#85, WZ4, his IOUSBLib harness): one frame near the start of a
+  capture, bit 23 flipped on several odd channels, 2 of 6 captures. dominics/Ozzy TODO.md
+  (CMS 600-3, OzzyDaemon over IOUSBLib): byte 0 repeating the previous frame's in ~8% of frames in
+  some 48 kHz sessions started right after a rate change, gone after another change. Not on the
+  DB4 with the Linux module (2026-11-01): usbmon of 9 starts (attach, PipeWire's change, 7 rate
+  changes), 102,492 IN transfers, 8.2 M frames decoded with ploytec_decode_frame_8ch, no sample
+  above -18 dBFS, first transfers after each restart included (scanner:
+  `tools/linux_usbmon/in_glitch.c` in the investigation folder). nkurence's kext run didn't report
+  it either. So most likely the userspace reading path (buffer reuse, a read completing early),
+  not the device; open until a kext or Linux run on a WZ4 or CMS 600-3 shows it.

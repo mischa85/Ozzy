@@ -76,6 +76,9 @@ static void ozzy_urb_complete(struct urb *urb)
 		ozzy_engine_complete(chip->engine, p->address, xfer, status, urb->actual_length);
 	}
 	ozzy_midi_service(chip);
+	/* Release: everything this completion did to a ring or a substream (the period report
+	 * included) is done before ozzy_urb_wait_completions can see the count drop */
+	smp_mb__before_atomic();
 	atomic_dec(&bus->in_completion);
 }
 
@@ -382,7 +385,7 @@ void ozzy_urb_wait_completions(struct ozzy_urb_bus *bus)
 {
 	unsigned int i;
 
-	for (i = 0; i < 100 && atomic_read(&bus->in_completion); i++)
+	for (i = 0; i < 100 && atomic_read_acquire(&bus->in_completion); i++)
 		usleep_range(500, 1000);
 }
 

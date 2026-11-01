@@ -282,7 +282,7 @@ static void interval_text(const struct ozzy_info_pipe *p, uint8_t speed, char *b
 int ozzy_control_facts(const struct ozzy_control_device *dev, struct ozzy_control_fact *out, int max)
 {
 	static const char *const families[] = { "Ploytec, bulk / interrupt PCM out", "Ploytec, isochronous PCM out",
-						 "USB MIDI class" };
+						 "USB MIDI class", "Ploytec, isochronous PCM in and out" };
 	static const char *const speeds[] = { "unknown", "USB Low Speed (1.5 Mbit/s)", "USB Full Speed (12 Mbit/s)",
 					      "USB High Speed (480 Mbit/s)", "USB SuperSpeed (5 Gbit/s or more)" };
 	static const char *const outputs[] = { "none", "Ploytec 512-byte bulk layout",

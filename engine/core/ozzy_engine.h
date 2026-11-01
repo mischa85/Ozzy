@@ -528,6 +528,22 @@ static inline bool ozzy_engine_ring_platform(const struct ozzy_engine *e)
 	return e->bus->ops->pcm_progress != NULL;
 }
 
+/*
+ * For engines whose PCM is plain interleaved S24_3LE on the wire (isochronous): @frames frames
+ * out of the attached ring with the output routing, into @dst_ring (@dst_frames frames,
+ * from position @first, wrapping); silence on a ring platform with none attached, nothing
+ * written without (macOS: the HAL wrote them). Completion path (ozzy_isoc_output_config.fill).
+ */
+void ozzy_engine_plain_out(struct ozzy_engine *e, uint8_t *dst_ring, uint32_t dst_frames, uint64_t first,
+			   uint32_t frames);
+/*
+ * The same way in: @frames received frames from @src (NULL: silence) into the attached ring with
+ * the input routing; dropped while none is attached. ozzy_engine_plain_in_done after a
+ * transfer's frames reports the position (pcm_progress). Completion path.
+ */
+void ozzy_engine_plain_in(struct ozzy_engine *e, const uint8_t *src, uint32_t frames);
+void ozzy_engine_plain_in_done(struct ozzy_engine *e);
+
 /* --- Device settings (common/ozzy_settings.h) --- */
 
 /* The model's quirks as far as settings go (a family drops what its transport can't do) */

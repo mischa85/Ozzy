@@ -214,21 +214,23 @@ void OzzyHALDevice::ApplyDeviceConfig() {
     uint32_t flags = shm->audio.device_flags;
     bool isBulk = flags & OZZY_DEVICE_FLAG_PLOYTEC_BULK;
     bool plain = flags & OZZY_DEVICE_FLAG_PLAIN_OUTPUT;
+    bool plainIn = flags & OZZY_DEVICE_FLAG_PLAIN_INPUT;
     bool mirror = flags & OZZY_DEVICE_FLAG_SPDIF_MIRROR;
     mSpdifMirror = mirror && isBulk && !plain && mOutputChannels == 8;
     mWriteOutput = plain ? PloytecPlainOutputWriter(mOutputChannels) : PloytecOutputWriter(isBulk, mOutputChannels, mirror);
-    mReadInput = PloytecInputReader(mInputChannels);
+    mReadInput = plainIn ? PloytecPlainInputReader(mInputChannels) : PloytecInputReader(mInputChannels);
     if (!mWriteOutput || !mReadInput) {
         LogOzzyHALError("no codec for %{public}u in / %{public}u out, falling back to 8 / 8",
                         mInputChannels, mOutputChannels);
         mInputChannels = mOutputChannels = 8;
         mWriteOutput = plain ? PloytecPlainOutputWriter(8) : PloytecOutputWriter(isBulk, 8);
-        mReadInput = PloytecInputReader(8);
+        mReadInput = plainIn ? PloytecPlainInputReader(8) : PloytecInputReader(8);
     }
     mClearOutput = plain ? PloytecClearOutputPlain : isBulk ? PloytecClearOutputBulk : PloytecClearOutputInterrupt;
     RebuildStreamConfigs();
-    LogOzzyHAL("device %{public}u: Ploytec codec (%{public}s output, %{public}u in / %{public}u out) for VID:0x%{public}04X",
-               mSlot, plain ? "plain" : isBulk ? "bulk" : "interrupt", mInputChannels, mOutputChannels, shm->vendor_id);
+    LogOzzyHAL("device %{public}u: Ploytec codec (%{public}s output, %{public}s input, %{public}u in / %{public}u out) for VID:0x%{public}04X",
+               mSlot, plain ? "plain" : isBulk ? "bulk" : "interrupt", plainIn ? "plain" : "Ploytec", mInputChannels,
+               mOutputChannels, shm->vendor_id);
 
     uint32_t rate = shm->audio.sample_rate.load();
     if (rate == 0) rate = 96000;

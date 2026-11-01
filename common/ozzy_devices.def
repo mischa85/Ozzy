@@ -14,6 +14,7 @@
  *   family     PLOYTEC_XONE  Ploytec junction protocol, bulk/interrupt out (Xone mixers)
  *              PLOYTEC_ISOC  Ploytec bulk in / isochronous out (Akai EIE Pro)
  *              USB_MIDI      USB MIDI class device that needs Ozzy anyway
+ *              PLOYTEC_US3XX Ploytec isochronous in and out, MIDI as USB-MIDI packets (Tascam US-366)
  *   in, out    audio channels (lanes used in the device's frames)
  *   rates      OZZY_RATE_xxx bits
  *   status     SUPPORTED or EXPERIMENTAL (untested on hardware or by few users)
@@ -327,6 +328,15 @@ OZZY_DEVICE(TascamUS2000, 0x0644, 0x8025, "Tascam US-2000", PLOYTEC_ISOC, 16, 4,
 	    OZZY_RATE_44K1 | OZZY_RATE_48K | OZZY_RATE_88K2 | OZZY_RATE_96K, EXPERIMENTAL,
 	    OZZY_QUIRK_AJ_BIT0 | OZZY_QUIRK_SPDIF_OUT | OZZY_QUIRK_DIGITAL_OUT_SEL |
 	    OZZY_QUIRK_DIGITAL_IN, OZZY_NO_LATENCY)
+#endif
+
+/* US-366 (#91), from d-hey's capture of Tascam's Windows driver 1.04 (firmware 1.03,
+ * .claude/re/tascam_us366.md): isochronous both ways, 6 out / 4 in in the mixer mode it reported
+ * ('I' wIndex 1 = 0x0F). 48 and 96 kHz were on the wire; 44.1 and 88.2 are a guess (5/6 and 11/12
+ * frames per microframe, nominal). Untested on hardware. */
+#ifndef OZZY_DISABLE_TascamUS366
+OZZY_DEVICE(TascamUS366, 0x0644, 0x8041, "Tascam US-366", PLOYTEC_US3XX, 4, 6,
+	    OZZY_RATE_44K1 | OZZY_RATE_48K | OZZY_RATE_88K2 | OZZY_RATE_96K, EXPERIMENTAL, 0, OZZY_NO_LATENCY)
 #endif
 
 /*

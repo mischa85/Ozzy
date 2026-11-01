@@ -97,6 +97,28 @@ WriteOutputFunc PloytecPlainOutputWriter(uint32_t channels) {
     }
 }
 
+// Plain input: a ring of interleaved S24_3LE frames at the start of the input buffer, frame f at
+// f * Channels * 3, which the kext copies there from its isochronous transfers
+template <uint32_t Channels, ploytec_frame_f32_dec_fn Convert>
+static void ReadInputPlain(float* dstFrames, const uint8_t* ringBuffer, uint64_t sampleTime, uint32_t frameCount, uint32_t ringFrames) {
+    uint32_t f = (uint32_t)(sampleTime % ringFrames);
+    for (uint32_t i = 0; i < frameCount; i++) {
+        Convert(dstFrames + i * Channels, ringBuffer + f * (Channels * 3));
+        f++;
+        f -= (f == ringFrames) * ringFrames;
+    }
+}
+
+ReadInputFunc PloytecPlainInputReader(uint32_t channels) {
+    switch (channels) {
+    case 2: return ReadInputPlain<2, ploytec_s24_to_f32_2ch>;
+    case 4: return ReadInputPlain<4, ploytec_s24_to_f32_4ch>;
+    case 6: return ReadInputPlain<6, ploytec_s24_to_f32_6ch>;
+    case 8: return ReadInputPlain<8, ploytec_s24_to_f32_8ch>;
+    default: return nullptr;
+    }
+}
+
 ReadInputFunc PloytecInputReader(uint32_t channels) {
     switch (channels) {
     case 2: return ReadInput<2, ploytec_decode_frame_2ch_f32>;

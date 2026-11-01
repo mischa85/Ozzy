@@ -181,6 +181,37 @@ enum ploytec_us3xx_config_flags {
 #define PLOYTEC_US3XX_WRITABLE_MASK    0x18
 #define PLOYTEC_US3XX_FORCED_HIGH_MASK 0xE7
 
+/*
+ * ploytec_us3xx_selector - The AJ input selector ('I' wIndex 0) a TEAC device gets: the byte
+ * read (@sel) with bits 3-4 from the channel config (@config, 'I' wIndex 1), as the official
+ * updateAjInputSelector merges this[0xd2] for VID 0x644. The US-366's Windows driver wrote 0x0A
+ * from 0x02 and 0x0F (.claude/re/tascam_us366.md).
+ */
+static inline uint8_t ploytec_us3xx_selector(uint8_t sel, uint8_t config)
+{
+	return (uint8_t)((sel & ~PLOYTEC_US3XX_WRITABLE_MASK) | (config & PLOYTEC_US3XX_WRITABLE_MASK));
+}
+
+/*
+ * ploytec_us366_channels - The US-366's PCM channels in the mixer mode @config ('I' wIndex 1)
+ * says, as the official readUS3XXChannelConfig picks them: bypass 2 in / 2 out, else 6 out /
+ * 4 in with the width bit (the capture: 0x0F) or 4 out / 6 in without. Only 6 out / 4 in has
+ * been seen on the wire.
+ */
+static inline void ploytec_us366_channels(uint8_t config, uint32_t *in, uint32_t *out)
+{
+	if (config & PLOYTEC_US3XX_MIXER_BYPASS_BIT) {
+		*in = 2;
+		*out = 2;
+	} else if (config & PLOYTEC_US3XX_MIXER_WIDTH_BIT) {
+		*in = 4;
+		*out = 6;
+	} else {
+		*in = 6;
+		*out = 4;
+	}
+}
+
 
 /* ========================================================================
  * Output Packet Layout

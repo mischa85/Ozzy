@@ -10,9 +10,11 @@ add_executable(ozzy-harness
     winusb_bus.c
     ${OZZY}/engine/core/ozzy_engine.c
     ${OZZY}/engine/core/ozzy_isoc_output.c
+    ${OZZY}/engine/core/ozzy_isoc_input.c
     ${OZZY}/engine/devices/ploytec/ploytec_engine.c
     ${OZZY}/engine/devices/ploytec/ploytec_io.c
     ${OZZY}/engine/devices/ploytec/ploytec_isoc_engine.c
+    ${OZZY}/engine/devices/ploytec/ploytec_us3xx_engine.c
     ${OZZY}/engine/devices/usbmidi/usb_midi_engine.c
     ${OZZY}/common/devices/ploytec/ploytec_handshake.c
     ${OZZY}/common/devices/ploytec/ploytec_codec.c

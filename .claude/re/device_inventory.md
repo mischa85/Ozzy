@@ -80,7 +80,7 @@ independently confirming Ozzy's isochronous path.
 | 0644:8025 | Tascam US-2000 | 16 / 4 | 44.1–96k | plist | none | in Ozzy (experimental); digital out selector |
 | 0644:8030 | Tascam US-1800 | 16 / 4 | 44.1–96k | plist | none | in Ozzy (experimental); digital out selector |
 | 0644:801E | Tascam M-164UF (mixer) | ? | | 2.0 kext, no plist | none | captures |
-| 0644:8040, 8041 | Tascam US-322, US-366 | isoc in + isoc out (US-366, `tascam_us366.md`) | | US3XX kext 3.4.13 (Ploytec-signed), no plist | none | US-366: descriptors and a Windows capture (#91), needs an isoc-in engine path; US-322: descriptors and captures; US-366 4/6-input post-processor |
+| 0644:8040, 8041 | Tascam US-322, US-366 | isoc in + isoc out (US-366, `tascam_us366.md`) | | US3XX kext 3.4.13 (Ploytec-signed), no plist | none | US-366: in Ozzy (experimental, untested on hardware): family PLOYTEC_US3XX, 4 in / 6 out at 44.1–96k (48/96 seen on the wire), from a Windows capture (#91); US-322: descriptors and captures; US-366 4/6-input post-processor |
 | 0644:8046, 8048 | Tascam US-1200, UH-7000 (?) | ? | | kext strings | none | descriptors and captures (#91) |
 | 1210:0018 | Lexicon I-ONIX U42S / IO42 | 6 / 4 | 44.1–96k | plist | none (?) | in Ozzy (experimental); S/PDIF clock source missing |
 | 1210:0019 | Lexicon I-ONIX U82S / IO82 | 10 / 4 | 44.1–96k | plist | none (?) | in Ozzy (experimental; 10-lane decoder added); S/PDIF clock source missing |

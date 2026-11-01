@@ -305,11 +305,11 @@ static void hs_spdif_regs(uint8_t mode, uint32_t rate, const uint8_t *old, uint8
 
 /*
  * hs_spdif_out - writeDigitalOutMode: read the S/PDIF output registers 0x0D..0x11 and write
- * each one that differs from what @mode wants at @rate (hs_spdif_regs). The official
- * startStreaming does this right after the first SET_CUR pair, and setDigitalOutMode with
- * streaming suspended.
+ * each one that differs from what @mode wants at @rate (hs_spdif_regs), or with @all every one
+ * (the US-366's Windows driver). The official startStreaming does this right after the first
+ * SET_CUR pair, and setDigitalOutMode with streaming suspended.
  */
-static int hs_spdif_out(const struct ploytec_host_ops *ops, void *ctx, uint32_t rate, uint8_t mode)
+static int hs_spdif_out(const struct ploytec_host_ops *ops, void *ctx, uint32_t rate, uint8_t mode, bool all)
 {
 	uint8_t old[PLOYTEC_SPDIF_REGS] = { 0 };
 	uint8_t want[PLOYTEC_SPDIF_REGS];
@@ -323,7 +323,7 @@ static int hs_spdif_out(const struct ploytec_host_ops *ops, void *ctx, uint32_t 
 	hs_spdif_regs(mode, rate, old, want);
 
 	for (i = 0; i < PLOYTEC_SPDIF_REGS; i++) {
-		if (old[i] == want[i])
+		if (old[i] == want[i] && !all)
 			continue;
 		ret = ops->control(ctx, PLOYTEC_REQTYPE_VENDOR_OUT, PLOYTEC_CMD_ESI_A,
 				   (uint16_t)((PLOYTEC_SPDIF_REG_FIRST + i) << 8 | want[i]),
@@ -602,7 +602,7 @@ int ploytec_handshake_eps(const struct ploytec_host_ops *ops, void *ctx, uint32_
 		goto err;
 
 	if (quirks & OZZY_QUIRK_SPDIF_OUT) {
-		ret = hs_spdif_out(ops, ctx, rate, spdif_mode);
+		ret = hs_spdif_out(ops, ctx, rate, spdif_mode, false);
 		if (ret < 0)
 			goto err;
 	}
@@ -640,5 +640,139 @@ int ploytec_handshake_eps(const struct ploytec_host_ops *ops, void *ctx, uint32_
 
 err:
 	hs_log(ops, ctx, true, "handshake failed at step %d (ret=%d)", step, ret);
+	return ret;
+}
+
+/* --- Tascam US-322 / US-366 (US3XX) --- */
+
+const struct ploytec_rate_endpoints ploytec_us3xx_rate_endpoints = { PLOYTEC_US3XX_EP_PCM_IN, PLOYTEC_US3XX_EP_PCM_OUT };
+
+/*
+ * What Tascam's Windows driver 1.04 sent a US-366 (firmware 1.03) at its first start, at 48 kHz
+ * (.claude/re/tascam_us366.md): the 'M' mixer / routing table (Q15 gains: 0x7FFF, 0x4000,
+ * 0x3E8B) and the 'B' reverb coefficients, which the official kext keeps one block of per rate.
+ * Sent as captured; what each value does is open.
+ */
+static const uint8_t us366_mixer[64] = {
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+	0x7f, 0xff, 0x7f, 0xff, 0x40, 0x00, 0x40, 0x00, 0x3e, 0x8b, 0x3e, 0x8b, 0x00, 0x00, 0x00, 0x00,
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x24, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+};
+
+static const uint8_t us366_reverb_48k[256] = {
+	0x7f, 0xff, 0x7f, 0xff, 0x7f, 0xff, 0x7f, 0xff, 0x0c, 0x30, 0x1b, 0x36, 0x1b, 0x00, 0x18, 0x00,
+	0x27, 0x8c, 0x13, 0x80, 0x0c, 0x30, 0x1b, 0x10, 0x1b, 0x00, 0x18, 0x00, 0x27, 0xbe, 0x13, 0x80,
+	0x16, 0xed, 0xac, 0x78, 0xd6, 0x0c, 0x18, 0x9f, 0x13, 0x23, 0x35, 0x54, 0x3b, 0x42, 0x84, 0x8a,
+	0xe4, 0x94, 0x8c, 0xab, 0xff, 0x00, 0x17, 0xc8, 0xff, 0x00, 0x5e, 0x88, 0x63, 0xe7, 0x40, 0x00,
+	0xff, 0x00, 0x8b, 0x40, 0x66, 0x73, 0x40, 0x00, 0xff, 0x00, 0xb3, 0x66, 0x67, 0x77, 0x40, 0x00,
+	0xff, 0x00, 0xd9, 0xc2, 0x60, 0x00, 0x80, 0x42, 0x6b, 0x02, 0x40, 0x00, 0x6d, 0x5d, 0x40, 0x00,
+	0x71, 0x38, 0x40, 0x00, 0x9c, 0x94, 0xb2, 0xa4, 0x59, 0x5b, 0x59, 0x5b, 0xbc, 0x32, 0xc8, 0x78,
+	0x59, 0x5b, 0x59, 0x5b, 0xcf, 0x2a, 0xd7, 0x52, 0x01, 0xd4, 0x95, 0xe0, 0x03, 0xa9, 0x2b, 0xbf,
+	0x01, 0xd4, 0x95, 0xe0, 0x27, 0x01, 0x0f, 0x2f, 0xf1, 0xac, 0x99, 0x48, 0x00, 0x00, 0x00, 0x00,
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x1a, 0x0f, 0x48, 0x20, 0xd1, 0xc8, 0xbf, 0x80,
+	0x28, 0x74, 0xfe, 0x40, 0x33, 0xdb, 0x58, 0x80, 0xeb, 0xd1, 0xb4, 0x00, 0x07, 0x18, 0xa5, 0x08,
+	0x21, 0x76, 0x0a, 0xc0, 0xc5, 0xd9, 0x30, 0x40, 0x19, 0x8a, 0xf2, 0x40, 0x3a, 0x26, 0xcf, 0xc0,
+	0xe4, 0xff, 0x03, 0x00, 0x60, 0x00, 0x00, 0x00, 0x1a, 0x0f, 0x48, 0x20, 0xd1, 0xc8, 0xbf, 0x80,
+	0x28, 0x74, 0xfe, 0x40, 0x33, 0xdb, 0x58, 0x80, 0xeb, 0xd1, 0xb4, 0x00, 0x54, 0x72, 0xd1, 0x4e,
+	0x21, 0x76, 0x0a, 0xc0, 0xc5, 0xd9, 0x30, 0x40, 0x19, 0x8a, 0xf2, 0x40, 0x3a, 0x26, 0xcf, 0xc0,
+	0xe4, 0xff, 0x03, 0x00, 0x0e, 0xc6, 0x76, 0x8d, 0x0e, 0xc6, 0x76, 0x8d, 0x00, 0x00, 0x00, 0x00,
+};
+
+/* 'I' write, no data phase */
+static int hs_write_i(const struct ploytec_host_ops *ops, void *ctx, uint16_t index, uint8_t value)
+{
+	return ops->control(ctx, PLOYTEC_REQTYPE_VENDOR_OUT, PLOYTEC_CMD_STATUS, value, index, 0, 0);
+}
+
+/* A vendor OUT block, wValue and wIndex 0 ('M', 'B'); @data is copied by the platform if needed */
+static int hs_write_block(const struct ploytec_host_ops *ops, void *ctx, uint8_t request, const uint8_t *data,
+			  uint16_t length)
+{
+	uint8_t buf[PLOYTEC_US3XX_REVERB_SIZE];
+	uint16_t i;
+
+	for (i = 0; i < length && i < sizeof(buf); i++)
+		buf[i] = data[i];
+	return ops->control(ctx, PLOYTEC_REQTYPE_VENDOR_OUT, request, 0, 0, buf, length);
+}
+
+int ploytec_us3xx_handshake(const struct ploytec_host_ops *ops, void *ctx, uint32_t rate, bool mixer,
+			    struct ploytec_us3xx_info *info)
+{
+	const struct ploytec_rate_endpoints *eps = &ploytec_us3xx_rate_endpoints;
+	uint8_t want;
+	int step = 0;
+	int ret;
+
+	hs_log(ops, ctx, false, "--- begin US3XX handshake ---");
+
+	hs_log(ops, ctx, false, "[%d/6] reading firmware version...", ++step);
+	ret = hs_read_firmware(ops, ctx, &info->firmware);
+	if (ret < 0)
+		goto err;
+
+	/* The channel config (mixer mode), then the selector with its bits 3-4 */
+	hs_log(ops, ctx, false, "[%d/6] reading the channel config and the selector...", ++step);
+	ret = ops->control(ctx, PLOYTEC_REQTYPE_VENDOR_IN, PLOYTEC_CMD_STATUS, 0, PLOYTEC_REG_US3XX_CONFIG,
+			   &info->config, 1);
+	if (ret < 0)
+		goto err;
+	ret = hs_read_status(ops, ctx, &info->selector);
+	if (ret < 0)
+		goto err;
+	want = ploytec_us3xx_selector(info->selector, info->config);
+	hs_log(ops, ctx, false, "channel config 0x%02X, selector 0x%02X%s", info->config, info->selector,
+	       want != info->selector ? ", writing it with the config's bits 3-4" : "");
+	if (want != info->selector) {
+		ret = hs_write_i(ops, ctx, PLOYTEC_REG_AJ_INPUT_SEL, want);
+		if (ret < 0)
+			goto err;
+	}
+
+	hs_log(ops, ctx, false, "[%d/6] reading current sample rate...", ++step);
+	ret = hs_read_rate(ops, ctx, &info->boot_rate);
+	if (ret < 0)
+		goto err;
+
+	/* Three SET_CUR pairs (each request takes the device ~54 ms), the mixer blocks after the
+	 * first, the S/PDIF channel status after the second, as the Windows driver does */
+	hs_log(ops, ctx, false, "[%d/6] setting sample rate to %u Hz...", ++step, rate);
+	ret = hs_set_rate(ops, ctx, rate, eps);
+	if (ret < 0)
+		goto err;
+
+	if (mixer) {
+		hs_log(ops, ctx, false, "[%d/6] mixer table%s...", ++step,
+		       rate == 48000 ? " and reverb coefficients" : " (no reverb coefficients for this rate)");
+		ret = hs_write_block(ops, ctx, PLOYTEC_CMD_MIXER, us366_mixer, sizeof(us366_mixer));
+		if (ret < 0)
+			goto err;
+		if (rate == 48000) {
+			ret = hs_write_block(ops, ctx, PLOYTEC_CMD_REVERB, us366_reverb_48k, sizeof(us366_reverb_48k));
+			if (ret < 0)
+				goto err;
+		}
+	} else {
+		++step;
+	}
+	ret = hs_set_rate(ops, ctx, rate, eps);
+	if (ret < 0)
+		goto err;
+
+	hs_log(ops, ctx, false, "[%d/6] S/PDIF out...", ++step);
+	ret = hs_spdif_out(ops, ctx, rate, OZZY_SPDIF_OUT_CONSUMER, true);
+	if (ret < 0)
+		goto err;
+	ret = hs_set_rate(ops, ctx, rate, eps);
+	if (ret < 0)
+		goto err;
+
+	info->rate = rate;
+	hs_log(ops, ctx, false, "--- US3XX handshake complete ---");
+	return 0;
+
+err:
+	hs_log(ops, ctx, true, "US3XX handshake failed at step %d (ret=%d)", step, ret);
 	return ret;
 }

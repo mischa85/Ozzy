@@ -36,6 +36,7 @@ static struct usb_driver ozzy_driver;
  */
 #define OZZY_LINUX_ROW_PLOYTEC_XONE(vid, pid) { USB_DEVICE(vid, pid) },
 #define OZZY_LINUX_ROW_PLOYTEC_ISOC(vid, pid) { USB_DEVICE(vid, pid) },
+#define OZZY_LINUX_ROW_PLOYTEC_US3XX(vid, pid) { USB_DEVICE(vid, pid) },
 #define OZZY_LINUX_ROW_USB_MIDI(vid, pid)
 
 static const struct usb_device_id ozzy_id_table[] = {

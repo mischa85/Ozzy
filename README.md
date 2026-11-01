@@ -81,6 +81,7 @@ These use the same Ploytec chip. Their channels, rates and setup requests come f
 | **Tascam US-144** | 4 / 4 | 44.1–96 kHz | Not in the Linux build by default: Linux has its own drivers |
 | **Tascam US-144MKII** | 4 / 4 | 44.1–96 kHz | Not in the Linux build by default: Linux has its own driver |
 | **Tascam US-200** | 2 / 4 | 44.1–96 kHz |  |
+| **Tascam US-366** | 4 / 6 | 44.1–96 kHz | Written from a Windows capture ([#91](https://github.com/mischa85/Ozzy/issues/91)); in the mixer mode with 4 inputs and 6 outputs only |
 | **Tascam US-600** | 6 / 4 | 44.1–96 kHz |  |
 | **Tascam US-1800** | 16 / 4 | 44.1–96 kHz |  |
 | **Tascam US-2000** | 16 / 4 | 44.1–96 kHz |  |
@@ -94,7 +95,7 @@ We can't work these out from the drivers alone. If you own one, the linked issue
 * Alesis MultiMix 8 / 8 FX / 16 USB 2.0: [#90](https://github.com/mischa85/Ozzy/issues/90)
 * Dynacord PowerMate-3 / CMS-3: [#15](https://github.com/mischa85/Ozzy/issues/15)
 * Reloop, older interfaces (Digital Jockey IE / 2 IE, Spin 2, 10tion, Mixage IE, Play): [#92](https://github.com/mischa85/Ozzy/issues/92)
-* Tascam US-322, US-366, US-1200, UH-7000: [#91](https://github.com/mischa85/Ozzy/issues/91)
+* Tascam US-322, US-1200, UH-7000: [#91](https://github.com/mischa85/Ozzy/issues/91)
 * Unidentified Ploytec USB IDs: [#93](https://github.com/mischa85/Ozzy/issues/93)
 
 ---

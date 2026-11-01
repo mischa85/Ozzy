@@ -51,36 +51,10 @@ static void submit_midi_in(struct ploytec_isoc_engine *pe, uint32_t slot)
 		ploytec_log("isoc: MIDI input submission failed (slot %u)", slot);
 }
 
-/*
- * fill_out - The plain frames of one OUT transfer from the attached ring, with the output
- * routing; silence on a platform with rings and none attached (Linux: ozzy_pcm_fill_iso_out).
- */
+/* The plain frames of one OUT transfer from the attached ring (Linux: ozzy_pcm_fill_iso_out) */
 static void fill_out(void *owner, uint8_t *dst_ring, uint32_t dst_frames, uint64_t first, uint32_t frames)
 {
-	struct ozzy_engine *e = (struct ozzy_engine *)owner;
-	const struct ozzy_pcm_ring *ring = ozzy_engine_take_pcm_ring(e, OZZY_PCM_OUT);
-	uint32_t frame_bytes = e->model->out_channels * 3;
-	uint32_t d = ozzy_mod_u64(first, dst_frames), r, f;
-
-	if (!ring) {
-		if (ozzy_engine_ring_platform(e))
-			for (f = 0; f < frames; f++, d = d + 1 == dst_frames ? 0 : d + 1)
-				memset(dst_ring + d * frame_bytes, 0, frame_bytes);
-		return;
-	}
-	r = ozzy_mod_u64(e->pcm_pos[OZZY_PCM_OUT], ring->frames);
-	for (f = 0; f < frames; f++) {
-		if (e->out_route.identity)
-			memcpy(dst_ring + d * frame_bytes, ring->base + r * frame_bytes, frame_bytes);
-		else
-			ozzy_route_frame(dst_ring + d * frame_bytes, ring->base + r * frame_bytes, &e->out_route, 2 * 3);
-		if (++r == ring->frames)
-			r = 0;
-		if (++d == dst_frames)
-			d = 0;
-	}
-	e->pcm_pos[OZZY_PCM_OUT] += frames;
-	ozzy_bus_pcm_progress(e->bus, OZZY_PCM_OUT, e->pcm_pos[OZZY_PCM_OUT]);
+	ozzy_engine_plain_out((struct ozzy_engine *)owner, dst_ring, dst_frames, first, frames);
 }
 
 static bool isoc_start(struct ozzy_engine *e)

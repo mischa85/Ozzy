@@ -95,13 +95,14 @@ typedef std::atomic<bool>     ozzy_atomic_bool;
  */
 #define OZZY_TIMESTAMP_FRAMES           3200   /* the default spacing */
 
-/* The isochronous family's plain output ring, in frames (OZZY_DEVICE_FLAG_PLAIN_OUTPUT) */
+/* The isochronous families' plain rings, in frames (OZZY_DEVICE_FLAG_PLAIN_OUTPUT / _INPUT) */
 #define OZZY_PLAIN_RING_FRAMES          10240
 
 /* ozzy_audio_buffer.device_flags */
 #define OZZY_DEVICE_FLAG_PLOYTEC_BULK   (1u << 0)    /* Ploytec 512-byte "bulk" output layout, else 482-byte "interrupt" */
 #define OZZY_DEVICE_FLAG_PLAIN_OUTPUT   (1u << 1)    /* output_buffer is a ring of plain interleaved frames (see below) */
 #define OZZY_DEVICE_FLAG_SPDIF_MIRROR   (1u << 2)    /* Ploytec bulk, 8 out: lanes 9/10 mirror a pair (ESU1808) */
+#define OZZY_DEVICE_FLAG_PLAIN_INPUT    (1u << 3)    /* input_buffer starts with a ring of plain interleaved frames */
 
 /* Isochronous IN transfers (feedback): 2 in flight, up to 32 packets of up to 256 bytes each */
 #define OZZY_ISOC_IN_BUFFER_SIZE        (2 * 32 * 256)
@@ -161,7 +162,10 @@ struct ozzy_audio_buffer {
 	 *   interrupt bytes, with their MIDI and control bytes), end to end.
 	 * - With OZZY_DEVICE_FLAG_PLAIN_OUTPUT: plain frames of output_bytes_per_frame bytes
 	 *   (interleaved S24_3LE), which isochronous transfers read directly.
-	 * A ring holds a whole number of transfers, so none wraps.
+	 * - With OZZY_DEVICE_FLAG_PLAIN_INPUT: plain frames of input_bytes_per_frame bytes at the
+	 *   start of input_buffer, which the engine copies there from its isochronous transfers
+	 *   (they land after the ring); frame f is the f-th the device sent since the start.
+	 * A ring of transfers holds a whole number of them, so none wraps.
 	 */
 	uint8_t input_buffer[OZZY_PCM_RING_BYTES];
 	uint8_t output_buffer[OZZY_PCM_RING_BYTES];

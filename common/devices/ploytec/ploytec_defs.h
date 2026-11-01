@@ -130,6 +130,27 @@ enum ploytec_wm8776_bits {
 	PLOYTEC_WM8776_MIX_MONO     = 0x0F0,
 };
 
+/*
+ * Tascam US-322 / US-366 (US3XX, .claude/re/tascam_us366.md): interface 0 without endpoints, PCM
+ * out on interface 1 and in on 2 (isochronous, alternate setting 2: 512-byte packets, no
+ * feedback), MIDI on 3 (bulk in, interrupt out, USB-MIDI event packets)
+ */
+#define PLOYTEC_US3XX_NUM_INTERFACES 4
+#define PLOYTEC_US3XX_ALT_PCM        2
+#define PLOYTEC_US3XX_EP_PCM_OUT     0x02
+#define PLOYTEC_US3XX_EP_PCM_IN      0x81
+#define PLOYTEC_US3XX_EP_MIDI_IN     0x83
+#define PLOYTEC_US3XX_EP_MIDI_OUT    0x04
+#define PLOYTEC_US3XX_INTF_PCM_OUT   1
+#define PLOYTEC_US3XX_INTF_PCM_IN    2
+#define PLOYTEC_US3XX_INTF_MIDI      3
+
+/* TEAC requests (VID 0x644): 'M' the mixer / routing table, 'B' reverb coefficients per rate */
+#define PLOYTEC_CMD_MIXER           0x4D  /* 'M' - 64 bytes, vendor OUT, wValue 0, wIndex 0 */
+#define PLOYTEC_CMD_REVERB          0x42  /* 'B' - 256 bytes, vendor OUT, wValue 0, wIndex 0 */
+#define PLOYTEC_US3XX_MIXER_SIZE    64
+#define PLOYTEC_US3XX_REVERB_SIZE   256
+
 /* SET_CUR sample rate endpoint addresses (wIndex field) */
 #define PLOYTEC_EP_RATE_IN          0x0086
 #define PLOYTEC_EP_RATE_OUT         0x0005

@@ -55,6 +55,8 @@ static bool fb_control(void *ctx, uint8_t type, uint8_t req, uint16_t val, uint1
 		memset(data, 0, len);
 		if (type == 0xA2 && req == 0x81 && len >= 3)
 			memcpy(data, fb->rate, 3);
+		else if (type == 0xC0 && req == 0x49 && idx < sizeof(fb->i_reg))
+			*(uint8_t *)data = fb->i_reg[idx];
 	}
 	return true;
 }
@@ -191,14 +193,16 @@ void fake_bus_complete(struct fake_bus *fb, struct ozzy_engine *e, struct fake_x
 	uint32_t i;
 
 	fb->engine = e;
-	if ((x->pipe & 0x80) && fill)
-		fill(x, arg);
 	if (x->isoc) {
 		for (i = 0; i < x->count; i++) {
 			x->packets[i].actual = x->packets[i].length;
 			x->packets[i].status = 0;
 			x->packets[i].time = fb->ticks + 1000;
 		}
+	}
+	if ((x->pipe & 0x80) && fill)
+		fill(x, arg);
+	if (x->isoc) {
 		ozzy_engine_isoc_complete(e, x->pipe, x->xfer, 0, x->packets, x->count);
 	} else {
 		ozzy_engine_complete(e, x->pipe, x->xfer, 0, x->size);

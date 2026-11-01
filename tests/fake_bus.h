@@ -30,6 +30,7 @@ struct fake_bus {
 	struct fake_xfer queue[512];
 	unsigned int head, tail;
 	uint8_t rate[3];                   /* last UAC1 SET_CUR rate */
+	uint8_t i_reg[4];                  /* what an 'I' read of wIndex 0-3 answers (0 by default) */
 	uint64_t ticks;
 	uint64_t hz;                       /* 0: the clock ticks once per call; else it reads @now */
 	uint64_t now;                      /* the clock, in @hz ticks a second, as the test sets it */
@@ -45,8 +46,8 @@ void fake_bus_init(struct fake_bus *fb, struct ozzy_shared_memory *shm, bool rin
 bool fake_bus_pop(struct fake_bus *fb, struct fake_xfer *x);
 void fake_bus_push(struct fake_bus *fb, const struct fake_xfer *x);
 
-/* Complete @x: IN transfers get @fill bytes first (NULL: leave the buffer), isochronous
- * packets complete in full */
+/* Complete @x: isochronous packets complete in full, then IN transfers get @fill bytes (NULL:
+ * leave the buffer; a fill may set a packet's actual length) */
 void fake_bus_complete(struct fake_bus *fb, struct ozzy_engine *e, struct fake_xfer *x,
 		       void (*fill)(struct fake_xfer *x, void *arg), void *arg);
 

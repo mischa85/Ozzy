@@ -40,6 +40,7 @@ enum ozzy_family {
 	OZZY_FAMILY_PLOYTEC_XONE,   /* Ploytec junction protocol, bulk/interrupt PCM out */
 	OZZY_FAMILY_PLOYTEC_ISOC,   /* Ploytec bulk in / isochronous out */
 	OZZY_FAMILY_USB_MIDI,       /* USB MIDI class */
+	OZZY_FAMILY_PLOYTEC_US3XX,  /* Ploytec isochronous in and out, USB-MIDI packets (Tascam US-366) */
 };
 
 enum ozzy_status {

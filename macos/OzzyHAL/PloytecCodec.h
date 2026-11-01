@@ -21,8 +21,10 @@ WriteOutputFunc PloytecOutputWriter(bool bulkLayout, uint32_t channels, bool spd
                                     unsigned int mirrorPair = 0);
 ReadInputFunc PloytecInputReader(uint32_t channels);
 
-// Plain output (OZZY_DEVICE_FLAG_PLAIN_OUTPUT): interleaved S24_3LE frames, no framing
+// Plain output (OZZY_DEVICE_FLAG_PLAIN_OUTPUT) and input (OZZY_DEVICE_FLAG_PLAIN_INPUT):
+// interleaved S24_3LE frames, no framing
 WriteOutputFunc PloytecPlainOutputWriter(uint32_t channels);
+ReadInputFunc PloytecPlainInputReader(uint32_t channels);
 
 void PloytecClearOutputBulk(uint8_t* outputBuffer, uint32_t ringFrames);
 void PloytecClearOutputInterrupt(uint8_t* outputBuffer, uint32_t ringFrames);

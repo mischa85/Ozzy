@@ -9,6 +9,7 @@
 #include "../shared/ozzy_log.h"
 #include "../devices/ploytec/ploytec_engine.h"
 #include "../devices/ploytec/ploytec_isoc_engine.h"
+#include "../devices/ploytec/ploytec_us3xx_engine.h"
 #include "../devices/usbmidi/usb_midi_engine.h"
 
 size_t ozzy_engine_size(const struct ozzy_device *model)
@@ -17,6 +18,7 @@ size_t ozzy_engine_size(const struct ozzy_device *model)
 	case OZZY_FAMILY_PLOYTEC_XONE:  return sizeof(struct ploytec_engine);
 	case OZZY_FAMILY_PLOYTEC_ISOC:  return sizeof(struct ploytec_isoc_engine);
 	case OZZY_FAMILY_USB_MIDI:      return sizeof(struct usb_midi_engine);
+	case OZZY_FAMILY_PLOYTEC_US3XX: return sizeof(struct ploytec_us3xx_engine);
 	default:                        return 0;
 	}
 }
@@ -37,6 +39,9 @@ struct ozzy_engine *ozzy_engine_init(void *mem, const struct ozzy_device *model)
 		break;
 	case OZZY_FAMILY_USB_MIDI:
 		usb_midi_engine_init((struct usb_midi_engine *)mem, model);
+		break;
+	case OZZY_FAMILY_PLOYTEC_US3XX:
+		ploytec_us3xx_engine_init((struct ploytec_us3xx_engine *)mem, model);
 		break;
 	}
 	return (struct ozzy_engine *)mem;
@@ -417,6 +422,64 @@ const struct ozzy_pcm_ring *ozzy_engine_take_pcm_ring(struct ozzy_engine *e, enu
 			e->pcm_pos[dir] = ring->start;
 	}
 	return ring && ring->frames && ring->channels == channels ? ring : NULL;
+}
+
+void ozzy_engine_plain_out(struct ozzy_engine *e, uint8_t *dst_ring, uint32_t dst_frames, uint64_t first,
+			   uint32_t frames)
+{
+	const struct ozzy_pcm_ring *ring = ozzy_engine_take_pcm_ring(e, OZZY_PCM_OUT);
+	uint32_t frame_bytes = e->model->out_channels * 3;
+	uint32_t d = ozzy_mod_u64(first, dst_frames), r, f;
+
+	if (!ring) {
+		if (ozzy_engine_ring_platform(e))
+			for (f = 0; f < frames; f++, d = d + 1 == dst_frames ? 0 : d + 1)
+				memset(dst_ring + d * frame_bytes, 0, frame_bytes);
+		return;
+	}
+	r = ozzy_mod_u64(e->pcm_pos[OZZY_PCM_OUT], ring->frames);
+	for (f = 0; f < frames; f++) {
+		if (e->out_route.identity)
+			memcpy(dst_ring + d * frame_bytes, ring->base + r * frame_bytes, frame_bytes);
+		else
+			ozzy_route_frame(dst_ring + d * frame_bytes, ring->base + r * frame_bytes, &e->out_route, 2 * 3);
+		if (++r == ring->frames)
+			r = 0;
+		if (++d == dst_frames)
+			d = 0;
+	}
+	e->pcm_pos[OZZY_PCM_OUT] += frames;
+	ozzy_bus_pcm_progress(e->bus, OZZY_PCM_OUT, e->pcm_pos[OZZY_PCM_OUT]);
+}
+
+void ozzy_engine_plain_in(struct ozzy_engine *e, const uint8_t *src, uint32_t frames)
+{
+	const struct ozzy_pcm_ring *ring = ozzy_engine_take_pcm_ring(e, OZZY_PCM_IN);
+	uint32_t frame_bytes, r, f;
+
+	if (!ring)
+		return;
+	frame_bytes = ring->channels * 3;
+	r = ozzy_mod_u64(e->pcm_pos[OZZY_PCM_IN], ring->frames);
+	for (f = 0; f < frames; f++) {
+		uint8_t *dst = ring->base + r * frame_bytes;
+
+		if (!src)
+			memset(dst, 0, frame_bytes);
+		else if (e->in_route.identity)
+			memcpy(dst, src + f * frame_bytes, frame_bytes);
+		else
+			ozzy_route_frame(dst, src + f * frame_bytes, &e->in_route, 2 * 3);
+		if (++r == ring->frames)
+			r = 0;
+	}
+	e->pcm_pos[OZZY_PCM_IN] += frames;
+}
+
+void ozzy_engine_plain_in_done(struct ozzy_engine *e)
+{
+	if (ozzy_engine_take_pcm_ring(e, OZZY_PCM_IN))
+		ozzy_bus_pcm_progress(e->bus, OZZY_PCM_IN, e->pcm_pos[OZZY_PCM_IN]);
 }
 
 void ozzy_engine_bind_endpoints(struct ozzy_engine *e, const struct ozzy_usb_endpoint *eps, unsigned int count,

@@ -204,6 +204,10 @@ static int ozzy_chip_probe(struct usb_interface *intf, const struct usb_device_i
 	model = ozzy_device_lookup(le16_to_cpu(dev->descriptor.idVendor), le16_to_cpu(dev->descriptor.idProduct));
 	if (!model)
 		return -ENODEV;
+	/* A class-compliant revision under a listed ID (the Dynacord CMS 600-3's HW:03): the class
+	 * driver's, not Ozzy's */
+	if (model->family != OZZY_FAMILY_USB_MIDI && intf->cur_altsetting->desc.bInterfaceClass == USB_CLASS_AUDIO)
+		return -ENODEV;
 
 	ret = snd_card_new(&intf->dev, index[0], id[0], THIS_MODULE, sizeof(*chip), &card);
 	if (ret < 0)

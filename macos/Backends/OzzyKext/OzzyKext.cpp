@@ -114,6 +114,14 @@ static struct ozzy_engine* CreateEngine(uint16_t vid, uint16_t pid, size_t* size
     return ozzy_engine_init(raw, device);
 }
 
+/* Whether @dev's interface 0 is USB Audio class: a class-compliant revision under a listed ID
+ * (the Dynacord CMS 600-3's HW:03), which Apple's class driver should have, not Ozzy */
+static bool IsClassCompliantAudio(IOUSBHostDevice* dev) {
+    const StandardUSB::ConfigurationDescriptor* cfg = dev->getConfigurationDescriptor(0);
+    const StandardUSB::InterfaceDescriptor* intf = cfg ? StandardUSB::getNextInterfaceDescriptor(cfg, nullptr) : nullptr;
+    return intf && intf->bInterfaceClass == 1;   /* USB Audio */
+}
+
 KextBus* CreateBus(IOUSBHostDevice* dev, IOService* driver) {
     void* raw = IOMalloc(sizeof(KextBus));
     if (!raw) return nullptr;
@@ -188,6 +196,13 @@ bool OzzyKext::start(IOService* provider) {
     
     uint16_t vid = desc ? desc->idVendor : 0;
     uint16_t pid = desc ? desc->idProduct : 0;
+
+    const struct ozzy_device* listed = ozzy_device_lookup(vid, pid);
+    if (listed && listed->family != OZZY_FAMILY_USB_MIDI && IsClassCompliantAudio(mHostDevice)) {
+        ozzy_log("%04x:%04x is class compliant (interface 0 is Audio class): leaving it to the class driver", vid, pid);
+        mHostDevice->close(this);
+        return false;
+    }
     
     mEngine = CreateEngine(vid, pid, &mEngineSize);
     mBus = CreateBus(mHostDevice, this);

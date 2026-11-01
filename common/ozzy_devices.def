@@ -88,6 +88,21 @@ OZZY_DEVICE(AkaiEIEPro, 0x09E8, 0x0010, "Akai EIE Pro", PLOYTEC_ISOC, 4, 4,
 #endif
 
 /*
+ * Dynacord CMS 600-3 (and its PowerMate-3 / CMS-3 siblings on the same card), the Ploytec revision
+ * (#15): the EIE's layout (isoc out 0x02 with count feedback on 0x81, Xone frames on bulk 0x86,
+ * M4_C1 MIDI on 0x83 / 0x04), 4 in / 4 out. Facts and rates from dominics/Ozzy, which drives
+ * it on real hardware, and its captures (dominics/dynacord-cms-pcap): 44.1, 48 and 96 kHz,
+ * the Xone handshake, both interfaces selected again on a rate change (Ozzy's restarts do).
+ * Its MIDI frame has a second port at offset 4 ("SystemCtrl", FX control) that Ozzy doesn't
+ * offer; the first is the DIN sockets. The later HW:03 revision is class compliant: if it
+ * shares this ID, Ozzy leaves it to the class driver (its interface 0 is Audio class).
+ */
+#ifndef OZZY_DISABLE_DynacordCMS600
+OZZY_DEVICE(DynacordCMS600, 0x0562, 0x03EB, "Dynacord CMS 600-3", PLOYTEC_ISOC, 4, 4,
+	    OZZY_RATE_44K1 | OZZY_RATE_48K | OZZY_RATE_96K, EXPERIMENTAL, 0, OZZY_NO_LATENCY)
+#endif
+
+/*
  * USB MIDI class, but its bulk endpoints have wMaxPacketSize 4, which macOS's class driver
  * rejects. Linux's snd-usb-audio drives it (Ozzy's Linux side has no USB_MIDI family) (#27).
  */

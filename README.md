@@ -11,6 +11,7 @@ This is an open-source, reverse-engineered driver supporting non-class compliant
 **Currently Supported Devices:**
 * **Allen & Heath Xone:DB4, DB2, DX, 4D** (Ploytec-based protocol)
 * **Tascam US-1641**
+* **Numark Omni Control**
 * **Experimental:** 30+ more Ploytec-based interfaces and DJ controllers from Allen & Heath, Reloop, ESI, Midiplus, Smyth Research, Akai, M-Audio, Lexicon, Numark and Tascam ([full list](#️-supported-devices))
 
 More devices can be added—the architecture separates the audio engine from device protocols.
@@ -45,6 +46,7 @@ Every device below comes from one list in [`common/ozzy_devices.def`](common/ozz
 | **Allen & Heath Xone:DX** | 8 / 8 | 44.1–96 kHz |
 | **Allen & Heath Xone:4D** | 8 / 8 | 44.1–96 kHz |
 | **Tascam US-1641** | 16 / 4 | 44.1–96 kHz |
+| **Numark Omni Control** (first MIDI port only) | 4 / 4 | 44.1–96 kHz |
 
 ### 🧪 Experimental (needs testers)
 
@@ -72,7 +74,6 @@ These use the same Ploytec chip. Their channels, rates and setup requests come f
 | **Numark MixDeck** | 4 / 4 | 44.1/88.2 kHz |  |
 | **Numark NS6** | 4 / 4 | 44.1 kHz |  |
 | **Numark NS7** | 4 / 4 | 44.1 kHz |  |
-| **Numark Omni Control** | 4 / 4 | 44.1–96 kHz | First MIDI port only |
 | **Numark V7** | 4 / 4 | 44.1 kHz |  |
 | **Reloop Contour Interface Edition** | 2 / 10 | 44.1 kHz |  |
 | **Reloop Digital Jockey 2 Master Edition** | 6 / 4 | 44.1 kHz |  |

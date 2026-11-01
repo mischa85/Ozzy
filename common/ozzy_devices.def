@@ -204,10 +204,12 @@ OZZY_DEVICE(NumarkMixDeck, 0x15E4, 0x0040, "Numark MixDeck", PLOYTEC_ISOC, 4, 4,
  * Omni Control (#93), Windows driver 2.9.13 (generic Ploytec nkc2_usb.sys, no Mac plist): 4 in /
  * 4 out at High Speed, 44.1-96k, two-port MIDI frame (M4_M4_C1, Ozzy reads port 1), no
  * device-specific requests. The driver overrides the counts from the 'V' reply (bytes 3/4 x2).
+ * Tested on hardware (#93, #95, gonzo-LE, Linux with Mixxx): audio, MIDI and a weekend stress
+ * test; the mic input was not tried.
  */
 #ifndef OZZY_DISABLE_NumarkOmniControl
 OZZY_DEVICE(NumarkOmniControl, 0x15E4, 0x0074, "Numark Omni Control", PLOYTEC_ISOC, 4, 4,
-	    OZZY_RATE_44K1 | OZZY_RATE_48K | OZZY_RATE_88K2 | OZZY_RATE_96K, EXPERIMENTAL, 0, OZZY_NO_LATENCY)
+	    OZZY_RATE_44K1 | OZZY_RATE_48K | OZZY_RATE_88K2 | OZZY_RATE_96K, SUPPORTED, 0, OZZY_NO_LATENCY)
 #endif
 
 /*

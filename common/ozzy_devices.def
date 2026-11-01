@@ -103,6 +103,18 @@ OZZY_DEVICE(DynacordCMS600, 0x0562, 0x03EB, "Dynacord CMS 600-3", PLOYTEC_ISOC, 
 #endif
 
 /*
+ * Alesis MultiMix 8 USB 2.0 (and the 8 FX and 16, which share the ID): the same layout,
+ * from martinspinler's MultiMix 8 (#15): isoc out 0x02 plain S24_3LE, a 3-byte frame count on
+ * isoc 0x81, Xone frames on bulk 0x86, no MIDI. 10 in / 2 out as on his unit and in Alesis's
+ * spec (Alesis's plist says 4 / 4); rates from the plist (the spec says up to 96k). The 16 may
+ * have more inputs: descriptors wanted (#90).
+ */
+#ifndef OZZY_DISABLE_AlesisMultiMix
+OZZY_DEVICE(AlesisMultiMix, 0x13B2, 0x0030, "Alesis MultiMix USB 2.0", PLOYTEC_ISOC, 10, 2,
+	    OZZY_RATE_44K1 | OZZY_RATE_48K, EXPERIMENTAL, 0, OZZY_NO_LATENCY)
+#endif
+
+/*
  * USB MIDI class, but its bulk endpoints have wMaxPacketSize 4, which macOS's class driver
  * rejects. Linux's snd-usb-audio drives it (Ozzy's Linux side has no USB_MIDI family) (#27).
  */

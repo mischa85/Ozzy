@@ -126,6 +126,62 @@ static void submit_midi_in(struct ploytec_engine *pe, uint32_t slot)
 		ploytec_log("MIDI input submission failed (slot %u)", slot);
 }
 
+/*
+ * cport_out - Transfer @t's control bytes: the queued C-port bytes, one per sub-packet (| 0x18,
+ * as the official driver sends them), idle in the rest. Nothing to do once the queue is empty
+ * and every place has been sent idle again.
+ */
+static void cport_out(struct ploytec_engine *pe, uint32_t t)
+{
+	uint32_t k, subpkts = pe->out_frames / PLOYTEC_FRAMES_PER_OUT_SUBPKT;
+	uint8_t *packet;
+	bool queued = false;
+
+	if (pe->cport_head == pe->cport_len && !pe->cport_idle_left)
+		return;
+	packet = ozzy_engine_pcm_out_slot(&pe->base, t);
+	for (k = 0; k < subpkts; k++) {
+		uint8_t byte = PLOYTEC_MIDI_CONTROL_IDLE;
+
+		if (pe->cport_head < pe->cport_len) {
+			byte = pe->cport[pe->cport_head++] | PLOYTEC_CPORT_FORCED;
+			queued = true;
+		}
+		packet[ploytec_out_midi_offset(pe->out_layout, k) + 1] = byte;
+	}
+	if (queued)
+		pe->cport_idle_left = pe->base.mem.pcm_out_slots;
+	else if (pe->cport_idle_left)
+		pe->cport_idle_left--;
+}
+
+/*
+ * cport_queue - At start (OZZY_QUIRK_ESI_CPORT): the settings ESI's panel sends over the C-port,
+ * every time, as the converters may have been reset: the S/PDIF out mode (AK4114 channel status
+ * byte 0) and each output's attenuator, 0 dB for +4 dBu or 5 dB down for -10 dBV (AK4358).
+ */
+static void cport_queue(struct ploytec_engine *pe)
+{
+	const struct ozzy_settings *s = &pe->base.settings;
+	unsigned int ch;
+
+	pe->cport_head = pe->cport_len = 0;
+	if (!(pe->base.model->quirks & OZZY_QUIRK_ESI_CPORT))
+		return;
+	pe->cport_len += ploytec_cport_write(pe->cport + pe->cport_len, PLOYTEC_CPORT_DIT, PLOYTEC_CPORT_DIT_TX_CS0,
+					     s->value[OZZY_SETTING_SPDIF_OUT_MODE] == OZZY_SPDIF_OUT_PROFESSIONAL);
+	for (ch = 0; ch < 8 && ch < pe->base.model->out_channels; ch++) {
+		uint8_t level = s->value[OZZY_SETTING_ESI_LEVEL_12 + ch / 2] == OZZY_ESI_LEVEL_MINUS10 ?
+				PLOYTEC_CPORT_ATT_MINUS10 : PLOYTEC_CPORT_ATT_0DB;
+
+		pe->cport_len += ploytec_cport_write(pe->cport + pe->cport_len, PLOYTEC_CPORT_DAC,
+						     ploytec_cport_dac_att_regs[ch], level);
+	}
+	ploytec_log("C-port: S/PDIF out %s, %u attenuator writes queued",
+		    s->value[OZZY_SETTING_SPDIF_OUT_MODE] == OZZY_SPDIF_OUT_PROFESSIONAL ? "professional" : "consumer",
+		    ch);
+}
+
 static bool ploytec_start(struct ozzy_engine *e)
 {
 	struct ploytec_engine *pe = to_ploytec(e);
@@ -224,10 +280,12 @@ static bool ploytec_start(struct ozzy_engine *e)
 	pe->period_count = 0;
 	shm->audio.timestamp.sample_time = 0;
 
-	/* 4. Every PCM out place: silence and idle MIDI bytes */
+	/* 4. Every PCM out place: silence and idle MIDI bytes; the converter settings to send */
 	for (i = 0; i < out_places; i++)
 		ploytec_out_init_subpkts(pe->out_layout, ozzy_engine_pcm_out_slot(e, i),
 					 pe->out_frames / PLOYTEC_FRAMES_PER_OUT_SUBPKT);
+	pe->cport_idle_left = 0;
+	cport_queue(pe);
 
 	/* 5. in_queue / out_queue transfers in flight per PCM pipe, PLOYTEC_MIDI_IN_XFERS MIDI IN reads */
 	pe->running = true;
@@ -406,6 +464,7 @@ static void ploytec_complete(struct ozzy_engine *e, uint8_t pipe, void *xfer, in
 		next = ploytec_pcm_next(finished, pe->out_queue, e->mem.pcm_out_slots);
 		update_timestamp(pe);
 		midi_out(pe, next);
+		cport_out(pe, next);
 		encode_pcm_out(pe, next);
 		submit_pcm_out(pe, next);
 	} else if (pipe == EP_PCM_IN) {

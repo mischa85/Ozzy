@@ -62,6 +62,11 @@ enum ozzy_setting {
 	OZZY_SETTING_WM_MONO_34,
 	OZZY_SETTING_WM_DIRECT_34,
 	OZZY_SETTING_WM_MODULE_34,    /* outputs 3-4 play the sound module */
+	OZZY_SETTING_ESI_CLOCK,       /* ESI U168 XT: clock and the source of inputs 15-16 */
+	OZZY_SETTING_ESI_LEVEL_12,    /* ESI U168 XT: outputs 1-2 at +4 dBu or -10 dBV */
+	OZZY_SETTING_ESI_LEVEL_34,
+	OZZY_SETTING_ESI_LEVEL_56,
+	OZZY_SETTING_ESI_LEVEL_78,
 	OZZY_NUM_SETTINGS
 };
 
@@ -131,6 +136,32 @@ enum ozzy_wm_direct {
 };
 
 #define OZZY_NUM_OFF_ON 2
+
+/*
+ * OZZY_SETTING_ESI_CLOCK values: the three choices of ESI's U168 XT panel, the ESI selector
+ * states the official kext writes for them (updateAjInputSelector_Esu186, AjExtData[1]):
+ *   Internal                          1   0xB0, 'A' 0x349 (the panel shows inputs 15-16 analog)
+ *   Automatic, inputs 15-16 analog    2   0x32, 'A' 0x348 (Ozzy's only state before the setting)
+ *   Automatic, inputs 15-16 S/PDIF    0   0xB2, 'A' 0x348 (the power-up state)
+ * Which bits do what isn't known: on one U168 XT inputs 15-16 didn't record the analog inputs
+ * at 0x32 (#98), so the names are the panel's, unconfirmed.
+ */
+enum ozzy_esi_clock {
+	OZZY_ESI_CLOCK_AUTO_ANALOG,
+	OZZY_ESI_CLOCK_AUTO_SPDIF,
+	OZZY_ESI_CLOCK_INTERNAL,
+	OZZY_NUM_ESI_CLOCKS
+};
+
+/*
+ * OZZY_SETTING_ESI_LEVEL_* values: the panel's per-pair +4 dBu / -10 dBV switch. The unit has
+ * no switch for it: the panel lowers that pair's DAC attenuators by 5 dB for -10 dBV.
+ */
+enum ozzy_esi_level {
+	OZZY_ESI_LEVEL_PLUS4,
+	OZZY_ESI_LEVEL_MINUS10,
+	OZZY_NUM_ESI_LEVELS
+};
 
 /*
  * OZZY_SETTING_PCM_OUT_FRAMES / _IN_FRAMES values: how many of the device's sub-packets one PCM
@@ -284,6 +315,9 @@ static const char *const ozzy_wm_input_34_names[OZZY_NUM_WM_IN34] = {
 	"Phono", "Aux", "Sound Module", "Outputs 1-2", "Off" };
 static const char *const ozzy_wm_direct_names[OZZY_NUM_WM_DIRECT] = { "Off", "On", "Mono" };
 static const char *const ozzy_off_on_names[OZZY_NUM_OFF_ON] = { "Off", "On" };
+static const char *const ozzy_esi_clock_names[OZZY_NUM_ESI_CLOCKS] = {
+	"Automatic, Inputs 15-16 Analog", "Automatic, Inputs 15-16 S/PDIF", "Internal" };
+static const char *const ozzy_esi_level_names[OZZY_NUM_ESI_LEVELS] = { "+4 dBu", "-10 dBV" };
 
 static const struct ozzy_setting_desc ozzy_setting_descs[OZZY_NUM_SETTINGS] = {
 	/* Positional: the macOS kext compiles this as C++11 */
@@ -291,7 +325,7 @@ static const struct ozzy_setting_desc ozzy_setting_descs[OZZY_NUM_SETTINGS] = {
 	  OZZY_QUIRK_DIGITAL_IN, OZZY_SETTING_DEVICE, 0 },
 	/* ALSA names S/PDIF "IEC958" (Documentation/sound/designs/control-names.rst) */
 	{ "IEC958 Playback Mode", ozzy_spdif_out_mode_names, OZZY_NUM_SPDIF_OUT_MODES,
-	  OZZY_SPDIF_OUT_CONSUMER, OZZY_QUIRK_SPDIF_OUT, OZZY_SETTING_DEVICE, 0 },
+	  OZZY_SPDIF_OUT_CONSUMER, OZZY_QUIRK_SPDIF_OUT | OZZY_QUIRK_ESI_CPORT, OZZY_SETTING_DEVICE, 0 },
 	{ "Output 1-2 Source", ozzy_playback_pair_names, OZZY_ROUTE_MAX_PAIRS, 0,
 	  OZZY_QUIRK_OUT_ROUTING, OZZY_SETTING_OUT_ROUTE, 0 },
 	{ "Output 3-4 Source", ozzy_playback_pair_names, OZZY_ROUTE_MAX_PAIRS, 1,
@@ -332,6 +366,16 @@ static const struct ozzy_setting_desc ozzy_setting_descs[OZZY_NUM_SETTINGS] = {
 	  OZZY_QUIRK_WM8776, OZZY_SETTING_DEVICE, 0 },
 	{ "Output 3-4 Sound Module", ozzy_off_on_names, OZZY_NUM_OFF_ON, 0,
 	  OZZY_QUIRK_WM8776, OZZY_SETTING_DEVICE, 0 },
+	{ "Clock and Inputs 15-16", ozzy_esi_clock_names, OZZY_NUM_ESI_CLOCKS, OZZY_ESI_CLOCK_AUTO_ANALOG,
+	  OZZY_QUIRK_ESI_CPORT, OZZY_SETTING_DEVICE, 0 },
+	{ "Output 1-2 Level", ozzy_esi_level_names, OZZY_NUM_ESI_LEVELS, OZZY_ESI_LEVEL_PLUS4,
+	  OZZY_QUIRK_ESI_CPORT, OZZY_SETTING_DEVICE, 0 },
+	{ "Output 3-4 Level", ozzy_esi_level_names, OZZY_NUM_ESI_LEVELS, OZZY_ESI_LEVEL_PLUS4,
+	  OZZY_QUIRK_ESI_CPORT, OZZY_SETTING_DEVICE, 0 },
+	{ "Output 5-6 Level", ozzy_esi_level_names, OZZY_NUM_ESI_LEVELS, OZZY_ESI_LEVEL_PLUS4,
+	  OZZY_QUIRK_ESI_CPORT, OZZY_SETTING_DEVICE, 0 },
+	{ "Output 7-8 Level", ozzy_esi_level_names, OZZY_NUM_ESI_LEVELS, OZZY_ESI_LEVEL_PLUS4,
+	  OZZY_QUIRK_ESI_CPORT, OZZY_SETTING_DEVICE, 0 },
 };
 
 /*

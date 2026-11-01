@@ -5,6 +5,7 @@
  *   ESI ESU1808  bulk layout, the S/PDIF mirror (pair 2), the same rings
  *   Akai EIE Pro isochronous out with feedback, MIDI out on the 1 ms timer
  *   PHASE X64    the same path, with its WM8776 writes (inputs 1-2 on Phono)
+ *   ESI U168 XT  the interrupt layout with the ESI selector on Internal and its C-port writes
  *   Xone:1D      USB MIDI
  * with MIDI going out every 5 completions and MIDI IN bytes coming in. Every submission,
  * control request and progress report is printed, then hashes of the shared memory and the
@@ -152,6 +153,7 @@ int main(void)
 	run(0x0A92, 0x0111, OZZY_SETTING_SPDIF_MIRROR, 2, esu);
 	run(0x09E8, 0x0010, -1, 0, eie);
 	run(0x0A4A, 0x5B01, OZZY_SETTING_WM_INPUT_12, OZZY_WM_IN12_PHONO, eie);
+	run(0x2573, 0x0012, OZZY_SETTING_ESI_CLOCK, OZZY_ESI_CLOCK_INTERNAL, db4);
 	run(0x0A4A, 0x001E, -1, 0, none);
 	return 0;
 }

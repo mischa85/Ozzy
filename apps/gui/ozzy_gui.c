@@ -87,6 +87,11 @@ static const struct {
 	[OZZY_SETTING_WM_MONO_34]     = { GUI_SECTION_CODEC, "Outputs 3-4 mono" },
 	[OZZY_SETTING_WM_DIRECT_34]   = { GUI_SECTION_CODEC, "Outputs 3-4 direct" },
 	[OZZY_SETTING_WM_MODULE_34]   = { GUI_SECTION_CODEC, "Outputs 3-4 sound module" },
+	[OZZY_SETTING_ESI_CLOCK]      = { GUI_SECTION_AUDIO, "Clock and inputs 15-16" },
+	[OZZY_SETTING_ESI_LEVEL_12]   = { GUI_SECTION_CODEC, "Outputs 1-2 level" },
+	[OZZY_SETTING_ESI_LEVEL_34]   = { GUI_SECTION_CODEC, "Outputs 3-4 level" },
+	[OZZY_SETTING_ESI_LEVEL_56]   = { GUI_SECTION_CODEC, "Outputs 5-6 level" },
+	[OZZY_SETTING_ESI_LEVEL_78]   = { GUI_SECTION_CODEC, "Outputs 7-8 level" },
 };
 
 /* One setting's row: its combobox */

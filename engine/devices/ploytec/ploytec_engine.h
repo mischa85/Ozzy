@@ -13,6 +13,7 @@
 #include "../../../common/devices/ploytec/ploytec_protocol.h"
 #include "../../../common/devices/ploytec/ploytec_midi.h"
 #include "../../../common/devices/ploytec/ploytec_codec.h"
+#include "../../../common/devices/ploytec/ploytec_cport.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -27,7 +28,15 @@ extern "C" {
  * @pcm_in_int1024: PCM IN is interrupt, wMaxPacketSize 1024 (ploytec_midi.h)
  * @encode/@decode: frame codecs for the model's channel counts
  * @mirror:         ESU1808 S/PDIF mirror (bulk layout, 8 out)
+ * @cport:          C-port bytes (ploytec_cport.h) the control bytes still have to carry, from
+ *                  @cport_head; queued by start, before any transfer, and only taken by the
+ *                  out completions after it, so no locking
+ * @cport_idle_left: out places that may still hold a C-port byte from their last lap: they get
+ *                  idle control bytes once more
  */
+/* Room for every write a start queues: the S/PDIF mode and 8 attenuators */
+#define PLOYTEC_CPORT_QUEUE (9 * PLOYTEC_CPORT_WRITE_BYTES)
+
 struct ploytec_engine {
 	struct ozzy_engine base;
 	uint64_t hw_sample_time;
@@ -41,6 +50,10 @@ struct ploytec_engine {
 	ploytec_frame_fn encode;
 	ploytec_frame_fn decode;
 	bool mirror;
+	uint8_t cport[PLOYTEC_CPORT_QUEUE];
+	uint32_t cport_head;
+	uint32_t cport_len;
+	uint32_t cport_idle_left;
 	uint32_t out_frames;   /* frames per PCM transfer this run (OZZY_SETTING_PCM_OUT_FRAMES at start) */
 	uint32_t in_frames;
 	uint32_t out_queue;    /* PCM transfers in flight this run (OZZY_SETTING_PCM_OUT_QUEUE at start) */

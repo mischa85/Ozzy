@@ -109,6 +109,9 @@ byte +0x28 [10] → digital lock flag (written from bit 2 of status byte)
 The ESU path preserves bits with mask `0x4C`, then ORs in a composite state
 based on the clock source setting. These are NOT individual flags:
 
+ESI's U168 XT panel names them (`esi_u168xt_cport.md`): 2 = Auto with inputs 15/16 analog,
+1 = Internal, 0 = Auto with inputs 15/16 digital.
+
 | AjExtData[1] | State | Value | 'A' request param |
 |---------------|-------|-------|-------------------|
 | 2             | STATE_A | 0x32 | 0 (wValue=0x348) |

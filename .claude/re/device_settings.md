@@ -327,5 +327,7 @@ a value in the window (needs a click; the demo can't script it).
   but a tester may hit it.
 - Linux: `alsactl restore` at boot writes every control; each stored device setting that differs
   from the default costs one USB reset (routes cost nothing).
-- ESI U-series clock source (states A/B/C), 192k lock handling (alt setting), the US-16xx digital
-  out channels, the MPC Renaissance's digital inputs, and the remaining settings in the table above.
+- ESI U168 XT: clock / inputs 15-16, S/PDIF out mode and output levels are implemented
+  (`esi_u168xt_cport.md`, untested on hardware); the U86 XT and U108 PRE panels aren't checked.
+- 192k lock handling (alt setting), the US-16xx digital out channels, the MPC Renaissance's
+  digital inputs, and the remaining settings in the table above.

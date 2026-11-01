@@ -1205,7 +1205,7 @@ submit 86 off=527112 size=5120 xfer=303
 submit 05 off=1192200 size=3856 xfer=303
 abort 12
 midi_in 296: 40 41 42 43 44 45 46 47 48 49 4a 4b 4c 4d 4e 4f 50 51 52 53 54 55 56 57
-shm 3077becec4549edd out_ring faf6a38fd6bec783 in_ring 3d3bcebb0ddb8a83
+shm 77b57e5206f5b9ac out_ring faf6a38fd6bec783 in_ring 3d3bcebb0ddb8a83
 == ESI ESU1808
 control c0 56 0000 0000 15
 control c0 49 0000 0000 1
@@ -2414,7 +2414,7 @@ submit 86 off=527112 size=5120 xfer=303
 submit 05 off=1261320 size=4096 xfer=303
 abort 12
 midi_in 296: 40 41 42 43 44 45 46 47 48 49 4a 4b 4c 4d 4e 4f 50 51 52 53 54 55 56 57
-shm 0d861481e6e48939 out_ring faf6a38fd6bec783 in_ring b4ca0831869394c3
+shm 7d64dad770d49684 out_ring faf6a38fd6bec783 in_ring b4ca0831869394c3
 == Akai EIE Pro
 control c0 56 0000 0000 15
 control c0 49 0000 0000 1
@@ -3322,7 +3322,7 @@ isoc 02 off=1068808 size=122880 xfer=1: 61920/1020 62940/1020 63960/1020 64980/1
 isoc 02 off=1068808 size=122880 xfer=2: 66000/1020 67020/1020 68040/1020 69060/1020
 abort 12
 midi_in 287: 40 41 42 43 44 45 46 47 48 49 4a 4b 4c 4d 4e 4f 50 51 52 53 54 55 56 57
-shm 83c62654f603a520 out_ring faf6a38fd6bec783 in_ring 234d05f272597383
+shm 8874e56297f77ec5 out_ring faf6a38fd6bec783 in_ring 234d05f272597383
 == Musonik PHASE X64 USB
 control c0 56 0000 0000 15
 control c0 49 0000 0000 1
@@ -4240,7 +4240,1217 @@ isoc 02 off=1068808 size=122880 xfer=1: 61920/1020 62940/1020 63960/1020 64980/1
 isoc 02 off=1068808 size=122880 xfer=2: 66000/1020 67020/1020 68040/1020 69060/1020
 abort 12
 midi_in 287: 40 41 42 43 44 45 46 47 48 49 4a 4b 4c 4d 4e 4f 50 51 52 53 54 55 56 57
-shm 5f53900324e7c520 out_ring faf6a38fd6bec783 in_ring 234d05f272597383
+shm 79531068f940ae29 out_ring faf6a38fd6bec783 in_ring 234d05f272597383
+== ESI U168 XT
+control c0 56 0000 0000 15
+control c0 49 0000 0000 1
+control a2 81 0100 0000 3
+control 40 41 0349 0101 0
+control c0 49 0000 0000 1
+control 40 41 0349 0101 0
+control 40 49 ffb0 0000 0
+control 40 49 00e7 0001 0
+control 22 01 0100 0086 3
+control 22 01 0100 0005 3
+control a2 81 0100 0000 3
+control c0 49 0000 0000 1
+control c0 49 0000 0000 1
+control 40 49 0030 0000 0
+clear_halt 86
+clear_halt 05
+submit 86 off=20232 size=5120 xfer=0
+submit 05 off=1068808 size=3856 xfer=0
+submit 86 off=25352 size=5120 xfer=1
+submit 05 off=1072664 size=3856 xfer=1
+submit 86 off=30472 size=5120 xfer=2
+submit 05 off=1076520 size=3856 xfer=2
+submit 86 off=35592 size=5120 xfer=3
+submit 05 off=1080376 size=3856 xfer=3
+submit 83 off=3008 size=9 xfer=0
+submit 83 off=3136 size=9 xfer=1
+submit 83 off=3264 size=9 xfer=2
+submit 83 off=3392 size=9 xfer=3
+start 1
+submit 86 off=40712 size=5120 xfer=4
+submit 05 off=1084232 size=3856 xfer=4
+submit 86 off=45832 size=5120 xfer=5
+submit 05 off=1088088 size=3856 xfer=5
+submit 86 off=50952 size=5120 xfer=6
+submit 05 off=1091944 size=3856 xfer=6
+submit 86 off=56072 size=5120 xfer=7
+submit 05 off=1095800 size=3856 xfer=7
+submit 83 off=3008 size=9 xfer=0
+submit 83 off=3136 size=9 xfer=1
+submit 83 off=3264 size=9 xfer=2
+submit 83 off=3392 size=9 xfer=3
+submit 86 off=61192 size=5120 xfer=8
+submit 05 off=1099656 size=3856 xfer=8
+submit 86 off=66312 size=5120 xfer=9
+submit 05 off=1103512 size=3856 xfer=9
+submit 86 off=71432 size=5120 xfer=10
+submit 05 off=1107368 size=3856 xfer=10
+submit 86 off=76552 size=5120 xfer=11
+submit 05 off=1111224 size=3856 xfer=11
+submit 83 off=3008 size=9 xfer=0
+submit 83 off=3136 size=9 xfer=1
+submit 83 off=3264 size=9 xfer=2
+submit 83 off=3392 size=9 xfer=3
+submit 86 off=81672 size=5120 xfer=12
+submit 05 off=1115080 size=3856 xfer=12
+submit 86 off=86792 size=5120 xfer=13
+progress 0 80
+submit 05 off=1118936 size=3856 xfer=13
+progress 1 80
+submit 86 off=91912 size=5120 xfer=14
+progress 0 160
+submit 05 off=1122792 size=3856 xfer=14
+progress 1 160
+submit 86 off=97032 size=5120 xfer=15
+progress 0 240
+submit 05 off=1126648 size=3856 xfer=15
+submit 83 off=3008 size=9 xfer=0
+submit 83 off=3136 size=9 xfer=1
+submit 83 off=3264 size=9 xfer=2
+submit 83 off=3392 size=9 xfer=3
+progress 1 240
+submit 86 off=102152 size=5120 xfer=16
+progress 0 320
+submit 05 off=1130504 size=3856 xfer=16
+progress 1 320
+submit 86 off=107272 size=5120 xfer=17
+progress 0 400
+submit 05 off=1134360 size=3856 xfer=17
+progress 1 400
+submit 86 off=112392 size=5120 xfer=18
+progress 0 480
+submit 05 off=1138216 size=3856 xfer=18
+progress 1 480
+submit 86 off=117512 size=5120 xfer=19
+progress 0 560
+submit 05 off=1142072 size=3856 xfer=19
+submit 83 off=3008 size=9 xfer=0
+submit 83 off=3136 size=9 xfer=1
+submit 83 off=3264 size=9 xfer=2
+submit 83 off=3392 size=9 xfer=3
+progress 1 560
+submit 86 off=122632 size=5120 xfer=20
+progress 0 640
+submit 05 off=1145928 size=3856 xfer=20
+progress 1 640
+submit 86 off=127752 size=5120 xfer=21
+progress 0 720
+submit 05 off=1149784 size=3856 xfer=21
+progress 1 720
+submit 86 off=132872 size=5120 xfer=22
+progress 0 800
+submit 05 off=1153640 size=3856 xfer=22
+progress 1 800
+submit 86 off=137992 size=5120 xfer=23
+progress 0 880
+submit 05 off=1157496 size=3856 xfer=23
+submit 83 off=3008 size=9 xfer=0
+submit 83 off=3136 size=9 xfer=1
+submit 83 off=3264 size=9 xfer=2
+submit 83 off=3392 size=9 xfer=3
+progress 1 880
+submit 86 off=143112 size=5120 xfer=24
+progress 0 960
+submit 05 off=1161352 size=3856 xfer=24
+progress 1 960
+submit 86 off=148232 size=5120 xfer=25
+progress 0 1040
+submit 05 off=1165208 size=3856 xfer=25
+progress 1 1040
+submit 86 off=153352 size=5120 xfer=26
+progress 0 1120
+submit 05 off=1169064 size=3856 xfer=26
+progress 1 1120
+submit 86 off=158472 size=5120 xfer=27
+progress 0 1200
+submit 05 off=1172920 size=3856 xfer=27
+submit 83 off=3008 size=9 xfer=0
+submit 83 off=3136 size=9 xfer=1
+submit 83 off=3264 size=9 xfer=2
+submit 83 off=3392 size=9 xfer=3
+progress 1 1200
+submit 86 off=163592 size=5120 xfer=28
+progress 0 1280
+submit 05 off=1176776 size=3856 xfer=28
+progress 1 1280
+submit 86 off=168712 size=5120 xfer=29
+progress 0 1360
+submit 05 off=1180632 size=3856 xfer=29
+progress 1 1360
+submit 86 off=173832 size=5120 xfer=30
+progress 0 1440
+submit 05 off=1184488 size=3856 xfer=30
+progress 1 1440
+submit 86 off=178952 size=5120 xfer=31
+progress 0 1520
+submit 05 off=1188344 size=3856 xfer=31
+submit 83 off=3008 size=9 xfer=0
+submit 83 off=3136 size=9 xfer=1
+submit 83 off=3264 size=9 xfer=2
+submit 83 off=3392 size=9 xfer=3
+progress 1 1520
+submit 86 off=184072 size=5120 xfer=32
+progress 0 1600
+submit 05 off=1192200 size=3856 xfer=32
+progress 1 1600
+submit 86 off=189192 size=5120 xfer=33
+progress 0 1680
+submit 05 off=1196056 size=3856 xfer=33
+progress 1 1680
+submit 86 off=194312 size=5120 xfer=34
+progress 0 1760
+submit 05 off=1199912 size=3856 xfer=34
+progress 1 1760
+submit 86 off=199432 size=5120 xfer=35
+progress 0 1840
+submit 05 off=1203768 size=3856 xfer=35
+submit 83 off=3008 size=9 xfer=0
+submit 83 off=3136 size=9 xfer=1
+submit 83 off=3264 size=9 xfer=2
+submit 83 off=3392 size=9 xfer=3
+progress 1 1840
+submit 86 off=204552 size=5120 xfer=36
+progress 0 1920
+submit 05 off=1207624 size=3856 xfer=36
+progress 1 1920
+submit 86 off=209672 size=5120 xfer=37
+progress 0 2000
+submit 05 off=1211480 size=3856 xfer=37
+progress 1 2000
+submit 86 off=214792 size=5120 xfer=38
+progress 0 2080
+submit 05 off=1215336 size=3856 xfer=38
+progress 1 2080
+submit 86 off=219912 size=5120 xfer=39
+progress 0 2160
+submit 05 off=1219192 size=3856 xfer=39
+submit 83 off=3008 size=9 xfer=0
+submit 83 off=3136 size=9 xfer=1
+submit 83 off=3264 size=9 xfer=2
+submit 83 off=3392 size=9 xfer=3
+progress 1 2160
+submit 86 off=225032 size=5120 xfer=40
+progress 0 2240
+submit 05 off=1223048 size=3856 xfer=40
+progress 1 2240
+submit 86 off=230152 size=5120 xfer=41
+progress 0 2320
+submit 05 off=1226904 size=3856 xfer=41
+progress 1 2320
+submit 86 off=235272 size=5120 xfer=42
+progress 0 2400
+submit 05 off=1230760 size=3856 xfer=42
+progress 1 2400
+submit 86 off=240392 size=5120 xfer=43
+progress 0 2480
+submit 05 off=1234616 size=3856 xfer=43
+submit 83 off=3008 size=9 xfer=0
+submit 83 off=3136 size=9 xfer=1
+submit 83 off=3264 size=9 xfer=2
+submit 83 off=3392 size=9 xfer=3
+progress 1 2480
+submit 86 off=245512 size=5120 xfer=44
+progress 0 2560
+submit 05 off=1238472 size=3856 xfer=44
+progress 1 2560
+submit 86 off=250632 size=5120 xfer=45
+progress 0 2640
+submit 05 off=1242328 size=3856 xfer=45
+progress 1 2640
+submit 86 off=255752 size=5120 xfer=46
+progress 0 2720
+submit 05 off=1246184 size=3856 xfer=46
+progress 1 2720
+submit 86 off=260872 size=5120 xfer=47
+progress 0 2800
+submit 05 off=1250040 size=3856 xfer=47
+submit 83 off=3008 size=9 xfer=0
+submit 83 off=3136 size=9 xfer=1
+submit 83 off=3264 size=9 xfer=2
+submit 83 off=3392 size=9 xfer=3
+progress 1 2800
+submit 86 off=265992 size=5120 xfer=48
+progress 0 2880
+submit 05 off=1253896 size=3856 xfer=48
+progress 1 2880
+submit 86 off=271112 size=5120 xfer=49
+progress 0 2960
+submit 05 off=1257752 size=3856 xfer=49
+progress 1 2960
+submit 86 off=276232 size=5120 xfer=50
+progress 0 3040
+submit 05 off=1261608 size=3856 xfer=50
+progress 1 3040
+submit 86 off=281352 size=5120 xfer=51
+progress 0 3120
+submit 05 off=1265464 size=3856 xfer=51
+submit 83 off=3008 size=9 xfer=0
+submit 83 off=3136 size=9 xfer=1
+submit 83 off=3264 size=9 xfer=2
+submit 83 off=3392 size=9 xfer=3
+progress 1 3120
+submit 86 off=286472 size=5120 xfer=52
+progress 0 3200
+submit 05 off=1269320 size=3856 xfer=52
+progress 1 3200
+submit 86 off=291592 size=5120 xfer=53
+progress 0 3280
+submit 05 off=1273176 size=3856 xfer=53
+progress 1 3280
+submit 86 off=296712 size=5120 xfer=54
+progress 0 3360
+submit 05 off=1277032 size=3856 xfer=54
+progress 1 3360
+submit 86 off=301832 size=5120 xfer=55
+progress 0 3440
+submit 05 off=1280888 size=3856 xfer=55
+submit 83 off=3008 size=9 xfer=0
+submit 83 off=3136 size=9 xfer=1
+submit 83 off=3264 size=9 xfer=2
+submit 83 off=3392 size=9 xfer=3
+progress 1 3440
+submit 86 off=306952 size=5120 xfer=56
+progress 0 3520
+submit 05 off=1284744 size=3856 xfer=56
+progress 1 3520
+submit 86 off=312072 size=5120 xfer=57
+progress 0 3600
+submit 05 off=1288600 size=3856 xfer=57
+progress 1 3600
+submit 86 off=317192 size=5120 xfer=58
+progress 0 3680
+submit 05 off=1292456 size=3856 xfer=58
+progress 1 3680
+submit 86 off=322312 size=5120 xfer=59
+progress 0 3760
+submit 05 off=1296312 size=3856 xfer=59
+submit 83 off=3008 size=9 xfer=0
+submit 83 off=3136 size=9 xfer=1
+submit 83 off=3264 size=9 xfer=2
+submit 83 off=3392 size=9 xfer=3
+progress 1 3760
+submit 86 off=327432 size=5120 xfer=60
+progress 0 3840
+submit 05 off=1300168 size=3856 xfer=60
+progress 1 3840
+submit 86 off=332552 size=5120 xfer=61
+progress 0 3920
+submit 05 off=1304024 size=3856 xfer=61
+progress 1 3920
+submit 86 off=337672 size=5120 xfer=62
+progress 0 4000
+submit 05 off=1307880 size=3856 xfer=62
+progress 1 4000
+submit 86 off=342792 size=5120 xfer=63
+progress 0 4080
+submit 05 off=1311736 size=3856 xfer=63
+submit 83 off=3008 size=9 xfer=0
+submit 83 off=3136 size=9 xfer=1
+submit 83 off=3264 size=9 xfer=2
+submit 83 off=3392 size=9 xfer=3
+progress 1 4080
+submit 86 off=347912 size=5120 xfer=64
+progress 0 4160
+submit 05 off=1315592 size=3856 xfer=64
+progress 1 4160
+submit 86 off=353032 size=5120 xfer=65
+progress 0 4240
+submit 05 off=1319448 size=3856 xfer=65
+progress 1 4240
+submit 86 off=358152 size=5120 xfer=66
+progress 0 4320
+submit 05 off=1323304 size=3856 xfer=66
+progress 1 4320
+submit 86 off=363272 size=5120 xfer=67
+progress 0 4400
+submit 05 off=1327160 size=3856 xfer=67
+submit 83 off=3008 size=9 xfer=0
+submit 83 off=3136 size=9 xfer=1
+submit 83 off=3264 size=9 xfer=2
+submit 83 off=3392 size=9 xfer=3
+progress 1 4400
+submit 86 off=368392 size=5120 xfer=68
+progress 0 4480
+submit 05 off=1331016 size=3856 xfer=68
+progress 1 4480
+submit 86 off=373512 size=5120 xfer=69
+progress 0 4560
+submit 05 off=1334872 size=3856 xfer=69
+progress 1 4560
+submit 86 off=378632 size=5120 xfer=70
+progress 0 4640
+submit 05 off=1338728 size=3856 xfer=70
+progress 1 4640
+submit 86 off=383752 size=5120 xfer=71
+progress 0 4720
+submit 05 off=1342584 size=3856 xfer=71
+submit 83 off=3008 size=9 xfer=0
+submit 83 off=3136 size=9 xfer=1
+submit 83 off=3264 size=9 xfer=2
+submit 83 off=3392 size=9 xfer=3
+progress 1 4720
+submit 86 off=388872 size=5120 xfer=72
+progress 0 4800
+submit 05 off=1346440 size=3856 xfer=72
+progress 1 4800
+submit 86 off=393992 size=5120 xfer=73
+progress 0 4880
+submit 05 off=1350296 size=3856 xfer=73
+progress 1 4880
+submit 86 off=399112 size=5120 xfer=74
+progress 0 4960
+submit 05 off=1354152 size=3856 xfer=74
+progress 1 4960
+submit 86 off=404232 size=5120 xfer=75
+progress 0 5040
+submit 05 off=1358008 size=3856 xfer=75
+submit 83 off=3008 size=9 xfer=0
+submit 83 off=3136 size=9 xfer=1
+submit 83 off=3264 size=9 xfer=2
+submit 83 off=3392 size=9 xfer=3
+progress 1 5040
+submit 86 off=409352 size=5120 xfer=76
+progress 0 5120
+submit 05 off=1361864 size=3856 xfer=76
+progress 1 5120
+submit 86 off=414472 size=5120 xfer=77
+progress 0 5200
+submit 05 off=1365720 size=3856 xfer=77
+progress 1 5200
+submit 86 off=419592 size=5120 xfer=78
+progress 0 5280
+submit 05 off=1369576 size=3856 xfer=78
+progress 1 5280
+submit 86 off=424712 size=5120 xfer=79
+progress 0 5360
+submit 05 off=1373432 size=3856 xfer=79
+submit 83 off=3008 size=9 xfer=0
+submit 83 off=3136 size=9 xfer=1
+submit 83 off=3264 size=9 xfer=2
+submit 83 off=3392 size=9 xfer=3
+progress 1 5360
+submit 86 off=429832 size=5120 xfer=80
+progress 0 5440
+submit 05 off=1377288 size=3856 xfer=80
+progress 1 5440
+submit 86 off=434952 size=5120 xfer=81
+progress 0 5520
+submit 05 off=1381144 size=3856 xfer=81
+progress 1 5520
+submit 86 off=440072 size=5120 xfer=82
+progress 0 5600
+submit 05 off=1385000 size=3856 xfer=82
+progress 1 5600
+submit 86 off=445192 size=5120 xfer=83
+progress 0 5680
+submit 05 off=1388856 size=3856 xfer=83
+submit 83 off=3008 size=9 xfer=0
+submit 83 off=3136 size=9 xfer=1
+submit 83 off=3264 size=9 xfer=2
+submit 83 off=3392 size=9 xfer=3
+progress 1 5680
+submit 86 off=450312 size=5120 xfer=84
+progress 0 5760
+submit 05 off=1392712 size=3856 xfer=84
+progress 1 5760
+submit 86 off=455432 size=5120 xfer=85
+progress 0 5840
+submit 05 off=1396568 size=3856 xfer=85
+progress 1 5840
+submit 86 off=460552 size=5120 xfer=86
+progress 0 5920
+submit 05 off=1400424 size=3856 xfer=86
+progress 1 5920
+submit 86 off=465672 size=5120 xfer=87
+progress 0 6000
+submit 05 off=1404280 size=3856 xfer=87
+submit 83 off=3008 size=9 xfer=0
+submit 83 off=3136 size=9 xfer=1
+submit 83 off=3264 size=9 xfer=2
+submit 83 off=3392 size=9 xfer=3
+progress 1 6000
+submit 86 off=470792 size=5120 xfer=88
+progress 0 6080
+submit 05 off=1408136 size=3856 xfer=88
+progress 1 6080
+submit 86 off=475912 size=5120 xfer=89
+progress 0 6160
+submit 05 off=1411992 size=3856 xfer=89
+progress 1 6160
+submit 86 off=481032 size=5120 xfer=90
+progress 0 6240
+submit 05 off=1415848 size=3856 xfer=90
+progress 1 6240
+submit 86 off=486152 size=5120 xfer=91
+progress 0 6320
+submit 05 off=1419704 size=3856 xfer=91
+submit 83 off=3008 size=9 xfer=0
+submit 83 off=3136 size=9 xfer=1
+submit 83 off=3264 size=9 xfer=2
+submit 83 off=3392 size=9 xfer=3
+progress 1 6320
+submit 86 off=491272 size=5120 xfer=92
+progress 0 6400
+submit 05 off=1423560 size=3856 xfer=92
+progress 1 6400
+submit 86 off=496392 size=5120 xfer=93
+progress 0 6480
+submit 05 off=1427416 size=3856 xfer=93
+progress 1 6480
+submit 86 off=501512 size=5120 xfer=94
+progress 0 6560
+submit 05 off=1431272 size=3856 xfer=94
+progress 1 6560
+submit 86 off=506632 size=5120 xfer=95
+progress 0 6640
+submit 05 off=1435128 size=3856 xfer=95
+submit 83 off=3008 size=9 xfer=0
+submit 83 off=3136 size=9 xfer=1
+submit 83 off=3264 size=9 xfer=2
+submit 83 off=3392 size=9 xfer=3
+progress 1 6640
+submit 86 off=511752 size=5120 xfer=96
+progress 0 6720
+submit 05 off=1438984 size=3856 xfer=96
+progress 1 6720
+submit 86 off=516872 size=5120 xfer=97
+progress 0 6800
+submit 05 off=1442840 size=3856 xfer=97
+progress 1 6800
+submit 86 off=521992 size=5120 xfer=98
+progress 0 6880
+submit 05 off=1446696 size=3856 xfer=98
+progress 1 6880
+submit 86 off=527112 size=5120 xfer=99
+progress 0 6960
+submit 05 off=1450552 size=3856 xfer=99
+submit 83 off=3008 size=9 xfer=0
+submit 83 off=3136 size=9 xfer=1
+submit 83 off=3264 size=9 xfer=2
+submit 83 off=3392 size=9 xfer=3
+progress 1 6960
+submit 86 off=532232 size=5120 xfer=100
+progress 0 7040
+submit 05 off=1454408 size=3856 xfer=100
+progress 1 7040
+submit 86 off=537352 size=5120 xfer=101
+progress 0 7120
+submit 05 off=1458264 size=3856 xfer=101
+progress 1 7120
+submit 86 off=542472 size=5120 xfer=102
+progress 0 7200
+submit 05 off=1462120 size=3856 xfer=102
+progress 1 7200
+submit 86 off=547592 size=5120 xfer=103
+progress 0 7280
+submit 05 off=1465976 size=3856 xfer=103
+submit 83 off=3008 size=9 xfer=0
+submit 83 off=3136 size=9 xfer=1
+submit 83 off=3264 size=9 xfer=2
+submit 83 off=3392 size=9 xfer=3
+progress 1 7280
+submit 86 off=552712 size=5120 xfer=104
+progress 0 7360
+submit 05 off=1469832 size=3856 xfer=104
+progress 1 7360
+submit 86 off=557832 size=5120 xfer=105
+progress 0 7440
+submit 05 off=1473688 size=3856 xfer=105
+progress 1 7440
+submit 86 off=562952 size=5120 xfer=106
+progress 0 7520
+submit 05 off=1477544 size=3856 xfer=106
+progress 1 7520
+submit 86 off=568072 size=5120 xfer=107
+progress 0 7600
+submit 05 off=1481400 size=3856 xfer=107
+submit 83 off=3008 size=9 xfer=0
+submit 83 off=3136 size=9 xfer=1
+submit 83 off=3264 size=9 xfer=2
+submit 83 off=3392 size=9 xfer=3
+progress 1 7600
+submit 86 off=573192 size=5120 xfer=108
+progress 0 7680
+submit 05 off=1485256 size=3856 xfer=108
+progress 1 7680
+submit 86 off=578312 size=5120 xfer=109
+progress 0 7760
+submit 05 off=1489112 size=3856 xfer=109
+progress 1 7760
+submit 86 off=583432 size=5120 xfer=110
+progress 0 7840
+submit 05 off=1492968 size=3856 xfer=110
+progress 1 7840
+submit 86 off=588552 size=5120 xfer=111
+progress 0 7920
+submit 05 off=1496824 size=3856 xfer=111
+submit 83 off=3008 size=9 xfer=0
+submit 83 off=3136 size=9 xfer=1
+submit 83 off=3264 size=9 xfer=2
+submit 83 off=3392 size=9 xfer=3
+progress 1 7920
+submit 86 off=593672 size=5120 xfer=112
+progress 0 8000
+submit 05 off=1500680 size=3856 xfer=112
+progress 1 8000
+submit 86 off=598792 size=5120 xfer=113
+progress 0 8080
+submit 05 off=1504536 size=3856 xfer=113
+progress 1 8080
+submit 86 off=603912 size=5120 xfer=114
+progress 0 8160
+submit 05 off=1508392 size=3856 xfer=114
+progress 1 8160
+submit 86 off=609032 size=5120 xfer=115
+progress 0 8240
+submit 05 off=1512248 size=3856 xfer=115
+submit 83 off=3008 size=9 xfer=0
+submit 83 off=3136 size=9 xfer=1
+submit 83 off=3264 size=9 xfer=2
+submit 83 off=3392 size=9 xfer=3
+progress 1 8240
+submit 86 off=614152 size=5120 xfer=116
+progress 0 8320
+submit 05 off=1516104 size=3856 xfer=116
+progress 1 8320
+submit 86 off=619272 size=5120 xfer=117
+progress 0 8400
+submit 05 off=1519960 size=3856 xfer=117
+progress 1 8400
+submit 86 off=624392 size=5120 xfer=118
+progress 0 8480
+submit 05 off=1523816 size=3856 xfer=118
+progress 1 8480
+submit 86 off=629512 size=5120 xfer=119
+progress 0 8560
+submit 05 off=1527672 size=3856 xfer=119
+submit 83 off=3008 size=9 xfer=0
+submit 83 off=3136 size=9 xfer=1
+submit 83 off=3264 size=9 xfer=2
+submit 83 off=3392 size=9 xfer=3
+progress 1 8560
+submit 86 off=634632 size=5120 xfer=120
+progress 0 8640
+submit 05 off=1531528 size=3856 xfer=120
+progress 1 8640
+submit 86 off=639752 size=5120 xfer=121
+progress 0 8720
+submit 05 off=1535384 size=3856 xfer=121
+progress 1 8720
+submit 86 off=644872 size=5120 xfer=122
+progress 0 8800
+submit 05 off=1539240 size=3856 xfer=122
+progress 1 8800
+submit 86 off=649992 size=5120 xfer=123
+progress 0 8880
+submit 05 off=1543096 size=3856 xfer=123
+submit 83 off=3008 size=9 xfer=0
+submit 83 off=3136 size=9 xfer=1
+submit 83 off=3264 size=9 xfer=2
+submit 83 off=3392 size=9 xfer=3
+progress 1 8880
+submit 86 off=655112 size=5120 xfer=124
+progress 0 8960
+submit 05 off=1546952 size=3856 xfer=124
+progress 1 8960
+submit 86 off=660232 size=5120 xfer=125
+progress 0 9040
+submit 05 off=1550808 size=3856 xfer=125
+progress 1 9040
+submit 86 off=665352 size=5120 xfer=126
+progress 0 9120
+submit 05 off=1554664 size=3856 xfer=126
+progress 1 9120
+submit 86 off=670472 size=5120 xfer=127
+progress 0 9200
+submit 05 off=1558520 size=3856 xfer=127
+submit 83 off=3008 size=9 xfer=0
+submit 83 off=3136 size=9 xfer=1
+submit 83 off=3264 size=9 xfer=2
+submit 83 off=3392 size=9 xfer=3
+progress 1 9200
+submit 86 off=675592 size=5120 xfer=128
+progress 0 9280
+submit 05 off=1562376 size=3856 xfer=128
+progress 1 9280
+submit 86 off=680712 size=5120 xfer=129
+progress 0 9360
+submit 05 off=1566232 size=3856 xfer=129
+progress 1 9360
+submit 86 off=685832 size=5120 xfer=130
+progress 0 9440
+submit 05 off=1570088 size=3856 xfer=130
+progress 1 9440
+submit 86 off=690952 size=5120 xfer=131
+progress 0 9520
+submit 05 off=1573944 size=3856 xfer=131
+submit 83 off=3008 size=9 xfer=0
+submit 83 off=3136 size=9 xfer=1
+submit 83 off=3264 size=9 xfer=2
+submit 83 off=3392 size=9 xfer=3
+progress 1 9520
+submit 86 off=696072 size=5120 xfer=132
+progress 0 9600
+submit 05 off=1577800 size=3856 xfer=132
+progress 1 9600
+submit 86 off=701192 size=5120 xfer=133
+progress 0 9680
+submit 05 off=1581656 size=3856 xfer=133
+progress 1 9680
+submit 86 off=706312 size=5120 xfer=134
+progress 0 9760
+submit 05 off=1585512 size=3856 xfer=134
+progress 1 9760
+submit 86 off=711432 size=5120 xfer=135
+progress 0 9840
+submit 05 off=1589368 size=3856 xfer=135
+submit 83 off=3008 size=9 xfer=0
+submit 83 off=3136 size=9 xfer=1
+submit 83 off=3264 size=9 xfer=2
+submit 83 off=3392 size=9 xfer=3
+progress 1 9840
+submit 86 off=716552 size=5120 xfer=136
+progress 0 9920
+submit 05 off=1593224 size=3856 xfer=136
+progress 1 9920
+submit 86 off=721672 size=5120 xfer=137
+progress 0 10000
+submit 05 off=1597080 size=3856 xfer=137
+progress 1 10000
+submit 86 off=726792 size=5120 xfer=138
+progress 0 10080
+submit 05 off=1600936 size=3856 xfer=138
+progress 1 10080
+submit 86 off=731912 size=5120 xfer=139
+progress 0 10160
+submit 05 off=1604792 size=3856 xfer=139
+submit 83 off=3008 size=9 xfer=0
+submit 83 off=3136 size=9 xfer=1
+submit 83 off=3264 size=9 xfer=2
+submit 83 off=3392 size=9 xfer=3
+progress 1 10160
+submit 86 off=737032 size=5120 xfer=140
+progress 0 10240
+submit 05 off=1608648 size=3856 xfer=140
+progress 1 10240
+submit 86 off=742152 size=5120 xfer=141
+progress 0 10320
+submit 05 off=1612504 size=3856 xfer=141
+progress 1 10320
+submit 86 off=747272 size=5120 xfer=142
+progress 0 10400
+submit 05 off=1616360 size=3856 xfer=142
+progress 1 10400
+submit 86 off=752392 size=5120 xfer=143
+progress 0 10480
+submit 05 off=1620216 size=3856 xfer=143
+submit 83 off=3008 size=9 xfer=0
+submit 83 off=3136 size=9 xfer=1
+submit 83 off=3264 size=9 xfer=2
+submit 83 off=3392 size=9 xfer=3
+progress 1 10480
+submit 86 off=757512 size=5120 xfer=144
+progress 0 10560
+submit 05 off=1624072 size=3856 xfer=144
+progress 1 10560
+submit 86 off=762632 size=5120 xfer=145
+progress 0 10640
+submit 05 off=1627928 size=3856 xfer=145
+progress 1 10640
+submit 86 off=767752 size=5120 xfer=146
+progress 0 10720
+submit 05 off=1631784 size=3856 xfer=146
+progress 1 10720
+submit 86 off=772872 size=5120 xfer=147
+progress 0 10800
+submit 05 off=1635640 size=3856 xfer=147
+submit 83 off=3008 size=9 xfer=0
+submit 83 off=3136 size=9 xfer=1
+submit 83 off=3264 size=9 xfer=2
+submit 83 off=3392 size=9 xfer=3
+progress 1 10800
+submit 86 off=777992 size=5120 xfer=148
+progress 0 10880
+submit 05 off=1639496 size=3856 xfer=148
+progress 1 10880
+submit 86 off=783112 size=5120 xfer=149
+progress 0 10960
+submit 05 off=1643352 size=3856 xfer=149
+progress 1 10960
+submit 86 off=788232 size=5120 xfer=150
+progress 0 11040
+submit 05 off=1647208 size=3856 xfer=150
+progress 1 11040
+submit 86 off=793352 size=5120 xfer=151
+progress 0 11120
+submit 05 off=1651064 size=3856 xfer=151
+submit 83 off=3008 size=9 xfer=0
+submit 83 off=3136 size=9 xfer=1
+submit 83 off=3264 size=9 xfer=2
+submit 83 off=3392 size=9 xfer=3
+progress 1 11120
+submit 86 off=798472 size=5120 xfer=152
+progress 0 11200
+submit 05 off=1654920 size=3856 xfer=152
+progress 1 11200
+submit 86 off=803592 size=5120 xfer=153
+detached
+submit 05 off=1658776 size=3856 xfer=153
+submit 86 off=808712 size=5120 xfer=154
+submit 05 off=1662632 size=3856 xfer=154
+submit 86 off=813832 size=5120 xfer=155
+submit 05 off=1666488 size=3856 xfer=155
+submit 83 off=3008 size=9 xfer=0
+submit 83 off=3136 size=9 xfer=1
+submit 83 off=3264 size=9 xfer=2
+submit 83 off=3392 size=9 xfer=3
+submit 86 off=818952 size=5120 xfer=156
+submit 05 off=1670344 size=3856 xfer=156
+submit 86 off=824072 size=5120 xfer=157
+submit 05 off=1674200 size=3856 xfer=157
+submit 86 off=829192 size=5120 xfer=158
+submit 05 off=1678056 size=3856 xfer=158
+submit 86 off=834312 size=5120 xfer=159
+submit 05 off=1681912 size=3856 xfer=159
+submit 83 off=3008 size=9 xfer=0
+submit 83 off=3136 size=9 xfer=1
+submit 83 off=3264 size=9 xfer=2
+submit 83 off=3392 size=9 xfer=3
+submit 86 off=839432 size=5120 xfer=160
+submit 05 off=1685768 size=3856 xfer=160
+submit 86 off=844552 size=5120 xfer=161
+submit 05 off=1689624 size=3856 xfer=161
+submit 86 off=849672 size=5120 xfer=162
+submit 05 off=1693480 size=3856 xfer=162
+submit 86 off=854792 size=5120 xfer=163
+submit 05 off=1697336 size=3856 xfer=163
+submit 83 off=3008 size=9 xfer=0
+submit 83 off=3136 size=9 xfer=1
+submit 83 off=3264 size=9 xfer=2
+submit 83 off=3392 size=9 xfer=3
+submit 86 off=859912 size=5120 xfer=164
+submit 05 off=1701192 size=3856 xfer=164
+submit 86 off=865032 size=5120 xfer=165
+submit 05 off=1705048 size=3856 xfer=165
+submit 86 off=870152 size=5120 xfer=166
+submit 05 off=1708904 size=3856 xfer=166
+submit 86 off=875272 size=5120 xfer=167
+submit 05 off=1712760 size=3856 xfer=167
+submit 83 off=3008 size=9 xfer=0
+submit 83 off=3136 size=9 xfer=1
+submit 83 off=3264 size=9 xfer=2
+submit 83 off=3392 size=9 xfer=3
+submit 86 off=880392 size=5120 xfer=168
+submit 05 off=1716616 size=3856 xfer=168
+submit 86 off=885512 size=5120 xfer=169
+submit 05 off=1720472 size=3856 xfer=169
+submit 86 off=890632 size=5120 xfer=170
+submit 05 off=1724328 size=3856 xfer=170
+submit 86 off=895752 size=5120 xfer=171
+submit 05 off=1728184 size=3856 xfer=171
+submit 83 off=3008 size=9 xfer=0
+submit 83 off=3136 size=9 xfer=1
+submit 83 off=3264 size=9 xfer=2
+submit 83 off=3392 size=9 xfer=3
+submit 86 off=900872 size=5120 xfer=172
+submit 05 off=1732040 size=3856 xfer=172
+submit 86 off=905992 size=5120 xfer=173
+submit 05 off=1735896 size=3856 xfer=173
+submit 86 off=911112 size=5120 xfer=174
+submit 05 off=1739752 size=3856 xfer=174
+submit 86 off=916232 size=5120 xfer=175
+submit 05 off=1743608 size=3856 xfer=175
+submit 83 off=3008 size=9 xfer=0
+submit 83 off=3136 size=9 xfer=1
+submit 83 off=3264 size=9 xfer=2
+submit 83 off=3392 size=9 xfer=3
+submit 86 off=921352 size=5120 xfer=176
+submit 05 off=1747464 size=3856 xfer=176
+submit 86 off=926472 size=5120 xfer=177
+submit 05 off=1751320 size=3856 xfer=177
+submit 86 off=931592 size=5120 xfer=178
+submit 05 off=1755176 size=3856 xfer=178
+submit 86 off=936712 size=5120 xfer=179
+submit 05 off=1759032 size=3856 xfer=179
+submit 83 off=3008 size=9 xfer=0
+submit 83 off=3136 size=9 xfer=1
+submit 83 off=3264 size=9 xfer=2
+submit 83 off=3392 size=9 xfer=3
+submit 86 off=941832 size=5120 xfer=180
+submit 05 off=1762888 size=3856 xfer=180
+submit 86 off=946952 size=5120 xfer=181
+submit 05 off=1766744 size=3856 xfer=181
+submit 86 off=952072 size=5120 xfer=182
+submit 05 off=1770600 size=3856 xfer=182
+submit 86 off=957192 size=5120 xfer=183
+submit 05 off=1774456 size=3856 xfer=183
+submit 83 off=3008 size=9 xfer=0
+submit 83 off=3136 size=9 xfer=1
+submit 83 off=3264 size=9 xfer=2
+submit 83 off=3392 size=9 xfer=3
+submit 86 off=962312 size=5120 xfer=184
+submit 05 off=1778312 size=3856 xfer=184
+submit 86 off=967432 size=5120 xfer=185
+submit 05 off=1782168 size=3856 xfer=185
+submit 86 off=972552 size=5120 xfer=186
+submit 05 off=1786024 size=3856 xfer=186
+submit 86 off=977672 size=5120 xfer=187
+submit 05 off=1789880 size=3856 xfer=187
+submit 83 off=3008 size=9 xfer=0
+submit 83 off=3136 size=9 xfer=1
+submit 83 off=3264 size=9 xfer=2
+submit 83 off=3392 size=9 xfer=3
+submit 86 off=982792 size=5120 xfer=188
+submit 05 off=1793736 size=3856 xfer=188
+submit 86 off=987912 size=5120 xfer=189
+submit 05 off=1797592 size=3856 xfer=189
+submit 86 off=993032 size=5120 xfer=190
+submit 05 off=1801448 size=3856 xfer=190
+submit 86 off=998152 size=5120 xfer=191
+submit 05 off=1805304 size=3856 xfer=191
+submit 83 off=3008 size=9 xfer=0
+submit 83 off=3136 size=9 xfer=1
+submit 83 off=3264 size=9 xfer=2
+submit 83 off=3392 size=9 xfer=3
+submit 86 off=1003272 size=5120 xfer=192
+submit 05 off=1809160 size=3856 xfer=192
+submit 86 off=1008392 size=5120 xfer=193
+submit 05 off=1813016 size=3856 xfer=193
+submit 86 off=1013512 size=5120 xfer=194
+submit 05 off=1816872 size=3856 xfer=194
+submit 86 off=1018632 size=5120 xfer=195
+submit 05 off=1820728 size=3856 xfer=195
+submit 83 off=3008 size=9 xfer=0
+submit 83 off=3136 size=9 xfer=1
+submit 83 off=3264 size=9 xfer=2
+submit 83 off=3392 size=9 xfer=3
+submit 86 off=1023752 size=5120 xfer=196
+submit 05 off=1824584 size=3856 xfer=196
+submit 86 off=1028872 size=5120 xfer=197
+submit 05 off=1828440 size=3856 xfer=197
+submit 86 off=1033992 size=5120 xfer=198
+submit 05 off=1832296 size=3856 xfer=198
+submit 86 off=1039112 size=5120 xfer=199
+submit 05 off=1836152 size=3856 xfer=199
+submit 83 off=3008 size=9 xfer=0
+submit 83 off=3136 size=9 xfer=1
+submit 83 off=3264 size=9 xfer=2
+submit 83 off=3392 size=9 xfer=3
+submit 86 off=1044232 size=5120 xfer=200
+submit 05 off=1840008 size=3856 xfer=200
+submit 86 off=1049352 size=5120 xfer=201
+submit 05 off=1843864 size=3856 xfer=201
+submit 86 off=1054472 size=5120 xfer=202
+submit 05 off=1847720 size=3856 xfer=202
+submit 86 off=1059592 size=5120 xfer=203
+submit 05 off=1851576 size=3856 xfer=203
+submit 83 off=3008 size=9 xfer=0
+submit 83 off=3136 size=9 xfer=1
+submit 83 off=3264 size=9 xfer=2
+submit 83 off=3392 size=9 xfer=3
+submit 86 off=20232 size=5120 xfer=204
+submit 05 off=1855432 size=3856 xfer=204
+submit 86 off=25352 size=5120 xfer=205
+submit 05 off=1859288 size=3856 xfer=205
+submit 86 off=30472 size=5120 xfer=206
+submit 05 off=1863144 size=3856 xfer=206
+submit 86 off=35592 size=5120 xfer=207
+submit 05 off=1867000 size=3856 xfer=207
+submit 83 off=3008 size=9 xfer=0
+submit 83 off=3136 size=9 xfer=1
+submit 83 off=3264 size=9 xfer=2
+submit 83 off=3392 size=9 xfer=3
+submit 86 off=40712 size=5120 xfer=208
+submit 05 off=1870856 size=3856 xfer=208
+submit 86 off=45832 size=5120 xfer=209
+submit 05 off=1874712 size=3856 xfer=209
+submit 86 off=50952 size=5120 xfer=210
+submit 05 off=1878568 size=3856 xfer=210
+submit 86 off=56072 size=5120 xfer=211
+submit 05 off=1882424 size=3856 xfer=211
+submit 83 off=3008 size=9 xfer=0
+submit 83 off=3136 size=9 xfer=1
+submit 83 off=3264 size=9 xfer=2
+submit 83 off=3392 size=9 xfer=3
+submit 86 off=61192 size=5120 xfer=212
+submit 05 off=1886280 size=3856 xfer=212
+submit 86 off=66312 size=5120 xfer=213
+submit 05 off=1890136 size=3856 xfer=213
+submit 86 off=71432 size=5120 xfer=214
+submit 05 off=1893992 size=3856 xfer=214
+submit 86 off=76552 size=5120 xfer=215
+submit 05 off=1897848 size=3856 xfer=215
+submit 83 off=3008 size=9 xfer=0
+submit 83 off=3136 size=9 xfer=1
+submit 83 off=3264 size=9 xfer=2
+submit 83 off=3392 size=9 xfer=3
+submit 86 off=81672 size=5120 xfer=216
+submit 05 off=1901704 size=3856 xfer=216
+submit 86 off=86792 size=5120 xfer=217
+submit 05 off=1905560 size=3856 xfer=217
+submit 86 off=91912 size=5120 xfer=218
+submit 05 off=1909416 size=3856 xfer=218
+submit 86 off=97032 size=5120 xfer=219
+submit 05 off=1913272 size=3856 xfer=219
+submit 83 off=3008 size=9 xfer=0
+submit 83 off=3136 size=9 xfer=1
+submit 83 off=3264 size=9 xfer=2
+submit 83 off=3392 size=9 xfer=3
+submit 86 off=102152 size=5120 xfer=220
+submit 05 off=1917128 size=3856 xfer=220
+submit 86 off=107272 size=5120 xfer=221
+submit 05 off=1920984 size=3856 xfer=221
+submit 86 off=112392 size=5120 xfer=222
+submit 05 off=1924840 size=3856 xfer=222
+submit 86 off=117512 size=5120 xfer=223
+submit 05 off=1928696 size=3856 xfer=223
+submit 83 off=3008 size=9 xfer=0
+submit 83 off=3136 size=9 xfer=1
+submit 83 off=3264 size=9 xfer=2
+submit 83 off=3392 size=9 xfer=3
+submit 86 off=122632 size=5120 xfer=224
+submit 05 off=1932552 size=3856 xfer=224
+submit 86 off=127752 size=5120 xfer=225
+submit 05 off=1936408 size=3856 xfer=225
+submit 86 off=132872 size=5120 xfer=226
+submit 05 off=1940264 size=3856 xfer=226
+submit 86 off=137992 size=5120 xfer=227
+submit 05 off=1944120 size=3856 xfer=227
+submit 83 off=3008 size=9 xfer=0
+submit 83 off=3136 size=9 xfer=1
+submit 83 off=3264 size=9 xfer=2
+submit 83 off=3392 size=9 xfer=3
+submit 86 off=143112 size=5120 xfer=228
+submit 05 off=1947976 size=3856 xfer=228
+submit 86 off=148232 size=5120 xfer=229
+submit 05 off=1951832 size=3856 xfer=229
+submit 86 off=153352 size=5120 xfer=230
+submit 05 off=1955688 size=3856 xfer=230
+submit 86 off=158472 size=5120 xfer=231
+submit 05 off=1959544 size=3856 xfer=231
+submit 83 off=3008 size=9 xfer=0
+submit 83 off=3136 size=9 xfer=1
+submit 83 off=3264 size=9 xfer=2
+submit 83 off=3392 size=9 xfer=3
+submit 86 off=163592 size=5120 xfer=232
+submit 05 off=1963400 size=3856 xfer=232
+submit 86 off=168712 size=5120 xfer=233
+submit 05 off=1967256 size=3856 xfer=233
+submit 86 off=173832 size=5120 xfer=234
+submit 05 off=1971112 size=3856 xfer=234
+submit 86 off=178952 size=5120 xfer=235
+submit 05 off=1974968 size=3856 xfer=235
+submit 83 off=3008 size=9 xfer=0
+submit 83 off=3136 size=9 xfer=1
+submit 83 off=3264 size=9 xfer=2
+submit 83 off=3392 size=9 xfer=3
+submit 86 off=184072 size=5120 xfer=236
+submit 05 off=1978824 size=3856 xfer=236
+submit 86 off=189192 size=5120 xfer=237
+submit 05 off=1982680 size=3856 xfer=237
+submit 86 off=194312 size=5120 xfer=238
+submit 05 off=1986536 size=3856 xfer=238
+submit 86 off=199432 size=5120 xfer=239
+submit 05 off=1990392 size=3856 xfer=239
+submit 83 off=3008 size=9 xfer=0
+submit 83 off=3136 size=9 xfer=1
+submit 83 off=3264 size=9 xfer=2
+submit 83 off=3392 size=9 xfer=3
+submit 86 off=204552 size=5120 xfer=240
+submit 05 off=1994248 size=3856 xfer=240
+submit 86 off=209672 size=5120 xfer=241
+submit 05 off=1998104 size=3856 xfer=241
+submit 86 off=214792 size=5120 xfer=242
+submit 05 off=2001960 size=3856 xfer=242
+submit 86 off=219912 size=5120 xfer=243
+submit 05 off=2005816 size=3856 xfer=243
+submit 83 off=3008 size=9 xfer=0
+submit 83 off=3136 size=9 xfer=1
+submit 83 off=3264 size=9 xfer=2
+submit 83 off=3392 size=9 xfer=3
+submit 86 off=225032 size=5120 xfer=244
+submit 05 off=2009672 size=3856 xfer=244
+submit 86 off=230152 size=5120 xfer=245
+submit 05 off=2013528 size=3856 xfer=245
+submit 86 off=235272 size=5120 xfer=246
+submit 05 off=2017384 size=3856 xfer=246
+submit 86 off=240392 size=5120 xfer=247
+submit 05 off=2021240 size=3856 xfer=247
+submit 83 off=3008 size=9 xfer=0
+submit 83 off=3136 size=9 xfer=1
+submit 83 off=3264 size=9 xfer=2
+submit 83 off=3392 size=9 xfer=3
+submit 86 off=245512 size=5120 xfer=248
+submit 05 off=2025096 size=3856 xfer=248
+submit 86 off=250632 size=5120 xfer=249
+submit 05 off=2028952 size=3856 xfer=249
+submit 86 off=255752 size=5120 xfer=250
+submit 05 off=2032808 size=3856 xfer=250
+submit 86 off=260872 size=5120 xfer=251
+submit 05 off=2036664 size=3856 xfer=251
+submit 83 off=3008 size=9 xfer=0
+submit 83 off=3136 size=9 xfer=1
+submit 83 off=3264 size=9 xfer=2
+submit 83 off=3392 size=9 xfer=3
+submit 86 off=265992 size=5120 xfer=252
+submit 05 off=2040520 size=3856 xfer=252
+submit 86 off=271112 size=5120 xfer=253
+submit 05 off=2044376 size=3856 xfer=253
+submit 86 off=276232 size=5120 xfer=254
+submit 05 off=2048232 size=3856 xfer=254
+submit 86 off=281352 size=5120 xfer=255
+submit 05 off=2052088 size=3856 xfer=255
+submit 83 off=3008 size=9 xfer=0
+submit 83 off=3136 size=9 xfer=1
+submit 83 off=3264 size=9 xfer=2
+submit 83 off=3392 size=9 xfer=3
+submit 86 off=286472 size=5120 xfer=256
+submit 05 off=2055944 size=3856 xfer=256
+submit 86 off=291592 size=5120 xfer=257
+submit 05 off=2059800 size=3856 xfer=257
+submit 86 off=296712 size=5120 xfer=258
+submit 05 off=2063656 size=3856 xfer=258
+submit 86 off=301832 size=5120 xfer=259
+submit 05 off=2067512 size=3856 xfer=259
+submit 83 off=3008 size=9 xfer=0
+submit 83 off=3136 size=9 xfer=1
+submit 83 off=3264 size=9 xfer=2
+submit 83 off=3392 size=9 xfer=3
+submit 86 off=306952 size=5120 xfer=260
+submit 05 off=2071368 size=3856 xfer=260
+submit 86 off=312072 size=5120 xfer=261
+submit 05 off=2075224 size=3856 xfer=261
+submit 86 off=317192 size=5120 xfer=262
+submit 05 off=2079080 size=3856 xfer=262
+submit 86 off=322312 size=5120 xfer=263
+submit 05 off=2082936 size=3856 xfer=263
+submit 83 off=3008 size=9 xfer=0
+submit 83 off=3136 size=9 xfer=1
+submit 83 off=3264 size=9 xfer=2
+submit 83 off=3392 size=9 xfer=3
+submit 86 off=327432 size=5120 xfer=264
+submit 05 off=2086792 size=3856 xfer=264
+submit 86 off=332552 size=5120 xfer=265
+submit 05 off=2090648 size=3856 xfer=265
+submit 86 off=337672 size=5120 xfer=266
+submit 05 off=2094504 size=3856 xfer=266
+submit 86 off=342792 size=5120 xfer=267
+submit 05 off=2098360 size=3856 xfer=267
+submit 83 off=3008 size=9 xfer=0
+submit 83 off=3136 size=9 xfer=1
+submit 83 off=3264 size=9 xfer=2
+submit 83 off=3392 size=9 xfer=3
+submit 86 off=347912 size=5120 xfer=268
+submit 05 off=2102216 size=3856 xfer=268
+submit 86 off=353032 size=5120 xfer=269
+submit 05 off=2106072 size=3856 xfer=269
+submit 86 off=358152 size=5120 xfer=270
+submit 05 off=2109928 size=3856 xfer=270
+submit 86 off=363272 size=5120 xfer=271
+submit 05 off=1068808 size=3856 xfer=271
+submit 83 off=3008 size=9 xfer=0
+submit 83 off=3136 size=9 xfer=1
+submit 83 off=3264 size=9 xfer=2
+submit 83 off=3392 size=9 xfer=3
+submit 86 off=368392 size=5120 xfer=272
+submit 05 off=1072664 size=3856 xfer=272
+submit 86 off=373512 size=5120 xfer=273
+submit 05 off=1076520 size=3856 xfer=273
+submit 86 off=378632 size=5120 xfer=274
+submit 05 off=1080376 size=3856 xfer=274
+submit 86 off=383752 size=5120 xfer=275
+submit 05 off=1084232 size=3856 xfer=275
+submit 83 off=3008 size=9 xfer=0
+submit 83 off=3136 size=9 xfer=1
+submit 83 off=3264 size=9 xfer=2
+submit 83 off=3392 size=9 xfer=3
+submit 86 off=388872 size=5120 xfer=276
+submit 05 off=1088088 size=3856 xfer=276
+submit 86 off=393992 size=5120 xfer=277
+submit 05 off=1091944 size=3856 xfer=277
+submit 86 off=399112 size=5120 xfer=278
+submit 05 off=1095800 size=3856 xfer=278
+submit 86 off=404232 size=5120 xfer=279
+submit 05 off=1099656 size=3856 xfer=279
+submit 83 off=3008 size=9 xfer=0
+submit 83 off=3136 size=9 xfer=1
+submit 83 off=3264 size=9 xfer=2
+submit 83 off=3392 size=9 xfer=3
+submit 86 off=409352 size=5120 xfer=280
+submit 05 off=1103512 size=3856 xfer=280
+submit 86 off=414472 size=5120 xfer=281
+submit 05 off=1107368 size=3856 xfer=281
+submit 86 off=419592 size=5120 xfer=282
+submit 05 off=1111224 size=3856 xfer=282
+submit 86 off=424712 size=5120 xfer=283
+submit 05 off=1115080 size=3856 xfer=283
+submit 83 off=3008 size=9 xfer=0
+submit 83 off=3136 size=9 xfer=1
+submit 83 off=3264 size=9 xfer=2
+submit 83 off=3392 size=9 xfer=3
+submit 86 off=429832 size=5120 xfer=284
+submit 05 off=1118936 size=3856 xfer=284
+submit 86 off=434952 size=5120 xfer=285
+submit 05 off=1122792 size=3856 xfer=285
+submit 86 off=440072 size=5120 xfer=286
+submit 05 off=1126648 size=3856 xfer=286
+submit 86 off=445192 size=5120 xfer=287
+submit 05 off=1130504 size=3856 xfer=287
+submit 83 off=3008 size=9 xfer=0
+submit 83 off=3136 size=9 xfer=1
+submit 83 off=3264 size=9 xfer=2
+submit 83 off=3392 size=9 xfer=3
+submit 86 off=450312 size=5120 xfer=288
+submit 05 off=1134360 size=3856 xfer=288
+submit 86 off=455432 size=5120 xfer=289
+submit 05 off=1138216 size=3856 xfer=289
+submit 86 off=460552 size=5120 xfer=290
+submit 05 off=1142072 size=3856 xfer=290
+submit 86 off=465672 size=5120 xfer=291
+submit 05 off=1145928 size=3856 xfer=291
+submit 83 off=3008 size=9 xfer=0
+submit 83 off=3136 size=9 xfer=1
+submit 83 off=3264 size=9 xfer=2
+submit 83 off=3392 size=9 xfer=3
+submit 86 off=470792 size=5120 xfer=292
+submit 05 off=1149784 size=3856 xfer=292
+submit 86 off=475912 size=5120 xfer=293
+submit 05 off=1153640 size=3856 xfer=293
+submit 86 off=481032 size=5120 xfer=294
+submit 05 off=1157496 size=3856 xfer=294
+submit 86 off=486152 size=5120 xfer=295
+submit 05 off=1161352 size=3856 xfer=295
+submit 83 off=3008 size=9 xfer=0
+submit 83 off=3136 size=9 xfer=1
+submit 83 off=3264 size=9 xfer=2
+submit 83 off=3392 size=9 xfer=3
+submit 86 off=491272 size=5120 xfer=296
+submit 05 off=1165208 size=3856 xfer=296
+submit 86 off=496392 size=5120 xfer=297
+submit 05 off=1169064 size=3856 xfer=297
+submit 86 off=501512 size=5120 xfer=298
+submit 05 off=1172920 size=3856 xfer=298
+submit 86 off=506632 size=5120 xfer=299
+submit 05 off=1176776 size=3856 xfer=299
+submit 83 off=3008 size=9 xfer=0
+submit 83 off=3136 size=9 xfer=1
+submit 83 off=3264 size=9 xfer=2
+submit 83 off=3392 size=9 xfer=3
+submit 86 off=511752 size=5120 xfer=300
+submit 05 off=1180632 size=3856 xfer=300
+submit 86 off=516872 size=5120 xfer=301
+submit 05 off=1184488 size=3856 xfer=301
+submit 86 off=521992 size=5120 xfer=302
+submit 05 off=1188344 size=3856 xfer=302
+submit 86 off=527112 size=5120 xfer=303
+submit 05 off=1192200 size=3856 xfer=303
+abort 12
+midi_in 296: 40 41 42 43 44 45 46 47 48 49 4a 4b 4c 4d 4e 4f 50 51 52 53 54 55 56 57
+shm 8ec1f090c627038b out_ring faf6a38fd6bec783 in_ring b4ca0831869394c3
 == Xone:1D
 submit 81 off=3008 size=4 xfer=0
 submit 81 off=3136 size=4 xfer=1
@@ -4848,4 +6058,4 @@ submit 01 off=3520 size=4 xfer=0
 submit 81 off=3008 size=4 xfer=0
 abort 3
 midi_in 1023: 30 55 7a c4 58 7d a2 ec 11 36 80 a5 ca 14 a8 cd f2 3c 61 86 d0 f5 1a 64
-shm 5b8da8f1c3fb63d1 out_ring faf6a38fd6bec783 in_ring 234d05f272597383
+shm a4012719154ad84c out_ring faf6a38fd6bec783 in_ring 234d05f272597383

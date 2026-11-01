@@ -356,17 +356,27 @@ static int hs_esi_a_request(const struct ploytec_host_ops *ops, void *ctx, uint1
  *   - U168 XT only: 'A' 0x349
  *   - ESI input selector (updateAjInputSelector_Esu186) in place of hs_selector:
  *     read 'I' wIndex 0 (again after 20 ms while the lock bit is set), keep the
- *     PRESERVE_MASK bits, set STATE_A (the driver's default), send 'A' 0x348, and
- *     write the byte back only if it changed, then wait 200 ms (the device
- *     re-clocks; the official driver reads the rate back next, as the handshake does)
+ *     PRESERVE_MASK bits, set the state of @esi_clock (STATE_A without the setting, the
+ *     driver's default), send 'A' 0x349 for Internal, else 0x348, and write the byte back
+ *     only if it changed, then wait 200 ms (the device re-clocks; the official driver reads
+ *     the rate back next, as the handshake does)
  * The second 'A' request overrides the first, as in the official driver, which
  * runs the selector again after the U168 write.
  */
-static int hs_esi_setup(const struct ploytec_host_ops *ops, void *ctx, uint32_t quirks)
+static int hs_esi_setup(const struct ploytec_host_ops *ops, void *ctx, uint32_t quirks,
+			uint8_t esi_clock)
 {
 	uint8_t buf[1] = { 0 };
-	uint8_t want;
+	uint8_t want, state = PLOYTEC_AJ_ESU_STATE_A;
+	uint16_t a_request = PLOYTEC_ESI_A_BASE;
 	int ret;
+
+	if (esi_clock == OZZY_ESI_CLOCK_AUTO_SPDIF) {
+		state = PLOYTEC_AJ_ESU_STATE_C;
+	} else if (esi_clock == OZZY_ESI_CLOCK_INTERNAL) {
+		state = PLOYTEC_AJ_ESU_STATE_B;
+		a_request = PLOYTEC_ESI_A_U168;
+	}
 
 	if (quirks & OZZY_QUIRK_ESI_U168) {
 		ret = hs_esi_a_request(ops, ctx, PLOYTEC_ESI_A_U168);
@@ -378,8 +388,8 @@ static int hs_esi_setup(const struct ploytec_host_ops *ops, void *ctx, uint32_t 
 	if (ret < 0)
 		return ret;
 
-	want = (buf[0] & PLOYTEC_AJ_ESU_PRESERVE_MASK) | PLOYTEC_AJ_ESU_STATE_A;
-	ret = hs_esi_a_request(ops, ctx, PLOYTEC_ESI_A_BASE);
+	want = (buf[0] & PLOYTEC_AJ_ESU_PRESERVE_MASK) | state;
+	ret = hs_esi_a_request(ops, ctx, a_request);
 	if (ret < 0)
 		return ret;
 
@@ -513,6 +523,7 @@ int ploytec_handshake_eps(const struct ploytec_host_ops *ops, void *ctx, uint32_
 	struct ploytec_handshake_info local;
 	uint8_t clock_source = OZZY_CLOCK_AUTOMATIC;
 	uint8_t spdif_mode = OZZY_SPDIF_OUT_CONSUMER;
+	uint8_t esi_clock = OZZY_ESI_CLOCK_AUTO_ANALOG;
 	uint32_t verify_rate = 0;
 	int step = 0;
 	int ret = 0;
@@ -525,6 +536,8 @@ int ploytec_handshake_eps(const struct ploytec_host_ops *ops, void *ctx, uint32_
 		clock_source = settings->value[OZZY_SETTING_CLOCK_SOURCE];
 	if (settings && ozzy_has_setting(quirks, OZZY_SETTING_SPDIF_OUT_MODE))
 		spdif_mode = settings->value[OZZY_SETTING_SPDIF_OUT_MODE];
+	if (settings && ozzy_has_setting(quirks, OZZY_SETTING_ESI_CLOCK))
+		esi_clock = settings->value[OZZY_SETTING_ESI_CLOCK];
 
 	hs_log(ops, ctx, false, "--- begin handshake sequence ---");
 
@@ -554,7 +567,7 @@ int ploytec_handshake_eps(const struct ploytec_host_ops *ops, void *ctx, uint32_
 	/* configurationDone: the input selector, then the digital output selector */
 	if (quirks & OZZY_QUIRK_ESI) {
 		hs_log(ops, ctx, false, "ESI selector and 'A' request...");
-		ret = hs_esi_setup(ops, ctx, quirks);
+		ret = hs_esi_setup(ops, ctx, quirks, esi_clock);
 	} else if (!(quirks & OZZY_QUIRK_NO_AJ_SELECTOR)) {
 		ret = hs_selector(ops, ctx, quirks, clock_source, &info->clock);
 	}

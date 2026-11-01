@@ -153,6 +153,14 @@ enum ozzy_quirk {
 	 * power-on state is unknown.
 	 */
 	OZZY_QUIRK_WM8776 = 1u << 20,
+
+	/*
+	 * ESI U168 XT: what ESI's control panel sets. The clock with the source of inputs 15-16
+	 * (the three ESI selector states, ploytec_handshake.c), and over the C-port in the PCM
+	 * output stream (ploytec_cport.h) the S/PDIF out mode and a +4 dBu / -10 dBV level per
+	 * output pair. Defaults: the converters' power-up state, and the selector Ozzy always wrote.
+	 */
+	OZZY_QUIRK_ESI_CPORT = 1u << 21,
 };
 
 #endif /* OZZY_QUIRKS_H */

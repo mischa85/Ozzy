@@ -84,10 +84,14 @@ ploytec_frame_fn ploytec_frame_decoder(unsigned int channels);
 
 #include <math.h>
 
-/* One float to S24_3LE, clamped; without branches (fminf/fmaxf, then shifts) */
+/*
+ * One float to S24_3LE, clamped. NaN is silence: fminf and fmaxf return their other operand for
+ * it, which would be full scale.
+ */
 static inline void ploytec_f32_to_s24(uint8_t *dest, float sample)
 {
-	int32_t s = (int32_t)(fmaxf(-1.0f, fminf(sample, 8388607.0f / 8388608.0f)) * 8388608.0f);
+	float finite = sample == sample ? sample : 0.0f;
+	int32_t s = (int32_t)(fmaxf(-1.0f, fminf(finite, 8388607.0f / 8388608.0f)) * 8388608.0f);
 
 	dest[0] = s & 0xFF;
 	dest[1] = (s >> 8) & 0xFF;

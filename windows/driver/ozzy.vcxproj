@@ -104,12 +104,18 @@
     <ClCompile Include="..\..\common\usb_midi.c" />
     <ClCompile Include="..\..\common\midi_ump.c" />
   </ItemGroup>
+  <PropertyGroup>
+    <!-- Now in UTC as ISO 8601 ("o" is culture-invariant and Gregorian; "MM/dd/yyyy" is not: "/" is
+         the culture's date separator, so 11.10.2026 on a German Windows, and the year can be Buddhist
+         or Hijri, #104) -->
+    <OzzyUtcNow>$([System.DateTime]::UtcNow.ToString('o'))</OzzyUtcNow>
+  </PropertyGroup>
   <ItemGroup>
     <!-- Generated before the build from ozzy.inf.in (OzzyGenerateInf) -->
     <Inf Include="$(IntDir)ozzy.inf">
       <!-- DriverVer's date: today in UTC, which inf2cat checks it against (the default, stampinf's
            local date, is "in the future" for it after midnight east of UTC, error 22.9.7) -->
-      <DateStamp>$([System.DateTime]::UtcNow.ToString('MM/dd/yyyy'))</DateStamp>
+      <DateStamp>$(OzzyUtcNow.Substring(5,2))/$(OzzyUtcNow.Substring(8,2))/$(OzzyUtcNow.Substring(0,4))</DateStamp>
     </Inf>
   </ItemGroup>
   <ItemGroup>

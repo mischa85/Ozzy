@@ -39,24 +39,25 @@ DEXT_INSTALLED=false
 DAEMON_INSTALLED=false
 LEGACY_HAL=false
 
-# Check for Kext-based installation
-if [ -d "/Library/Extensions/OzzyKext.kext" ] || [ -d "/Library/Audio/Plug-Ins/HAL/OzzyHAL.driver" ]; then
+# Check for the Userspace Daemon (option 3)
+if [ -f "/usr/local/bin/OzzyDaemon" ] || [ -f "/Library/LaunchDaemons/com.ozzy.daemon.plist" ]; then
+    DAEMON_INSTALLED=true
+fi
+
+# Check for Kext-based installation: the kext, or the HAL driver without the daemon
+if [ -d "/Library/Extensions/OzzyKext.kext" ] || [ -f "/Library/LaunchDaemons/com.ozzy.kext.load.plist" ] ||
+   { [ -d "/Library/Audio/Plug-Ins/HAL/OzzyHAL.driver" ] && ! $DAEMON_INSTALLED; }; then
     KEXT_INSTALLED=true
 fi
 
 # Check for legacy HAL + Daemon (old install-mac.command style)
-if [ -d "/Library/Audio/Plug-Ins/HAL/OzzyHAL.driver" ] || [ -f "/usr/local/bin/Ozzy" ] || [ -f "/Library/LaunchDaemons/Ozzy.plist" ]; then
+if [ -f "/usr/local/bin/Ozzy" ] || [ -f "/Library/LaunchDaemons/Ozzy.plist" ]; then
     LEGACY_HAL=true
 fi
 
 # Check for DriverKit installation
 if [ -d "/Applications/Ploytec Driver Extension.app" ]; then
     DEXT_INSTALLED=true
-fi
-
-# Check for Userspace Daemon installation (future)
-if [ -f "/usr/local/bin/OzzyDaemon" ]; then
-    DAEMON_INSTALLED=true
 fi
 
 # Show conflict warning if any installation exists
@@ -83,16 +84,18 @@ if $KEXT_INSTALLED || $DEXT_INSTALLED || $DAEMON_INSTALLED || $LEGACY_HAL; then
     echo "   conflicts and prevent your audio device from working!"
     echo ""
     echo "You must uninstall the existing driver first using:"
-    echo "  ./uninstall_ozzy.command"
+    echo "  ./uninstall.command"
     echo ""
     echo "Or manually remove:"
     if $KEXT_INSTALLED; then
         echo "  - /Library/Extensions/OzzyKext.kext"
         echo "  - /Library/LaunchDaemons/com.ozzy.kext.load.plist"
     fi
-    if $LEGACY_HAL; then
+    if $KEXT_INSTALLED || $DAEMON_INSTALLED || $LEGACY_HAL; then
         echo "  - /Library/Audio/Plug-Ins/HAL/OzzyHAL.driver"
         echo "  - /Library/Audio/MIDI Drivers/OzzyMIDI.plugin"
+    fi
+    if $LEGACY_HAL; then
         echo "  - /usr/local/bin/Ozzy"
         echo "  - /Library/LaunchDaemons/Ozzy.plist"
     fi
@@ -101,6 +104,7 @@ if $KEXT_INSTALLED || $DEXT_INSTALLED || $DAEMON_INSTALLED || $LEGACY_HAL; then
     fi
     if $DAEMON_INSTALLED; then
         echo "  - /usr/local/bin/OzzyDaemon"
+        echo "  - /Library/LaunchDaemons/com.ozzy.daemon.plist"
     fi
     echo ""
     echo "Then reboot before installing."
@@ -127,11 +131,13 @@ echo "     • No SIP modification needed"
 echo "     • System Extension approval required"
 echo "     • NOT YET IMPLEMENTED"
 echo ""
-echo "  3) Userspace Daemon Driver (All macOS) [Future]"
-echo "     • Pure userspace implementation"
-echo "     • Shared memory model"
-echo "     • No kernel extensions required"
-echo "     • NOT YET IMPLEMENTED"
+echo "  3) Userspace Daemon Driver (macOS 10.11 or later)"
+echo "     • No kernel extension: no SIP or security changes"
+echo "     • HAL Audio Driver and MIDI Driver, as option 1"
+echo "     • Starts at boot via LaunchDaemon"
+echo "     • Less robust under heavy load than the kext: user space"
+echo "       can't get the priority USB audio needs (ozzy-cli show"
+echo "       counts the stream's hiccups)"
 echo ""
 read -p "Select option (1, 2, or 3): " -n 1 -r INSTALL_CHOICE
 echo
@@ -144,19 +150,20 @@ if [[ $INSTALL_CHOICE == "2" ]]; then
     read -p "Press [Enter] to exit..."
     exit 0
 elif [[ $INSTALL_CHOICE == "3" ]]; then
-    echo "⚠️  Userspace Daemon installation not yet implemented."
-    echo "   This option will install the userspace daemon driver"
-    echo "   using the shared memory model in the future."
-    echo ""
-    read -p "Press [Enter] to exit..."
-    exit 0
-elif [[ $INSTALL_CHOICE != "1" ]]; then
+    INSTALL_MODE=daemon
+elif [[ $INSTALL_CHOICE == "1" ]]; then
+    INSTALL_MODE=kext
+else
     echo "Invalid choice. Exiting."
     exit 1
 fi
 
 echo "======================================================"
-echo "    Installing: Legacy Kext Driver"
+if [ "$INSTALL_MODE" = daemon ]; then
+    echo "    Installing: Userspace Daemon Driver"
+else
+    echo "    Installing: Legacy Kext Driver"
+fi
 echo "======================================================"
 echo ""
 
@@ -165,7 +172,8 @@ echo "======================================================"
 echo "Step 1/4: Checking Requirements"
 echo "======================================================"
 
-# Check SIP status
+# Check SIP status (the kext needs kext signing off; the daemon nothing)
+if [ "$INSTALL_MODE" = kext ]; then
 echo "🔍 Checking System Integrity Protection (SIP) status..."
 SIP_OUTPUT=$(csrutil status 2>/dev/null)
 
@@ -189,6 +197,7 @@ else
     if [[ ! $REPLY =~ ^[Yy]$ ]]; then
         exit 1
     fi
+fi
 fi
 
 # Detect signing identity
@@ -216,9 +225,13 @@ echo "======================================================"
 echo "Step 2/4: Compiling Components"
 echo "======================================================"
 
-# Compile Kext
+# Compile the Kext (option 1) or the Userspace Daemon (option 3)
 echo ""
-echo "🔨 [1/5] Compiling Kernel Extension..."
+if [ "$INSTALL_MODE" = daemon ]; then
+    echo "🔨 [1/5] Compiling the Userspace Daemon..."
+else
+    echo "🔨 [1/5] Compiling Kernel Extension..."
+fi
 
 # Kext Configuration
 KEXT_NAME="OzzyKext"
@@ -243,7 +256,7 @@ SOURCES=(
 SYSTEM_ARCH=$(uname -m)
 if [ "$SYSTEM_ARCH" == "arm64" ]; then
     KEXT_ARCH="arm64e"
-    echo "   🔍 Detected Apple Silicon (ARM) - building for arm64e"
+    [ "$INSTALL_MODE" = kext ] && echo "   🔍 Detected Apple Silicon (ARM) - building for arm64e"
 elif [ "$SYSTEM_ARCH" == "x86_64" ]; then
     KEXT_ARCH="x86_64"
     echo "   🔍 Detected Intel (x86_64) - building for x86_64"
@@ -264,7 +277,7 @@ OS_NUMBER=$(version_number "$OS_VERSION")
 
 SDKROOT="${OZZY_KEXT_SDK:-}"
 DEFAULT_SDK=$(xcrun --sdk macosx --show-sdk-path)
-if [ -z "$SDKROOT" ] && [ "$OS_NUMBER" -lt 1015 ]; then
+if [ "$INSTALL_MODE" = kext ] && [ -z "$SDKROOT" ] && [ "$OS_NUMBER" -lt 1015 ]; then
     BEST_NUMBER=0
     for SDK in "$DEFAULT_SDK" "$(xcode-select -p)"/Platforms/MacOSX.platform/Developer/SDKs/MacOSX*.sdk \
                /Library/Developer/CommandLineTools/SDKs/MacOSX*.sdk; do
@@ -282,9 +295,9 @@ if [ -z "$SDK_VERSION" ]; then
     echo "❌ Error: no macOS SDK at $SDKROOT"
     exit 1
 fi
-echo "   🧰 Kernel SDK: $SDK_VERSION ($SDKROOT)"
+echo "   🧰 SDK: $SDK_VERSION ($SDKROOT)"
 
-if [ "$OS_NUMBER" -lt 1015 ] && [ "$(version_number "$SDK_VERSION")" -ge 1015 ]; then
+if [ "$INSTALL_MODE" = kext ] && [ "$OS_NUMBER" -lt 1015 ] && [ "$(version_number "$SDK_VERSION")" -ge 1015 ]; then
     echo "❌ Error: the kext must be built with a macOS $(echo "$OS_VERSION" | cut -d. -f1-2) SDK (or older), but only the $SDK_VERSION SDK is installed."
     echo "   A kext built with the 10.15 SDK or newer doesn't load on macOS 10.14 or older."
     echo "   Install Command Line Tools with a 10.14 SDK or older (for 10.14: Command Line Tools"
@@ -325,6 +338,22 @@ KEXT_LDFLAGS="-arch $KEXT_ARCH -mmacosx-version-min=$MIN_MACOS -Xlinker -kext -n
 echo "   🧹 Cleaning build directory..."
 # Use sudo to remove if it has root permissions from previous install
 sudo rm -rf "$BUILD_DIR" 2>/dev/null || rm -rf "$BUILD_DIR"
+mkdir -p "$BUILD_DIR"
+
+# The daemon: the engine in user space, for this Mac's architecture (Backends/OzzyDaemon/Makefile).
+# Its build directory relative to the Makefile's: make takes a path with spaces in it apart.
+DAEMON_PATH="$BUILD_DIR/OzzyDaemon/OzzyDaemon"
+if [ "$INSTALL_MODE" = daemon ]; then
+    if ! make -s -C Backends/OzzyDaemon BUILD=../../Build/OzzyDaemon GIT_VERSION="$GIT_VERSION" \
+            MIN_MACOS="$MIN_MACOS" ARCHS="$SYSTEM_ARCH" DISABLE_FLAGS="$DISABLE_FLAGS" > "$BUILD_DIR/daemon.log" 2>&1; then
+        grep -E "error:" "$BUILD_DIR/daemon.log" || tail -n 20 "$BUILD_DIR/daemon.log"
+        echo "❌ Error: building the daemon failed (full log: $BUILD_DIR/daemon.log)"
+        exit 1
+    fi
+    codesign --sign "$CODE_SIGN_IDENTITY" --force --options runtime "$DAEMON_PATH" 2>/dev/null ||
+        codesign --sign "$CODE_SIGN_IDENTITY" --force "$DAEMON_PATH"
+    echo "✅ Userspace Daemon compiled and signed"
+else
 mkdir -p "$BUILD_DIR/$KEXT_NAME.kext/Contents/MacOS"
 
 echo "   🔨 Compiling kext sources..."
@@ -385,6 +414,7 @@ if command -v kmutil > /dev/null 2>&1; then
     fi
 fi
 echo "✅ Kernel Extension compiled and signed"
+fi
 
 # Compile HAL
 echo ""
@@ -491,6 +521,23 @@ echo "🔑 Administrator privileges required..."
 sudo -v
 echo ""
 
+DAEMON_PLIST="/Library/LaunchDaemons/com.ozzy.daemon.plist"
+if [ "$INSTALL_MODE" = daemon ]; then
+# Install the Userspace Daemon: a root LaunchDaemon with the mach service the HAL and MIDI
+# drivers call (com.ozzy.daemon)
+if sudo launchctl print system/com.ozzy.daemon > /dev/null 2>&1; then
+    echo "🔄 Stopping the running daemon..."
+    sudo launchctl bootout system/com.ozzy.daemon 2>/dev/null || true
+    sleep 1
+fi
+echo "📦 Installing the Userspace Daemon..."
+sudo mkdir -p /usr/local/bin
+sudo install -m 755 -o root -g wheel "$DAEMON_PATH" /usr/local/bin/OzzyDaemon
+sudo cp "$DIR/Backends/OzzyDaemon/com.ozzy.daemon.plist" "$DAEMON_PLIST"
+sudo chown root:wheel "$DAEMON_PLIST"
+sudo chmod 644 "$DAEMON_PLIST"
+echo "✅ Daemon installed to /usr/local/bin/OzzyDaemon"
+else
 # Install Kext
 KEXT_PATH="Build/OzzyKext.kext"
 INSTALL_PATH="/Library/Extensions/OzzyKext.kext"
@@ -547,6 +594,7 @@ sudo chown root:wheel "$PLIST_PATH"
 sudo chmod 644 "$PLIST_PATH"
 sudo launchctl load "$PLIST_PATH" 2>/dev/null || true
 echo "✅ LaunchDaemon installed"
+fi
 
 # Install HAL Driver
 echo "📦 Installing HAL Driver..."
@@ -594,6 +642,35 @@ echo "======================================================"
 echo "🔄 Restarting audio services..."
 sudo killall coreaudiod 2>/dev/null || true
 sudo killall MIDIServer 2>/dev/null || true
+
+if [ "$INSTALL_MODE" = daemon ]; then
+# Start the daemon (it starts at boot from now on) and check it runs
+sudo launchctl bootstrap system "$DAEMON_PLIST" 2>/dev/null || true
+sleep 2
+echo ""
+echo "======================================================"
+echo "          ✅ Installation Complete!"
+echo "======================================================"
+echo ""
+if sudo launchctl print system/com.ozzy.daemon 2>/dev/null | grep -q "state = running"; then
+    echo "All components installed and running:"
+    echo "   ✓ Userspace Daemon running (starts at boot)"
+    echo "   ✓ HAL Driver active"
+    echo "   ✓ MIDI Driver active"
+    echo ""
+    echo "Your audio device is ready to use!"
+    echo "Check Audio MIDI Setup to verify your device."
+    [ -n "$APP_PATH" ] && echo "Its settings: Applications > Ozzy (or ozzy-cli in Terminal)."
+    echo "Under heavy load the stream may hiccup: 'ozzy-cli show' counts it (Stream health)."
+else
+    echo "⚠️  Installed, but the daemon isn't running. What launchd says:"
+    sudo launchctl print system/com.ozzy.daemon 2>&1 | grep -E "state|last exit|error" | sed 's/^/      /'
+    echo "   Its log: ./debuglogs.command (attach it to an issue)"
+fi
+echo ""
+read -p "Press [Enter] to exit..."
+exit 0
+fi
 
 # Verify the kext we just installed is the one running: a loaded older build doesn't count
 sleep 2

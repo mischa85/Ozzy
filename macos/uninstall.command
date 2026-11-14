@@ -10,6 +10,7 @@ echo "======================================================"
 echo ""
 echo "This will remove ALL Ozzy components:"
 echo "  • Kernel Extension (if installed)"
+echo "  • Userspace Daemon (if installed)"
 echo "  • DriverKit Extension (if installed)"
 echo "  • HAL Audio Driver (if installed)"
 echo "  • MIDI Driver (if installed)"
@@ -104,10 +105,15 @@ if [ -d "/Applications/Ploytec Driver Extension.app" ]; then
     echo "✅ DriverKit Extension removed"
 fi
 
-# Remove future Userspace Daemon components (if they exist)
-if [ -f "/usr/local/bin/OzzyDaemon" ]; then
+# Stop and remove the Userspace Daemon (it lets the devices go and removes its shared memory)
+if sudo launchctl print system/com.ozzy.daemon > /dev/null 2>&1; then
+    echo "🔄 Stopping the Userspace Daemon..."
+    sudo launchctl bootout system/com.ozzy.daemon 2>/dev/null || true
+    sleep 1
+fi
+if [ -f "/Library/LaunchDaemons/com.ozzy.daemon.plist" ] || [ -f "/usr/local/bin/OzzyDaemon" ]; then
     echo "🗑️  Removing Userspace Daemon..."
-    sudo rm -f /usr/local/bin/OzzyDaemon
+    sudo rm -f /Library/LaunchDaemons/com.ozzy.daemon.plist /usr/local/bin/OzzyDaemon
     echo "✅ Userspace Daemon removed"
 fi
 

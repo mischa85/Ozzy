@@ -124,13 +124,13 @@ Flexible architecture supporting three backend implementations:
 * Same performance as kext, future-proof architecture
 * **Status:** 🚧 In development (legacy prototype in `legacy/mac-coreaudio/`)
 
-**Planned: Userspace Daemon**
-* No kernel extension required
-* Works with full SIP enabled
-* Slightly higher latency but maximum compatibility
-* **Status:** 🚧 Planned
+**Alternative: Userspace Daemon** - *for Macs that can't or won't allow kernel extensions*
+* No kernel extension: no Reduced Security, no `csrutil` change, SIP stays fully on
+* The same engine as the kext, run by a root LaunchDaemon (`OzzyDaemon`), with the same HAL and MIDI drivers, settings, `ozzy-cli` and app
+* User space can't get the priority USB audio needs, so under heavy load the stream may hiccup more often than with the kext: `ozzy-cli show` counts it under **Stream health**
+* **Status:** 🧪 tested on the Xone:DB4 (Apple Silicon, macOS 26): audio, MIDI, settings and rates, replug, a crashed daemon coming back. Not yet tested on Intel or with the isochronous devices (Tascam, Akai, ESI, ...)
 
-All backends share the same CoreAudio HAL and CoreMIDI drivers—only the USB communication layer changes. Choose the backend that fits your security and performance requirements.
+All backends share the same CoreAudio HAL and CoreMIDI drivers—only the USB communication layer changes. Choose the backend that fits your security and performance requirements. The kext and the daemon are installed one or the other, never both.
 
 **Location:** [`macos/`](macos/)
 
@@ -185,6 +185,8 @@ The installer automatically:
 2. **Utilities → Startup Security Utility**. Pick the volume you start macOS from (not another one), then **Security Policy…**: choose **Reduced Security** and tick **Allow user management of kernel extensions from identified developers**. Save.
 3. Still in Recovery: **Utilities → Terminal**, run `csrutil enable --without kext`, then restart.
 4. Back in macOS, `csrutil status` should show "Kext Signing: disabled". Run `install.command`; if macOS asks you to allow the extension in **System Settings → Privacy & Security**, allow it and restart.
+
+**No security changes: the userspace daemon (option 3).** If you can't or won't change the security settings above, choose option 3 in `install.command`. It installs the same HAL and MIDI drivers, `ozzy-cli` and app, with `OzzyDaemon` (a LaunchDaemon in `/usr/local/bin`) in place of the kext: nothing to change in Recovery, and no extension to allow. It drives the device from user space, which can't get the priority USB audio needs: under heavy load the stream may hiccup more often than with the kext (`ozzy-cli show`, **Stream health**, counts it), so for live use the kext is still the better choice where you can install it. To switch between the kext and the daemon, run `uninstall.command` first.
 
 **Leaving devices out:** `OZZY_DISABLE="TascamUS144 NumarkNS7" ./install.command` builds without those devices (names are the keys in [`common/ozzy_devices.def`](common/ozzy_devices.def)), so another driver can keep them.
 
@@ -428,6 +430,7 @@ If nothing above works:
 
 **Components:**
 - **OzzyKext** - Kernel extension handling USB communication
+- **OzzyDaemon** - The same in user space (install option 3): a root LaunchDaemon that seizes the device through IOUSBLib, publishes each device's shared memory as a POSIX shared memory object and answers the HAL's and MIDI driver's calls through a mach service ([`macos/Shared/ozzy_daemon.h`](macos/Shared/ozzy_daemon.h))
 - **OzzyHAL** - CoreAudio HAL driver for audio I/O
 - **OzzyMIDI** - CoreMIDI driver for MIDI I/O
 
@@ -518,7 +521,7 @@ Ozzy/
 │   ├── devices/    # Device-specific protocol implementations
 │   └── shared/     # Shared memory layout, platform layer, logging
 ├── macos/          # macOS kext + HAL/MIDI drivers
-│   └── Backends/   # Platform backends (Kext, future Dext)
+│   └── Backends/   # Platform backends (Kext, userspace Daemon)
 ├── windows/        # Windows ACX (WASAPI) driver
 │   ├── install.cmd # One-click check, build and install (uninstall.cmd to remove)
 │   ├── driver/     # The kernel driver (ozzy.sys) and its project

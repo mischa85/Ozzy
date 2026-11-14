@@ -23,6 +23,13 @@
 #include <wdm.h>
 #define OZZY_LOG_LINE(prefix, fmt, ...) \
 	DbgPrintEx(DPFLTR_IHVAUDIO_ID, DPFLTR_ERROR_LEVEL, prefix fmt "\n", ##__VA_ARGS__)
+#elif defined(OZZY_USER_ENGINE) && defined(OZZY_MACOS_DAEMON)
+/* macOS userspace daemon: the unified log (subsystem OzzyDaemon), and stderr when run by hand
+ * (macos/Backends/OzzyDaemon/daemon_log.c) */
+#include "ozzy_platform.h"
+void ozzy_daemon_log(const char *fmt, ...) OZZY_PRINTF_FORMAT(1, 2);
+#define OZZY_LOG_LINE(prefix, fmt, ...) ozzy_daemon_log(prefix fmt, ##__VA_ARGS__)
+#define OZZY_LOG_PREFIX "[OzzyDaemon] "
 #elif defined(OZZY_USER_ENGINE)
 /* WinUSB harness: stderr */
 #include <stdio.h>
@@ -33,7 +40,7 @@
 #define OZZY_LOG_LINE(prefix, fmt, ...) IOLog(prefix fmt "\n", ##__VA_ARGS__)
 #define OZZY_LOG_PREFIX "[OzzyKext] "   /* what macos/debuglogs.command filters on */
 #else
-#error "ozzy_log.h is for engine builds (kext, Windows driver, harness)"
+#error "ozzy_log.h is for engine builds (kext, Windows driver, harness, macOS daemon)"
 #endif
 
 #ifndef OZZY_LOG_PREFIX

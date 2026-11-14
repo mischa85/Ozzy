@@ -12,6 +12,7 @@ This is an open-source, reverse-engineered driver supporting non-class compliant
 * **Allen & Heath Xone:DB4, DB2, DX, 4D** (Ploytec-based protocol)
 * **Tascam US-1641**
 * **Numark Omni Control**
+* **Akai EIE Pro**
 * **Experimental:** 30+ more Ploytec-based interfaces and DJ controllers from Allen & Heath, Reloop, ESI, Midiplus, Smyth Research, Akai, M-Audio, Lexicon, Numark and Tascam ([full list](#️-supported-devices))
 
 More devices can be added—the architecture separates the audio engine from device protocols.
@@ -47,6 +48,7 @@ Every device below comes from one list in [`common/ozzy_devices.def`](common/ozz
 | **Allen & Heath Xone:4D** | 8 / 8 | 44.1–96 kHz |
 | **Tascam US-1641** | 16 / 4 | 44.1–96 kHz |
 | **Numark Omni Control** (first MIDI port only) | 4 / 4 | 44.1–96 kHz |
+| **Akai EIE Pro** | 4 / 4 | 44.1–96 kHz |
 
 ### 🧪 Experimental (needs testers)
 
@@ -54,7 +56,6 @@ These use the same Ploytec chip. Their channels, rates and setup requests come f
 
 | Device | In / out | Sample rates | Notes |
 | :--- | :--- | :--- | :--- |
-| **Akai EIE Pro** | 4 / 4 | 44.1–96 kHz |  |
 | **Akai MPC Renaissance** | 2 / 4 | 44.1–96 kHz | First MIDI port only |
 | **Allen & Heath MixWizard WZ4 USB** | 16 / 2 | 44.1–96 kHz |  |
 | **Alesis MultiMix 8 / 8 FX / 16 USB 2.0** | 10 / 2 | 44.1/48 kHz | Channels from a MultiMix 8; the 16 may have more inputs |

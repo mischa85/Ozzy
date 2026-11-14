@@ -69,7 +69,7 @@ independently confirming Ozzy's isochronous path.
 
 | VID:PID | Product | In / out | Rates | Source | Linux | Ozzy needs |
 |---|---|---|---|---|---|---|
-| 09E8:0010 | Akai EIE Pro | 4 / 4 | 44.1–96k | plist | out-of-tree (EmaP77 and others) | in Ozzy (experimental) |
+| 09E8:0010 | Akai EIE Pro | 4 / 4 | 44.1–96k | plist | out-of-tree (EmaP77 and others) | in Ozzy (supported: tested by upunkt on macOS 12 Intel with Logic, #73: audio at 44.1/96k, MIDI both ways, 30 min stable) |
 | 09E8:207F | Akai MPC Renaissance ("ACV0") | 4 / 4 (2 real inputs) | 44.1–96k | plist | none | in Ozzy (experimental) as 2 in / 4 out, first MIDI port only; second MIDI port (bytes 4..7 of the same 9-byte transfer, both directions; needs a second port end to end) and the bcdDevice 0x0300 isoc in + isoc out variant missing |
 | 0763:4002 | M-Audio M-Track Quad | 4 / 4 | 44.1–96k | plist (flags closest to the EIE; setFreqOnOutPipe) | none (?) | in Ozzy (experimental) |
 | 0644:800F | Tascam US-144 | 4 / 4 | 44.1–96k | plist | snd-usb-us122l; us144mkii (6.18) | in Ozzy (experimental); left out of the Linux build by default |

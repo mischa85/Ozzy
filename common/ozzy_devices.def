@@ -81,10 +81,14 @@ OZZY_DEVICE(ReloopDJ2, 0x200C, 0x1009, "Reloop Digital Jockey 2 ME", PLOYTEC_XON
 	    OZZY_RATE_44K1, EXPERIMENTAL, 0, OZZY_NO_LATENCY)
 #endif
 
-/* AKAI_EIE.kext 3.3.17 (kConfigurationData, High Speed): 4 in / 4 out. Bulk in / isoc out */
+/*
+ * AKAI_EIE.kext 3.3.17 (kConfigurationData, High Speed): 4 in / 4 out. Bulk in / isoc out.
+ * Tested on hardware (#73, upunkt, macOS 12 on Intel with Logic): recording and playback at
+ * 44.1 and 96 kHz, MIDI in and out, half an hour without trouble.
+ */
 #ifndef OZZY_DISABLE_AkaiEIEPro
 OZZY_DEVICE(AkaiEIEPro, 0x09E8, 0x0010, "Akai EIE Pro", PLOYTEC_ISOC, 4, 4,
-	    OZZY_RATE_44K1 | OZZY_RATE_48K | OZZY_RATE_88K2 | OZZY_RATE_96K, EXPERIMENTAL, 0, OZZY_NO_LATENCY)
+	    OZZY_RATE_44K1 | OZZY_RATE_48K | OZZY_RATE_88K2 | OZZY_RATE_96K, SUPPORTED, 0, OZZY_NO_LATENCY)
 #endif
 
 /*

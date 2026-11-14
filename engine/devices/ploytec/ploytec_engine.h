@@ -45,6 +45,8 @@ struct ploytec_engine {
 	uint32_t default_rate;
 	volatile bool running;
 	bool streamed;         /* has streamed since attach: a start is a restart */
+	uint32_t in_done;      /* PCM in completions since the start, and whether a short one was */
+	bool in_short_logged;  /* logged (the first of a start, with its size: the stats count them) */
 	bool pcm_in_int1024;
 	struct ploytec_midi midi;
 	ploytec_frame_fn encode;

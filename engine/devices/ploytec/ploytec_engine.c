@@ -290,6 +290,8 @@ static bool ploytec_start(struct ozzy_engine *e)
 	/* 5. in_queue / out_queue transfers in flight per PCM pipe, PLOYTEC_MIDI_IN_XFERS MIDI IN reads */
 	pe->running = true;
 	pe->streamed = true;
+	pe->in_done = 0;
+	pe->in_short_logged = false;
 	for (i = 0; i < pe->in_queue || i < pe->out_queue; i++) {
 		if (i < pe->in_queue && !ploytec_submit_pcm_in(e, EP_PCM_IN, pe->in_frames, i))
 			ploytec_log("input submission failed (idx: %u)", i);
@@ -469,8 +471,15 @@ static void ploytec_complete(struct ozzy_engine *e, uint8_t pipe, void *xfer, in
 		submit_pcm_out(pe, next);
 	} else if (pipe == EP_PCM_IN) {
 		next = ploytec_pcm_next(finished, pe->in_queue, e->mem.pcm_in_slots);
-		if (status == 0 && bytes != ploytec_in_xfer_bytes(pe->in_frames))
+		pe->in_done++;
+		if (status == 0 && bytes != ploytec_in_xfer_bytes(pe->in_frames)) {
 			ozzy_engine_stats_short(e, OZZY_PCM_IN);
+			if (!pe->in_short_logged) {
+				pe->in_short_logged = true;
+				ploytec_log("PCM in transfer %u of the start short: %u of %u bytes", pe->in_done, bytes,
+					    ploytec_in_xfer_bytes(pe->in_frames));
+			}
+		}
 		ploytec_decode_pcm_in(e, pe->decode, pe->in_frames, finished, status == 0 ? bytes : 0);
 		if (!ploytec_submit_pcm_in(e, EP_PCM_IN, pe->in_frames, next))
 			ploytec_log("input submission failed (idx: %u)", next);

@@ -58,9 +58,9 @@ void wsettings_restore(struct wdev* dev, WDFDEVICE device) {
 static void wsettings_status(const struct wdev* dev, struct ozzy_ksproperty_status* st) {
     RtlZeroMemory(st, sizeof(*st));
     st->version = OZZY_KSPROPERTY_VERSION;
-    st->in_channels = dev->model->in_channels;
-    st->out_channels = dev->model->out_channels;
     if (!dev->engine) return;
+    st->in_channels = ozzy_engine_channels(dev->engine, OZZY_PCM_IN);
+    st->out_channels = ozzy_engine_channels(dev->engine, OZZY_PCM_OUT);
     for (unsigned int id = 0; id < OZZY_NUM_SETTINGS; id++) {
         if (ozzy_engine_has_setting(dev->engine, id)) st->available |= 1u << id;
         st->value[id] = dev->engine->settings.value[id];

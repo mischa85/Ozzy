@@ -42,7 +42,7 @@ static int ozzy_pcm_open(struct snd_pcm_substream *substream)
 	struct snd_pcm_runtime *runtime = substream->runtime;
 	const struct ozzy_device *model = chip->model;
 	enum ozzy_pcm_dir dir = substream_dir(substream);
-	unsigned int channels = dir == OZZY_PCM_OUT ? model->out_channels : model->in_channels;
+	unsigned int channels = ozzy_engine_channels(chip->engine, dir);
 	uint32_t rates[OZZY_MAX_RATES];
 	unsigned int n = ozzy_device_rates(model, rates), i, packet_bytes;
 
@@ -229,21 +229,24 @@ void ozzy_pcm_stop_streams(struct ozzy_chip *chip)
 int ozzy_pcm_init(struct ozzy_chip *chip)
 {
 	const struct ozzy_device *model = chip->model;
+	/* The engine's channels: the row's, or what its probe found (the US-366's front panel) */
+	uint32_t out_channels = ozzy_engine_channels(chip->engine, OZZY_PCM_OUT);
+	uint32_t in_channels = ozzy_engine_channels(chip->engine, OZZY_PCM_IN);
 	struct snd_pcm *pcm;
 	int ret;
 
-	if (!model->out_channels && !model->in_channels)
+	if (!out_channels && !in_channels)
 		return 0;
 
-	ret = snd_pcm_new(chip->card, chip->dev->product ?: model->name, 0, model->out_channels ? 1 : 0,
-			  model->in_channels ? 1 : 0, &pcm);
+	ret = snd_pcm_new(chip->card, chip->dev->product ?: model->name, 0, out_channels ? 1 : 0,
+			  in_channels ? 1 : 0, &pcm);
 	if (ret < 0)
 		return ret;
 	pcm->private_data = chip;
 	strscpy(pcm->name, chip->dev->product ?: model->name, sizeof(pcm->name));
-	if (model->out_channels)
+	if (out_channels)
 		snd_pcm_set_ops(pcm, SNDRV_PCM_STREAM_PLAYBACK, &ozzy_pcm_ops);
-	if (model->in_channels)
+	if (in_channels)
 		snd_pcm_set_ops(pcm, SNDRV_PCM_STREAM_CAPTURE, &ozzy_pcm_ops);
 	snd_pcm_set_managed_buffer_all(pcm, SNDRV_DMA_TYPE_VMALLOC, NULL, 0, 0);
 	chip->pcm = pcm;

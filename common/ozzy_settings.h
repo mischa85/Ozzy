@@ -67,6 +67,9 @@ enum ozzy_setting {
 	OZZY_SETTING_ESI_LEVEL_34,
 	OZZY_SETTING_ESI_LEVEL_56,
 	OZZY_SETTING_ESI_LEVEL_78,
+	OZZY_SETTING_US366_LINE_12,   /* Tascam US-366: what line out 1-2 plays */
+	OZZY_SETTING_US366_DIGITAL,   /* ... the digital out */
+	OZZY_SETTING_US366_LINE_34,   /* ... line out 3-4 */
 	OZZY_NUM_SETTINGS
 };
 
@@ -161,6 +164,20 @@ enum ozzy_esi_level {
 	OZZY_ESI_LEVEL_PLUS4,
 	OZZY_ESI_LEVEL_MINUS10,
 	OZZY_NUM_ESI_LEVELS
+};
+
+/*
+ * OZZY_SETTING_US366_* values: the sources Tascam's US-366 panel offers per output, which are
+ * also the 2-bit fields of 'M' byte 56. Defaults: what Tascam's driver sent (0x24): line out 1-2
+ * the mixer (the device's own mix, with its input monitoring), the digital out PCM 1-2, line
+ * out 3-4 PCM 3-4. PCM 5-6 then plays nowhere until an output is set to it.
+ */
+enum ozzy_us366_source {
+	OZZY_US366_MIXER,
+	OZZY_US366_PCM_12,
+	OZZY_US366_PCM_34,
+	OZZY_US366_PCM_56,
+	OZZY_NUM_US366_SOURCES
 };
 
 /*
@@ -318,6 +335,8 @@ static const char *const ozzy_off_on_names[OZZY_NUM_OFF_ON] = { "Off", "On" };
 static const char *const ozzy_esi_clock_names[OZZY_NUM_ESI_CLOCKS] = {
 	"Automatic, Inputs 15-16 Analog", "Automatic, Inputs 15-16 S/PDIF", "Internal" };
 static const char *const ozzy_esi_level_names[OZZY_NUM_ESI_LEVELS] = { "+4 dBu", "-10 dBV" };
+static const char *const ozzy_us366_source_names[OZZY_NUM_US366_SOURCES] = {
+	"Mixer", "Playback 1-2", "Playback 3-4", "Playback 5-6" };
 
 static const struct ozzy_setting_desc ozzy_setting_descs[OZZY_NUM_SETTINGS] = {
 	/* Positional: the macOS kext compiles this as C++11 */
@@ -376,6 +395,12 @@ static const struct ozzy_setting_desc ozzy_setting_descs[OZZY_NUM_SETTINGS] = {
 	  OZZY_QUIRK_ESI_CPORT, OZZY_SETTING_DEVICE, 0 },
 	{ "Output 7-8 Level", ozzy_esi_level_names, OZZY_NUM_ESI_LEVELS, OZZY_ESI_LEVEL_PLUS4,
 	  OZZY_QUIRK_ESI_CPORT, OZZY_SETTING_DEVICE, 0 },
+	{ "Line Output 1-2 Source", ozzy_us366_source_names, OZZY_NUM_US366_SOURCES, OZZY_US366_MIXER,
+	  OZZY_QUIRK_US366_ROUTING, OZZY_SETTING_DEVICE, 0 },
+	{ "IEC958 Output Source", ozzy_us366_source_names, OZZY_NUM_US366_SOURCES, OZZY_US366_PCM_12,
+	  OZZY_QUIRK_US366_ROUTING, OZZY_SETTING_DEVICE, 0 },
+	{ "Line Output 3-4 Source", ozzy_us366_source_names, OZZY_NUM_US366_SOURCES, OZZY_US366_PCM_34,
+	  OZZY_QUIRK_US366_ROUTING, OZZY_SETTING_DEVICE, 0 },
 };
 
 /*

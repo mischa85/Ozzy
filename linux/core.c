@@ -247,6 +247,11 @@ static int ozzy_chip_probe(struct usb_interface *intf, const struct usb_device_i
 		goto err_intf;
 
 	ozzy_engine_attach(chip->engine, &chip->bus.bus, chip->shm);
+	/* Before the PCM devices: their channels can depend on the device (the US-366's front panel) */
+	if (!ozzy_engine_probe(chip->engine)) {
+		ret = -EIO;
+		goto err_intf;
+	}
 	ozzy_engine_set_usb_speed(chip->engine, ozzy_usb_speed(chip->dev->speed));
 	ozzy_engine_set_driver_version(chip->engine, OZZY_GIT_VERSION);
 	/* No clock anchors: ALSA reads the position each transfer moves (ozzy_pcm_progress) */
@@ -264,7 +269,7 @@ static int ozzy_chip_probe(struct usb_interface *intf, const struct usb_device_i
 		goto err_stop;
 	}
 	chip_log(chip, "running at %u Hz, %u in / %u out", (unsigned int)chip->shm->audio.sample_rate,
-		  model->in_channels, model->out_channels);
+		  ozzy_engine_channels(chip->engine, OZZY_PCM_IN), ozzy_engine_channels(chip->engine, OZZY_PCM_OUT));
 
 	ret = ozzy_pcm_init(chip);
 	if (ret == 0)

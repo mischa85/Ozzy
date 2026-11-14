@@ -85,7 +85,7 @@ These use the same Ploytec chip. Their channels, rates and setup requests come f
 | **Tascam US-144** | 4 / 4 | 44.1–96 kHz | Not in the Linux build by default: Linux has its own drivers |
 | **Tascam US-144MKII** | 4 / 4 | 44.1–96 kHz | Not in the Linux build by default: Linux has its own driver |
 | **Tascam US-200** | 2 / 4 | 44.1–96 kHz |  |
-| **Tascam US-366** | 4 / 6 | 44.1–96 kHz | Written from a Windows capture ([#91](https://github.com/mischa85/Ozzy/issues/91)); in the mixer mode with 4 inputs and 6 outputs only |
+| **Tascam US-366** | 4 / 6 or 6 / 4 | 44.1–96 kHz | Written from Windows captures ([#91](https://github.com/mischa85/Ozzy/issues/91)); the front panel's digital in/out switch sets the channels (replug after flipping it); Tascam's output routing as settings |
 | **Tascam US-600** | 6 / 4 | 44.1–96 kHz |  |
 | **Tascam US-1800** | 16 / 4 | 44.1–96 kHz |  |
 | **Tascam US-2000** | 16 / 4 | 44.1–96 kHz |  |

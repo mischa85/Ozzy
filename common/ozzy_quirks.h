@@ -161,6 +161,14 @@ enum ozzy_quirk {
 	 * output pair. Defaults: the converters' power-up state, and the selector Ozzy always wrote.
 	 */
 	OZZY_QUIRK_ESI_CPORT = 1u << 21,
+
+	/*
+	 * Tascam US-366: the output routing of Tascam's control panel (Line Out 1-2, Digital Out,
+	 * Line Out 3-4: the device's mixer or a PCM pair), byte 56 of the 'M' block
+	 * (ploytec_us366_mixer_block, .claude/re/tascam_us366.md). Only with the front panel on
+	 * digital out (4 in / 6 out); with digital in Ozzy sends Tascam's block as captured.
+	 */
+	OZZY_QUIRK_US366_ROUTING = 1u << 22,
 };
 
 #endif /* OZZY_QUIRKS_H */

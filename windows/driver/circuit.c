@@ -99,7 +99,7 @@ NTSTATUS wcircuit_create(WDFDEVICE device, bool render, ACXCIRCUIT* out) {
     ACXDATAFORMATLIST formats = AcxPinGetRawDataFormatList(pins[0]);
     if (!formats) return STATUS_INSUFFICIENT_RESOURCES;
     uint32_t rates[OZZY_MAX_RATES];
-    uint32_t channels = render ? dev->model->out_channels : dev->model->in_channels;
+    uint32_t channels = ozzy_engine_channels(dev->engine, render ? OZZY_PCM_OUT : OZZY_PCM_IN);
     unsigned int n = ozzy_device_rates(dev->model, rates);
     unsigned int layouts = channels == 2 || !speaker_mask(channels) ? 1 : 2;
     for (unsigned int i = 0; i < n * layouts; i++) {

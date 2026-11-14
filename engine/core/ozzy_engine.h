@@ -177,7 +177,9 @@ struct ozzy_engine;
 /*
  * struct ozzy_engine_ops - One per device family. Optional: @isoc_complete, @midi_out_pending,
  * @timer, @setting_quirks, @transfer_frames (default: 0, no PCM), @setting_default (the family's
- * own default value of a setting, or -1: the setting's). @stop and @suspend end resubmitting (completions
+ * own default value of a setting, or -1: the setting's), @probe (ask the device for what the
+ * engine can't know from its row, such as channel counts a hardware switch sets; false if it
+ * didn't answer). @stop and @suspend end resubmitting (completions
  * with OZZY_STATUS_ABORTED resubmit nothing); the wrappers then abort what is in flight.
  */
 struct ozzy_engine_ops {
@@ -194,6 +196,7 @@ struct ozzy_engine_ops {
 	uint32_t (*setting_quirks)(const struct ozzy_engine *e);
 	uint32_t (*transfer_frames)(const struct ozzy_engine *e, enum ozzy_pcm_dir dir);
 	int (*setting_default)(const struct ozzy_engine *e, unsigned int id);
+	bool (*probe)(struct ozzy_engine *e);
 };
 
 /*
@@ -243,6 +246,7 @@ struct ozzy_engine {
 	const struct ozzy_bus *bus;
 	volatile struct ozzy_shared_memory *shm;
 	const struct ozzy_device *model;
+	uint32_t in_channels, out_channels;  /* the PCM channels: the row's, or what probe found */
 	struct ozzy_device_profile profile;
 	struct ozzy_settings settings;
 	struct ozzy_route in_route;
@@ -274,6 +278,20 @@ struct ozzy_engine *ozzy_engine_init(void *mem, const struct ozzy_device *model)
  * unless the platform put the device's own string there first.
  */
 void ozzy_engine_attach(struct ozzy_engine *e, const struct ozzy_bus *bus, volatile struct ozzy_shared_memory *shm);
+
+/*
+ * ozzy_engine_probe - After ozzy_engine_attach and the interfaces, before the platform creates
+ * its PCM devices from ozzy_engine_channels(): lets the family ask the device what its row
+ * can't say (the US-366's front panel sets its channels). True if there was nothing to ask or
+ * the device answered; the channels stay the row's otherwise.
+ */
+bool ozzy_engine_probe(struct ozzy_engine *e);
+
+/* The PCM channels in @dir: the device row's, unless ozzy_engine_probe found others */
+static inline uint32_t ozzy_engine_channels(const struct ozzy_engine *e, enum ozzy_pcm_dir dir)
+{
+	return dir == OZZY_PCM_OUT ? e->out_channels : e->in_channels;
+}
 
 /*
  * ozzy_engine_alloc_memory - Transfer memory of the platform's own (after ozzy_engine_attach

@@ -224,6 +224,12 @@ bool OzzyKext::start(IOService* provider) {
 
     ozzy_log("initializing engine...");
     ozzy_engine_attach(mEngine, mBus->Bus(), mSHM);
+    // Its channels can depend on the device (the US-366's front panel); OzzyHAL takes them from
+    // the shared memory the start fills in
+    if (!ozzy_engine_probe(mEngine)) {
+        ozzy_log("probe failed");
+        return false;
+    }
     if (mHostDevice) {
         // The connection and the build, for ozzy_info (the tools show them)
         switch (mHostDevice->getSpeed()) {

@@ -115,15 +115,40 @@ struct ploytec_us3xx_info {
 extern const struct ploytec_rate_endpoints ploytec_us3xx_rate_endpoints;  /* 0x81, 0x02 */
 
 /*
- * ploytec_us3xx_handshake - Arm a Tascam US-366 for streaming at @rate Hz, as Tascam's Windows
- * driver did in d-hey's capture (.claude/re/tascam_us366.md): 'V'; 'I' wIndex 1 and 0, the
- * selector written with the channel config's bits 3-4; GET_CUR; three SET_CUR pairs to 0x81 and
- * 0x02, with (@mixer, the first start after the device came) the 'M' table and, at 48 kHz, the
- * 'B' block after the first, and the S/PDIF channel status (consumer) after the second. No rate
- * read-back: the Windows driver doesn't read it. Returns 0 or a negative errno.
+ * ploytec_us3xx_read_config - 'I' wIndex 1 into @config: on the US-366 the front panel's switch
+ * state, which sets its channels (ploytec_us366_channels). Returns 0 or a negative errno.
  */
-int ploytec_us3xx_handshake(const struct ploytec_host_ops *ops, void *ctx, uint32_t rate, bool mixer,
-			    struct ploytec_us3xx_info *info);
+int ploytec_us3xx_read_config(const struct ploytec_host_ops *ops, void *ctx, uint8_t *config);
+
+/*
+ * ploytec_us366_mixer_block - The 'M' block for the US-366 in mode @config ('I' wIndex 1), as
+ * Tascam's Windows driver sent it in d-hey's captures: with the digital I/O on out, byte 56 is
+ * @routing (ploytec_us366_routing); on in, Tascam's block as captured (bytes 8-9 and 26-27
+ * 0x5A80, byte 56 0x34), as what its routing fields mean with four outputs is open.
+ */
+void ploytec_us366_mixer_block(uint8_t block[PLOYTEC_US3XX_MIXER_SIZE], uint8_t config, uint8_t routing);
+
+/*
+ * ploytec_us366_routing - 'M' byte 56 from the three outputs' sources (enum ozzy_us366_source:
+ * mixer, PCM 1-2, 3-4, 5-6): bits 0-1 line out 1-2, bits 2-3 the digital out, bits 4-5 line out
+ * 3-4 (inferred from Tascam's panel in d-hey's second capture; Tascam's default 0x24).
+ */
+static inline uint8_t ploytec_us366_routing(uint8_t line_12, uint8_t digital, uint8_t line_34)
+{
+	return (uint8_t)((line_12 & 3) | (digital & 3) << 2 | (line_34 & 3) << 4);
+}
+
+/*
+ * ploytec_us3xx_handshake - Arm a Tascam US-366 for streaming at @rate Hz, as Tascam's Windows
+ * driver did in d-hey's captures (.claude/re/tascam_us366.md): 'V'; 'I' wIndex 1 and 0, the
+ * selector written with the channel config's bits 3-4; GET_CUR; three SET_CUR pairs to 0x81 and
+ * 0x02, with the 'M' block @mixer (NULL: none) and, with @reverb (the first start after the
+ * device came), the 'B' block after the first, and the S/PDIF channel status (consumer) after
+ * the second. No rate read-back: the Windows driver doesn't read it. Returns 0 or a negative
+ * errno.
+ */
+int ploytec_us3xx_handshake(const struct ploytec_host_ops *ops, void *ctx, uint32_t rate,
+			    const uint8_t *mixer, bool reverb, struct ploytec_us3xx_info *info);
 
 #ifdef __cplusplus
 }

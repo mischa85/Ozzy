@@ -196,24 +196,15 @@ NTSTATUS wdev_evt_add(WDFDRIVER driver, PWDFDEVICE_INIT init) {
     caps.SurpriseRemovalOK = WdfTrue;
     WdfDeviceSetPnpCapabilities(device, &caps);
 
-    /* Circuits exist from here; they become endpoints when added in PrepareHardware */
-    if (model->out_channels) {
-        status = wcircuit_create(device, true, &ctx->render);
-        if (!NT_SUCCESS(status)) return status;
-    }
-    if (model->in_channels) {
-        status = wcircuit_create(device, false, &ctx->capture);
-        if (!NT_SUCCESS(status)) return status;
-    }
-    /* MIDI: every Ploytec device has it (in the PCM packets or on its own endpoints), and it is
+    /* The audio circuits come in PrepareHardware, once the engine has asked the device for its
+     * channels (the US-366's front panel sets them). MIDI: every Ploytec device has it (in the PCM packets or on its own endpoints), and it is
      * all a USB MIDI device (the Xone:1D, no audio circuits) has. Audio works without it. */
     status = wmidi_circuit_create(device, &ctx->midi);
     if (!NT_SUCCESS(status)) {
         DbgPrintEx(DPFLTR_IHVAUDIO_ID, DPFLTR_ERROR_LEVEL, "[Ozzy] no MIDI circuit: 0x%08x\n", status);
         ctx->midi = NULL;
     }
-    DbgPrintEx(DPFLTR_IHVAUDIO_ID, DPFLTR_ERROR_LEVEL, "[Ozzy] %s (build %s), %u in / %u out\n",
-               model->name, OZZY_GIT_VERSION, model->in_channels, model->out_channels);
+    DbgPrintEx(DPFLTR_IHVAUDIO_ID, DPFLTR_ERROR_LEVEL, "[Ozzy] %s (build %s)\n", model->name, OZZY_GIT_VERSION);
     return STATUS_SUCCESS;
 }
 
@@ -250,6 +241,8 @@ static NTSTATUS wdev_evt_prepare_hardware(WDFDEVICE device, WDFCMRESLIST resourc
         if (NT_SUCCESS(status)) status = kbus_configure(&ctx->bus);
         if (!NT_SUCCESS(status)) return status;
         ozzy_engine_attach(ctx->engine, &ctx->bus.bus, ctx->shm);
+        /* Before the circuits: their channels can depend on the device (the US-366's front panel) */
+        if (!ozzy_engine_probe(ctx->engine)) return STATUS_DEVICE_NOT_READY;
         /* The connection and the build, for ozzy_info (the tools show them) */
         WDF_USB_DEVICE_INFORMATION usb_info;
         WDF_USB_DEVICE_INFORMATION_INIT(&usb_info);
@@ -264,6 +257,17 @@ static NTSTATUS wdev_evt_prepare_hardware(WDFDEVICE device, WDFCMRESLIST resourc
     }
 
     if (!ctx->circuits_added) {
+        /* Created and added once; they stay across a rebalance like the engine */
+        if (ozzy_engine_channels(ctx->engine, OZZY_PCM_OUT) && !ctx->render) {
+            NTSTATUS status = wcircuit_create(device, true, &ctx->render);
+            if (!NT_SUCCESS(status)) return status;
+        }
+        if (ozzy_engine_channels(ctx->engine, OZZY_PCM_IN) && !ctx->capture) {
+            NTSTATUS status = wcircuit_create(device, false, &ctx->capture);
+            if (!NT_SUCCESS(status)) return status;
+        }
+        DbgPrintEx(DPFLTR_IHVAUDIO_ID, DPFLTR_ERROR_LEVEL, "[Ozzy] %u in / %u out\n",
+                   ozzy_engine_channels(ctx->engine, OZZY_PCM_IN), ozzy_engine_channels(ctx->engine, OZZY_PCM_OUT));
         if (ctx->render) {
             NTSTATUS status = AcxDeviceAddCircuit(device, ctx->render);
             if (!NT_SUCCESS(status)) return status;

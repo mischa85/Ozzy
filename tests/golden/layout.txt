@@ -1,4 +1,4 @@
-version 12 size 2117504
+version 13 size 2117504
 magic                              0
 version                            4
 session_id                         8
@@ -36,8 +36,8 @@ audio.safety_offset_frames         20072
 audio.input_safety_offset_frames   20076
 audio.settings                     20080
 audio.settings.value               20084
-audio.settings.clock_locked        20111
-audio.settings.lock_rate           20112
+audio.settings.clock_locked        20114
+audio.settings.lock_rate           20116
 audio.timestamp.sequence           20120
 audio.timestamp.sample_time        20128
 audio.timestamp.host_time          20136

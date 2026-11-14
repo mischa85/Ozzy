@@ -73,7 +73,7 @@ static bool start_output(struct ploytec_us3xx_engine *ue)
 {
 	struct ozzy_engine *e = &ue->base;
 	volatile struct ozzy_shared_memory *shm = e->shm;
-	uint32_t frame_bytes = e->model->out_channels * 3;
+	uint32_t frame_bytes = e->out_channels * 3;
 	struct ozzy_isoc_output_config out;
 
 	memset(&out, 0, sizeof(out));
@@ -108,7 +108,7 @@ static bool start_input(struct ploytec_us3xx_engine *ue)
 	struct ozzy_engine *e = &ue->base;
 	volatile struct ozzy_shared_memory *shm = e->shm;
 	struct ozzy_engine_memory *m = &e->mem;
-	uint32_t frame_bytes = e->model->in_channels * 3;
+	uint32_t frame_bytes = e->in_channels * 3;
 	uint32_t ring_bytes = OZZY_DMA_ROUND(OZZY_PLAIN_RING_FRAMES * frame_bytes);
 	uint32_t xfer_bytes = OZZY_DMA_ROUND(ozzy_isoc_input_xfer_bytes(ue->in_max_packet, ue->in_interval));
 	struct ozzy_isoc_input_config in;
@@ -229,7 +229,9 @@ static bool us3xx_start(struct ozzy_engine *e)
 	const struct ozzy_device *model = e->model;
 	struct ploytec_us3xx_info hs;
 	struct ozzy_clock_status clock = { 0 };
+	uint8_t mixer[PLOYTEC_US3XX_MIXER_SIZE], config;
 	uint32_t in_channels, out_channels, slot;
+	bool send_mixer;
 
 	if (!shm)
 		return false;
@@ -243,25 +245,38 @@ static bool us3xx_start(struct ozzy_engine *e)
 	shm->audio.output_ring_frames = OZZY_PLAIN_RING_FRAMES;
 	shm->audio.input_ring_frames = OZZY_PLAIN_RING_FRAMES;
 	shm->audio.timestamp_frames = e->anchors ? ozzy_anchor_frames(e->settings.value[OZZY_SETTING_IO_BUFFER_MAX], 1) : 0;
-	shm->audio.output_bytes_per_frame = model->out_channels * 3;
-	shm->audio.input_bytes_per_frame = model->in_channels * 3;
-	shm->audio.input_channels = model->in_channels;
-	shm->audio.output_channels = model->out_channels;
-	ploytec_log("model: %s, %u in / %u out", model->name, model->in_channels, model->out_channels);
+	shm->audio.output_bytes_per_frame = e->out_channels * 3;
+	shm->audio.input_bytes_per_frame = e->in_channels * 3;
+	shm->audio.input_channels = e->in_channels;
+	shm->audio.output_channels = e->out_channels;
+	ploytec_log("model: %s, %u in / %u out", model->name, e->in_channels, e->out_channels);
 
 	/* 2. The handshake; a restart settles first and selects the interfaces again */
 	if (ue->streamed)
 		ploytec_restart_settle(e);
+	/* The 'M' block for the front panel's mode and the routing settings; sent when it changed.
+	 * Without a probe the channels stay the row's, and the check below refuses another mode. */
+	config = ue->config;
+	if (!ue->probed && ploytec_us3xx_read_config(&ploytec_bus_host_ops, (void *)e->bus, &config) < 0)
+		return false;
+	ploytec_us366_mixer_block(mixer, config,
+				  ploytec_us366_routing(e->settings.value[OZZY_SETTING_US366_LINE_12],
+							e->settings.value[OZZY_SETTING_US366_DIGITAL],
+							e->settings.value[OZZY_SETTING_US366_LINE_34]));
+	send_mixer = !ue->mixer_sent || memcmp(mixer, ue->mixer_last, sizeof(mixer)) != 0;
 	memset(&hs, 0, sizeof(hs));
 	if (ploytec_us3xx_handshake(&ploytec_bus_host_ops, (void *)e->bus, ozzy_engine_start_rate(e, ue->default_rate),
-				    !ue->mixer_sent, &hs) < 0)
+				    send_mixer ? mixer : NULL, !ue->mixer_sent, &hs) < 0)
 		return false;
 	ue->mixer_sent = true;
-	/* The mixer mode sets the channels; only the one in the capture is in the device table */
+	if (send_mixer)
+		memcpy(ue->mixer_last, mixer, sizeof(mixer));
+	/* The front panel sets the channels, and the platform built its PCM devices for the mode
+	 * probe read: a switch flipped since then takes a replug */
 	ploytec_us366_channels(hs.config, &in_channels, &out_channels);
-	if (in_channels != model->in_channels || out_channels != model->out_channels) {
-		ploytec_log("us3xx: the device's mixer mode (0x%02X) sends %u in / %u out, Ozzy runs %u in / %u out only",
-			    hs.config, in_channels, out_channels, model->in_channels, model->out_channels);
+	if (in_channels != e->in_channels || out_channels != e->out_channels) {
+		ploytec_log("us3xx: the front panel's mode (0x%02X) now sends %u in / %u out, but Ozzy set up %u in / %u out: replug the device",
+			    hs.config, in_channels, out_channels, e->in_channels, e->out_channels);
 		return false;
 	}
 	ue->sample_rate = hs.rate;
@@ -389,6 +404,34 @@ static uint32_t us3xx_transfer_frames(const struct ozzy_engine *e, enum ozzy_pcm
 	return top * (dir == OZZY_PCM_IN ? ISOC_IN_UFRAMES : ISOC_TRANSFER_UFRAMES) / ISOC_FB_UFRAMES_PER_SEC;
 }
 
+/*
+ * The front panel's mode ('I' wIndex 1), which sets the channels: 4 in / 6 out with the digital
+ * I/O on out (the device row), 6 in / 4 out on in. Bypass (2 in / 2 out) has never been seen,
+ * so the row's counts stay and the start refuses it.
+ */
+static bool us3xx_probe(struct ozzy_engine *e)
+{
+	struct ploytec_us3xx_engine *ue = (struct ploytec_us3xx_engine *)e;
+	uint32_t in_channels, out_channels;
+
+	if (ploytec_us3xx_read_config(&ploytec_bus_host_ops, (void *)e->bus, &ue->config) < 0) {
+		ploytec_log("us3xx: reading the front panel's mode failed");
+		return false;
+	}
+	ue->probed = true;
+	ploytec_us366_channels(ue->config, &in_channels, &out_channels);
+	if (in_channels + out_channels != 10) {
+		ploytec_log("us3xx: front panel mode 0x%02X (%u in / %u out) isn't supported", ue->config,
+			    in_channels, out_channels);
+		return true;
+	}
+	e->in_channels = in_channels;
+	e->out_channels = out_channels;
+	ploytec_log("us3xx: front panel mode 0x%02X: %u in / %u out (digital %s)", ue->config, in_channels,
+		    out_channels, ue->config & PLOYTEC_US3XX_MIXER_WIDTH_BIT ? "out" : "in");
+	return true;
+}
+
 static uint32_t us3xx_setting_quirks(const struct ozzy_engine *e)
 {
 	return e->model->quirks | (e->anchors ? OZZY_QUIRK_CLOCK_ANCHORS : 0);
@@ -406,6 +449,7 @@ static const struct ozzy_engine_ops ploytec_us3xx_engine_ops = {
 	us3xx_setting_quirks,
 	us3xx_transfer_frames,
 	NULL,                   /* setting_default */
+	us3xx_probe,
 };
 
 /* Interfaces 0-3 (0 first: Linux probes it and claims the rest), PCM at alternate setting 2 */

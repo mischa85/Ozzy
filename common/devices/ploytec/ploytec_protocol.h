@@ -169,11 +169,15 @@ static inline uint16_t ploytec_confirm_wvalue(uint8_t status)
 }
 
 /*
- * US3XX Channel Config flags (wIndex=1).
+ * US3XX Channel Config flags (wIndex=1). On the US-366 this is the front panel's switch state
+ * (d-hey's second capture: Tascam's panel never writes it, and the device reports it in CC 0x68
+ * every 512 ms): 0x0F with the digital I/O on out, 0x03 with it on in (optical). The official
+ * kext's names for the bits follow; 0x04 and 0x08 changed together in the capture (coax/optical
+ * and in/out, which is which is inferred).
  */
 enum ploytec_us3xx_config_flags {
 	PLOYTEC_US3XX_OPEN_CPL_SWITCH_N = 0x02,  /* physical switch, active-low */
-	PLOYTEC_US3XX_MIXER_WIDTH_BIT   = 0x08,  /* mixer layout: 4ch vs 6ch */
+	PLOYTEC_US3XX_MIXER_WIDTH_BIT   = 0x08,  /* set: 4 in / 6 out (digital out); clear: 6 in / 4 out */
 	PLOYTEC_US3XX_MIXER_BYPASS_BIT  = 0x10,  /* set = bypass, clear = active */
 };
 
@@ -193,10 +197,10 @@ static inline uint8_t ploytec_us3xx_selector(uint8_t sel, uint8_t config)
 }
 
 /*
- * ploytec_us366_channels - The US-366's PCM channels in the mixer mode @config ('I' wIndex 1)
- * says, as the official readUS3XXChannelConfig picks them: bypass 2 in / 2 out, else 6 out /
- * 4 in with the width bit (the capture: 0x0F) or 4 out / 6 in without. Only 6 out / 4 in has
- * been seen on the wire.
+ * ploytec_us366_channels - The US-366's PCM channels in the mode @config ('I' wIndex 1) says,
+ * as the official readUS3XXChannelConfig picks them: bypass 2 in / 2 out, else 6 out / 4 in with
+ * the width bit (digital out, 0x0F) or 4 out / 6 in without (digital in, 0x03). Both of those
+ * have been seen on the wire; bypass hasn't.
  */
 static inline void ploytec_us366_channels(uint8_t config, uint32_t *in, uint32_t *out)
 {

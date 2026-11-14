@@ -17,6 +17,7 @@
 #include "../../core/ozzy_isoc_output.h"
 #include "../../core/ozzy_isoc_input.h"
 #include "../../../common/usb_midi.h"
+#include "../../../common/devices/ploytec/ploytec_defs.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -28,7 +29,11 @@ extern "C" {
  * struct ploytec_us3xx_engine
  * @default_rate:  what start asks for without a request: 48 kHz, as the Windows driver started
  * @*_addr etc.:   the endpoints as the platform found them
- * @mixer_sent:    the 'M' / 'B' blocks went out (the first start after attach, as on Windows)
+ * @config:        'I' wIndex 1 as probe read it: the front panel's mode, which sets the channels
+ * @probed:        probe read @config
+ * @mixer_sent:    the 'B' block went out (the first start after attach, as on Windows)
+ * @mixer_last:    the 'M' block that went out last: a start sends it again when it differs (a
+ *                 routing setting), as Tascam's panel rewrites it
  * @midi_out_busy: one MIDI OUT transfer in flight; hands the sender role between the MIDI
  *                 client's kick and the OUT completion (@encoder is only touched while held)
  */
@@ -39,6 +44,9 @@ struct ploytec_us3xx_engine {
 	volatile bool running;
 	bool streamed;
 	bool mixer_sent;
+	bool probed;
+	uint8_t config;
+	uint8_t mixer_last[PLOYTEC_US3XX_MIXER_SIZE];
 
 	uint8_t out_addr, in_addr, midi_in_addr, midi_out_addr;
 	uint16_t out_max_packet, in_max_packet, midi_out_max_packet;

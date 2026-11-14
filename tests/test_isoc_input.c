@@ -12,6 +12,7 @@
 #include "fake_bus.h"
 #include "check.h"
 #include "engine/devices/ploytec/ploytec_us3xx_engine.h"
+#include "common/devices/ploytec/ploytec_handshake.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -281,6 +282,74 @@ static void test_handshake(void)
 	free(e);
 }
 
+/* The 'M' block (d-hey's captures): both modes as Tascam sent them, and the routing byte */
+static void test_mixer_block(void)
+{
+	uint8_t b[PLOYTEC_US3XX_MIXER_SIZE];
+
+	CHECK(ploytec_us366_routing(OZZY_US366_MIXER, OZZY_US366_PCM_12, OZZY_US366_PCM_34) == 0x24,
+	      "Tascam's default routing is 0x24");
+	CHECK(ploytec_us366_routing(OZZY_US366_PCM_12, OZZY_US366_PCM_12, OZZY_US366_PCM_34) == 0x25 &&
+	      ploytec_us366_routing(OZZY_US366_PCM_12, OZZY_US366_PCM_34, OZZY_US366_PCM_34) == 0x29 &&
+	      ploytec_us366_routing(OZZY_US366_PCM_12, OZZY_US366_PCM_34, OZZY_US366_PCM_56) == 0x39,
+	      "the panel's three changes in the capture: 0x25, 0x29, 0x39");
+	ploytec_us366_mixer_block(b, 0x0F, 0x24);
+	CHECK(b[8] == 0 && b[9] == 0 && b[26] == 0 && b[27] == 0 && b[56] == 0x24 && b[32] == 0x7F,
+	      "digital out: the captured block");
+	ploytec_us366_mixer_block(b, 0x03, 0x24);
+	CHECK(b[8] == 0x5A && b[9] == 0x80 && b[26] == 0x5A && b[27] == 0x80 && b[56] == 0x34 && b[32] == 0x7F,
+	      "digital in: the captured block, whatever the routing");
+}
+
+/* Digital in on the front panel: 6 in / 4 out after a probe; a routing change rewrites 'M' */
+static void test_front_panel(void)
+{
+	static struct ozzy_shared_memory shm;
+	struct fake_bus fb;
+	struct ozzy_engine *e;
+	struct ploytec_us3xx_engine *ue;
+	FILE *t = tmpfile();
+
+	CHECK(t != NULL, "tmpfile");
+	if (!t)
+		return;
+	e = make(&fb, &shm, false, t);
+	ue = (struct ploytec_us3xx_engine *)e;
+	fb.i_reg[0] = 0x06;   /* the input capture: selector 0x06, config 0x03 */
+	fb.i_reg[1] = 0x03;
+	CHECK(ozzy_engine_probe(e) && ozzy_engine_channels(e, OZZY_PCM_IN) == 6 &&
+	      ozzy_engine_channels(e, OZZY_PCM_OUT) == 4, "probe: 6 in / 4 out with digital in");
+	CHECK(ozzy_engine_start(e), "start with digital in");
+	CHECK(shm.audio.input_channels == 6 && shm.audio.output_channels == 4 &&
+	      shm.audio.input_bytes_per_frame == 18 && shm.audio.output_bytes_per_frame == 12,
+	      "the HAL gets 6 in / 4 out");
+	CHECK(ue->mixer_last[56] == 0x34 && ue->mixer_last[8] == 0x5A, "Tascam's digital-in 'M' block");
+	CHECK(count_requests(t, "40 49") == 0, "no selector write (0x06 already has config bits 3-4 clear)");
+	/* The switch flipped since the probe: the start refuses until a replug */
+	fb.i_reg[1] = 0x0F;
+	CHECK(ozzy_engine_change_rate(e, 96000) == OZZY_SETTING_RESTART && !ozzy_engine_restart(e),
+	      "a restart refuses a mode the PCM devices weren't made for");
+	ozzy_engine_stop(e);
+	free(e);
+	fclose(t);
+
+	/* Digital out: a routing change sends 'M' again with the new byte 56, without 'B' */
+	t = tmpfile();
+	e = make(&fb, &shm, false, t);
+	ue = (struct ploytec_us3xx_engine *)e;
+	CHECK(ozzy_engine_probe(e) && ozzy_engine_channels(e, OZZY_PCM_OUT) == 6, "probe: 4 in / 6 out");
+	CHECK(ozzy_engine_start(e) && ue->mixer_last[56] == 0x24, "start: Tascam's routing 0x24");
+	CHECK(ozzy_engine_change_setting(e, OZZY_SETTING_US366_DIGITAL, OZZY_US366_PCM_56) == OZZY_SETTING_RESTART &&
+	      ozzy_engine_restart(e), "the digital out to PCM 5-6");
+	CHECK(ue->mixer_last[56] == 0x2C && count_requests(t, "40 4d") == 2 && count_requests(t, "40 42") == 1,
+	      "'M' again with 0x2C (mixer, PCM 5-6, PCM 3-4), 'B' only once");
+	CHECK(ozzy_engine_change_rate(e, 96000) == OZZY_SETTING_RESTART && ozzy_engine_restart(e) &&
+	      count_requests(t, "40 4d") == 2, "a rate change with the same routing: no 'M'");
+	ozzy_engine_stop(e);
+	free(e);
+	fclose(t);
+}
+
 static void test_midi_out(void)
 {
 	static struct ozzy_shared_memory shm;
@@ -318,6 +387,8 @@ int main(void)
 	test_attached_ring();
 	test_nominal_silence();
 	test_handshake();
+	test_mixer_block();
+	test_front_panel();
 	test_midi_out();
 	return CHECK_DONE("isochronous input");
 }

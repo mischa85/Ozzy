@@ -654,7 +654,7 @@ const struct ploytec_rate_endpoints ploytec_us3xx_rate_endpoints = { PLOYTEC_US3
  * a 'B' block per rate, but the Windows driver sent this same block at 44.1, 48, 88.2 and 96 kHz
  * (d-hey's second capture). Sent as captured; what most values do is open.
  */
-static const uint8_t us366_mixer[64] = {
+static const uint8_t us366_mixer[PLOYTEC_US3XX_MIXER_SIZE] = {
 	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 	0x7f, 0xff, 0x7f, 0xff, 0x40, 0x00, 0x40, 0x00, 0x3e, 0x8b, 0x3e, 0x8b, 0x00, 0x00, 0x00, 0x00,
@@ -698,8 +698,30 @@ static int hs_write_block(const struct ploytec_host_ops *ops, void *ctx, uint8_t
 	return ops->control(ctx, PLOYTEC_REQTYPE_VENDOR_OUT, request, 0, 0, buf, length);
 }
 
-int ploytec_us3xx_handshake(const struct ploytec_host_ops *ops, void *ctx, uint32_t rate, bool mixer,
-			    struct ploytec_us3xx_info *info)
+int ploytec_us3xx_read_config(const struct ploytec_host_ops *ops, void *ctx, uint8_t *config)
+{
+	return ops->control(ctx, PLOYTEC_REQTYPE_VENDOR_IN, PLOYTEC_CMD_STATUS, 0, PLOYTEC_REG_US3XX_CONFIG,
+			    config, 1);
+}
+
+void ploytec_us366_mixer_block(uint8_t block[PLOYTEC_US3XX_MIXER_SIZE], uint8_t config, uint8_t routing)
+{
+	unsigned int i;
+
+	for (i = 0; i < PLOYTEC_US3XX_MIXER_SIZE; i++)
+		block[i] = us366_mixer[i];
+	if (config & PLOYTEC_US3XX_MIXER_WIDTH_BIT) {
+		block[56] = routing;
+	} else {
+		/* Digital in: the S/PDIF inputs into the mixer at 0x5A80 (inferred), byte 56 0x34 */
+		block[8] = block[26] = 0x5A;
+		block[9] = block[27] = 0x80;
+		block[56] = 0x34;
+	}
+}
+
+int ploytec_us3xx_handshake(const struct ploytec_host_ops *ops, void *ctx, uint32_t rate,
+			    const uint8_t *mixer, bool reverb, struct ploytec_us3xx_info *info)
 {
 	const struct ploytec_rate_endpoints *eps = &ploytec_us3xx_rate_endpoints;
 	uint8_t want;
@@ -715,8 +737,7 @@ int ploytec_us3xx_handshake(const struct ploytec_host_ops *ops, void *ctx, uint3
 
 	/* The channel config (mixer mode), then the selector with its bits 3-4 */
 	hs_log(ops, ctx, false, "[%d/6] reading the channel config and the selector...", ++step);
-	ret = ops->control(ctx, PLOYTEC_REQTYPE_VENDOR_IN, PLOYTEC_CMD_STATUS, 0, PLOYTEC_REG_US3XX_CONFIG,
-			   &info->config, 1);
+	ret = ploytec_us3xx_read_config(ops, ctx, &info->config);
 	if (ret < 0)
 		goto err;
 	ret = hs_read_status(ops, ctx, &info->selector);
@@ -743,14 +764,19 @@ int ploytec_us3xx_handshake(const struct ploytec_host_ops *ops, void *ctx, uint3
 	if (ret < 0)
 		goto err;
 
-	if (mixer) {
-		hs_log(ops, ctx, false, "[%d/6] mixer table and reverb coefficients...", ++step);
-		ret = hs_write_block(ops, ctx, PLOYTEC_CMD_MIXER, us366_mixer, sizeof(us366_mixer));
-		if (ret < 0)
-			goto err;
-		ret = hs_write_block(ops, ctx, PLOYTEC_CMD_REVERB, us366_reverb, sizeof(us366_reverb));
-		if (ret < 0)
-			goto err;
+	if (mixer || reverb) {
+		hs_log(ops, ctx, false, "[%d/6]%s%s...", ++step, mixer ? " mixer table" : "",
+		       reverb ? " reverb coefficients" : "");
+		if (mixer) {
+			ret = hs_write_block(ops, ctx, PLOYTEC_CMD_MIXER, mixer, PLOYTEC_US3XX_MIXER_SIZE);
+			if (ret < 0)
+				goto err;
+		}
+		if (reverb) {
+			ret = hs_write_block(ops, ctx, PLOYTEC_CMD_REVERB, us366_reverb, sizeof(us366_reverb));
+			if (ret < 0)
+				goto err;
+		}
 	} else {
 		++step;
 	}

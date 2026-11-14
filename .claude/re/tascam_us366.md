@@ -124,11 +124,19 @@ video time - 22.6 s) and an input session (optical S/PDIF in, 6 inputs). Confirm
   "low" one 16 packets with 2 OUT in flight) and the foot switch settings. Stream start: IN 0x81
   first, 9 IN / 3-4 OUT transfers in flight.
 
-## What Ozzy does (2026-11-01, untested on hardware)
+## What Ozzy does (2026-11-14, untested on hardware)
 
 Family `PLOYTEC_US3XX` (`engine/devices/ploytec/ploytec_us3xx_engine.c`), row `TascamUS366`:
-4 in / 6 out, 44.1, 48, 88.2 and 96 kHz (44.1 and 88.2 are a guess: nominal 5/6 and 11/12 frames
-per microframe), starting at 48 kHz as Windows did.
+4 in / 6 out, 44.1, 48, 88.2 and 96 kHz (nominal 5/6 and 11/12 frames per microframe at 44.1 and
+88.2, as on the wire), starting at 48 kHz as Windows did.
+
+- Channels: the engine's probe (`us3xx_probe`, called by every platform after attach, before it
+  builds its PCM devices) reads 'I' wIndex 1: digital out 4 in / 6 out (the row), digital in
+  6 in / 4 out. A start that finds another mode than the probe did refuses (replug).
+- 'M': `ploytec_us366_mixer_block`: digital out, Tascam's block with byte 56 from the three
+  routing settings (`OZZY_QUIRK_US366_ROUTING`, default Tascam's 0x24); digital in, Tascam's
+  digital-in block as captured. Sent at the first start and again whenever it changed (a routing
+  setting restarts the engine); 'B' only at the first start.
 
 - Interfaces 0-3 claimed, alternate settings 0, 2, 2, 0 (interface 0 first: Linux probes it).
 - Handshake `ploytec_us3xx_handshake` (`common/devices/ploytec/ploytec_handshake.c`): 'V';

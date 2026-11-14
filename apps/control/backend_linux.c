@@ -234,7 +234,11 @@ int ozzy_control_backend_list(struct ozzy_control_device *devs, int max)
 		card_stream(card, &d->sample_rate, &d->host);
 		read_info(ctl, d);
 		model = card_model(card);
-		if (model) {
+		if (d->has_info) {
+			/* The driver's channels: they can follow the device (the US-366's front panel) */
+			d->in_channels = d->info.in_channels;
+			d->out_channels = d->info.out_channels;
+		} else if (model) {
 			d->in_channels = model->in_channels;
 			d->out_channels = model->out_channels;
 		}

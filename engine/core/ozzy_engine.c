@@ -44,7 +44,14 @@ struct ozzy_engine *ozzy_engine_init(void *mem, const struct ozzy_device *model)
 		ploytec_us3xx_engine_init((struct ploytec_us3xx_engine *)mem, model);
 		break;
 	}
+	((struct ozzy_engine *)mem)->in_channels = model->in_channels;
+	((struct ozzy_engine *)mem)->out_channels = model->out_channels;
 	return (struct ozzy_engine *)mem;
+}
+
+bool ozzy_engine_probe(struct ozzy_engine *e)
+{
+	return e->ops->probe ? e->ops->probe(e) : true;
 }
 
 /* The routing from the route settings (common/ozzy_settings.h) */
@@ -56,8 +63,8 @@ static void update_routes(struct ozzy_engine *e)
 	for (i = 0; i < OZZY_NUM_SETTINGS; i++)
 		if (ozzy_engine_has_setting(e, i))
 			available |= 1u << i;
-	ozzy_settings_route(&e->in_route, &e->settings, available, true, e->model->in_channels);
-	ozzy_settings_route(&e->out_route, &e->settings, available, false, e->model->out_channels);
+	ozzy_settings_route(&e->in_route, &e->settings, available, true, e->in_channels);
+	ozzy_settings_route(&e->out_route, &e->settings, available, false, e->out_channels);
 }
 
 void ozzy_engine_attach(struct ozzy_engine *e, const struct ozzy_bus *bus, volatile struct ozzy_shared_memory *shm)
@@ -104,7 +111,7 @@ uint32_t ozzy_engine_setting_quirks(const struct ozzy_engine *e)
 
 unsigned int ozzy_engine_setting_values(const struct ozzy_engine *e, unsigned int id)
 {
-	return ozzy_setting_values(ozzy_engine_setting_quirks(e), e->model->in_channels, e->model->out_channels, id);
+	return ozzy_setting_values(ozzy_engine_setting_quirks(e), e->in_channels, e->out_channels, id);
 }
 
 uint32_t ozzy_engine_pcm_step(const struct ozzy_engine *e, enum ozzy_pcm_dir dir)
@@ -337,16 +344,16 @@ void ozzy_engine_publish_info(struct ozzy_engine *e)
 		for (k = 0; k < nall; k++)
 			if (rates[i] == hz[k])
 				info.host_rates |= 1u << k;
-	info.in_channels = model->in_channels;
-	info.out_channels = model->out_channels;
-	info.transfer_frames[OZZY_PCM_OUT] = model->out_channels ? ozzy_engine_transfer_frames(e, OZZY_PCM_OUT) : 0;
-	info.transfer_frames[OZZY_PCM_IN] = model->in_channels ? ozzy_engine_transfer_frames(e, OZZY_PCM_IN) : 0;
-	info.out_bytes_per_frame = model->out_channels ? shm->audio.output_bytes_per_frame : 0;
-	info.in_bytes_per_frame = model->in_channels ? shm->audio.input_bytes_per_frame : 0;
+	info.in_channels = e->in_channels;
+	info.out_channels = e->out_channels;
+	info.transfer_frames[OZZY_PCM_OUT] = e->out_channels ? ozzy_engine_transfer_frames(e, OZZY_PCM_OUT) : 0;
+	info.transfer_frames[OZZY_PCM_IN] = e->in_channels ? ozzy_engine_transfer_frames(e, OZZY_PCM_IN) : 0;
+	info.out_bytes_per_frame = e->out_channels ? shm->audio.output_bytes_per_frame : 0;
+	info.in_bytes_per_frame = e->in_channels ? shm->audio.input_bytes_per_frame : 0;
 	info.safety_offset_frames = shm->audio.safety_offset_frames;
-	info.input_safety_offset_frames = model->in_channels ? (shm->audio.input_safety_offset_frames ?
+	info.input_safety_offset_frames = e->in_channels ? (shm->audio.input_safety_offset_frames ?
 				shm->audio.input_safety_offset_frames : shm->audio.safety_offset_frames) : 0;
-	info.timestamp_frames = e->anchors && (model->out_channels || model->in_channels) ? shm->audio.timestamp_frames : 0;
+	info.timestamp_frames = e->anchors && (e->out_channels || e->in_channels) ? shm->audio.timestamp_frames : 0;
 	if (e->driver_version)
 		ozzy_strlcpy(info.driver_version, e->driver_version, sizeof(info.driver_version));
 	for (i = 0; i < OZZY_PIPE_ROLES; i++) {
@@ -414,7 +421,7 @@ const struct ozzy_pcm_ring *ozzy_engine_take_pcm_ring(struct ozzy_engine *e, enu
 {
 	const struct ozzy_pcm_ring *ring = (const struct ozzy_pcm_ring *)
 		ozzy_load_acquire_ptr((const void *const volatile *)&e->pcm_ring_set[dir]);
-	uint32_t channels = dir == OZZY_PCM_OUT ? e->model->out_channels : e->model->in_channels;
+	uint32_t channels = dir == OZZY_PCM_OUT ? e->out_channels : e->in_channels;
 
 	if (ring != e->pcm_ring[dir]) {
 		e->pcm_ring[dir] = ring;
@@ -428,7 +435,7 @@ void ozzy_engine_plain_out(struct ozzy_engine *e, uint8_t *dst_ring, uint32_t ds
 			   uint32_t frames)
 {
 	const struct ozzy_pcm_ring *ring = ozzy_engine_take_pcm_ring(e, OZZY_PCM_OUT);
-	uint32_t frame_bytes = e->model->out_channels * 3;
+	uint32_t frame_bytes = e->out_channels * 3;
 	uint32_t d = ozzy_mod_u64(first, dst_frames), r, f;
 
 	if (!ring) {

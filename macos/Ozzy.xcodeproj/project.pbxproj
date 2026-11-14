@@ -10,6 +10,7 @@
 		1F5418052F1C6900003FECA9 /* PloytecCodec.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 1F5418042F1C6900003FECA9 /* PloytecCodec.cpp */; };
 		1F5418072F1C6900003FECA9 /* ploytec_codec.c in Sources */ = {isa = PBXBuildFile; fileRef = 1F5418062F1C6900003FECA9 /* ploytec_codec.c */; };
 		1FB396AA2F0AECA200073667 /* OzzyHAL.mm in Sources */ = {isa = PBXBuildFile; fileRef = 1FB396A92F0AECA200073667 /* OzzyHAL.mm */; };
+		1F54180D2F1C6900003FECA9 /* midi_ump.c in Sources */ = {isa = PBXBuildFile; fileRef = 1F54180C2F1C6900003FECA9 /* midi_ump.c */; };
 		1FC985E22F05B4B700668435 /* OzzyMIDI.mm in Sources */ = {isa = PBXBuildFile; fileRef = 1FC985DF2F05B4B700668435 /* OzzyMIDI.mm */; };
 		1FE242542F05D730004C729F /* CoreMIDI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1FC985E62F05B63100668435 /* CoreMIDI.framework */; };
 		1FF6DC902F06F1F00061482F /* CoreAudio.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1FC985EA2F05B64A00668435 /* CoreAudio.framework */; };
@@ -22,6 +23,7 @@
 /* Begin PBXFileReference section */
 		1F5418042F1C6900003FECA9 /* PloytecCodec.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = PloytecCodec.cpp; path = OzzyHAL/PloytecCodec.cpp; sourceTree = SOURCE_ROOT; };
 		1F5418062F1C6900003FECA9 /* ploytec_codec.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = ploytec_codec.c; path = ../common/devices/ploytec/ploytec_codec.c; sourceTree = SOURCE_ROOT; };
+		1F54180C2F1C6900003FECA9 /* midi_ump.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; name = midi_ump.c; path = ../common/midi_ump.c; sourceTree = SOURCE_ROOT; };
 		1FADCD2B2F05C8AC0059FC84 /* OzzyMIDI.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = OzzyMIDI.h; sourceTree = "<group>"; };
 		1FADCD2E2F05C9960059FC84 /* CoreFoundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreFoundation.framework; path = System/Library/Frameworks/CoreFoundation.framework; sourceTree = SDKROOT; };
 		1FB396A82F0AECA200073667 /* OzzyHAL.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = OzzyHAL.h; sourceTree = "<group>"; };
@@ -98,6 +100,7 @@
 			children = (
 				1FC985DE2F05B4B700668435 /* Info.plist */,
 				1FC985DF2F05B4B700668435 /* OzzyMIDI.mm */,
+				1F54180C2F1C6900003FECA9 /* midi_ump.c */,
 				1FADCD2B2F05C8AC0059FC84 /* OzzyMIDI.h */,
 			);
 			path = OzzyMIDI;
@@ -233,6 +236,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				1FC985E22F05B4B700668435 /* OzzyMIDI.mm in Sources */,
+				1F54180D2F1C6900003FECA9 /* midi_ump.c in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -1,5 +1,6 @@
 #include "OzzyMIDI.h"
 #include "../../engine/shared/ozzy_shared_data.h"
+#include "../../common/midi_ump.h"
 #include "../Shared/OzzyLog.h"
 #include "../Shared/OzzyKextClient.h"
 #include <CoreFoundation/CoreFoundation.h>
@@ -52,12 +53,15 @@ struct OzzyMidiPort {
 	Byte pendingBuf[kPendingSize];
 };
 
-/* MIDI input parser, owned by the poll thread */
+/*
+ * MIDI input parser, owned by the poll thread. The device's byte stream may use running
+ * status and carries SysEx, but CoreMIDI packets must hold complete messages (or SysEx only),
+ * so the bytes go through the shared parser (common/midi_ump.c, also used on Windows) and
+ * come back out as complete MIDI 1.0 messages.
+ */
 struct OzzyMidiParser {
 	uint32_t generation;
-	Byte msg[16];
-	int msgIndex;
-	int msgExpected;
+	struct midi_ump_encoder encoder;
 };
 
 static OzzyMidiPort gPorts[kMaxPorts];
@@ -227,24 +231,30 @@ static void ScanDevices() {
 	IOObjectRelease(it);
 }
 
-static int GetExpectedDataLength(uint8_t status) {
-	if (status >= 0xF0) {
-		switch (status) {
-			case 0xF1: return 1;
-			case 0xF2: return 2;
-			case 0xF3: return 1;
-			default: return 0;
-		}
-	}
-	uint8_t high = status & 0xF0;
-	return (high == 0xC0 || high == 0xD0) ? 1 : 2;
+/* A packet list for one drain of the input ring, sent to CoreMIDI when full or done */
+struct OzzyMidiInList {
+	MIDIEndpointRef source;
+	MIDIPacket* packet;
+	union {
+		MIDIPacketList list;
+		Byte bytes[4096];
+	};
+};
+
+static void InListSend(OzzyMidiInList* in) {
+	if (in->list.numPackets) MIDIReceived(in->source, &in->list);
+	in->packet = MIDIPacketListInit(&in->list);
 }
 
-static void SendToSource(MIDIEndpointRef source, const Byte* data, int length) {
-	MIDIPacketList packetList;
-	MIDIPacket* curPacket = MIDIPacketListInit(&packetList);
-	curPacket = MIDIPacketListAdd(&packetList, sizeof(packetList), curPacket, mach_absolute_time(), length, data);
-	if (curPacket) MIDIReceived(source, &packetList);
+static void InListAdd(OzzyMidiInList* in, const Byte* data, unsigned int length) {
+	if (!length) return;
+	MIDITimeStamp now = mach_absolute_time();
+	MIDIPacket* packet = MIDIPacketListAdd(&in->list, sizeof(in->bytes), in->packet, now, length, data);
+	if (!packet) {
+		InListSend(in);
+		packet = MIDIPacketListAdd(&in->list, sizeof(in->bytes), in->packet, now, length, data);
+	}
+	if (packet) in->packet = packet;
 }
 
 /* Drain the port's midiIn ring into CoreMIDI. Returns true if there was data. */
@@ -266,34 +276,20 @@ static bool DrainInput(OzzyMidiPort* port, OzzyMidiParser* parser) {
 	}
 	if (!count || !source) return count != 0;
 
+	OzzyMidiInList in;
+	in.source = source;
+	in.packet = MIDIPacketListInit(&in.list);
+
 	for (uint32_t i = 0; i < count; i++) {
-		uint8_t byte = bytes[i];
+		uint32_t words[MIDI_UMP_ENCODE_MAX_WORDS];
+		unsigned int n = midi_ump_encode_byte(&parser->encoder, 0, bytes[i], words);
 
-		if (byte >= 0xF8) {
-			SendToSource(source, &byte, 1);
-			continue;
-		}
-
-		if (byte >= 0x80) {
-			parser->msg[0] = byte;
-			parser->msgIndex = 1;
-			parser->msgExpected = 1 + GetExpectedDataLength(byte);
-
-			if (byte == 0xF6 || byte == 0xF7 || parser->msgExpected == 1) {
-				SendToSource(source, parser->msg, 1);
-				parser->msgIndex = 0; parser->msgExpected = 0;
-			}
-			continue;
-		}
-
-		if (parser->msgIndex > 0 && parser->msgIndex < 16) {
-			parser->msg[parser->msgIndex++] = byte;
-			if (parser->msgIndex == parser->msgExpected) {
-				SendToSource(source, parser->msg, parser->msgIndex);
-				parser->msgIndex = 0; parser->msgExpected = 0;
-			}
+		for (unsigned int w = 0; w < n; w += midi_ump_words(words[w])) {
+			uint8_t msg[8];
+			InListAdd(&in, msg, midi_ump_decode(&words[w], msg));
 		}
 	}
+	InListSend(&in);
 	return true;
 }
 

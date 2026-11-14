@@ -18,9 +18,11 @@
  *   ISOC_FB_Q16_16 - frames per microframe, 16.16 little-endian in 4 bytes (the
  *                    USB Audio High Speed format).
  *
- * Packets of the wrong length are counted. Past @max_errors without a clean ring
- * lap in between, feedback is ignored (the official Ploytec driver stops the
- * stream after 40 there; this keeps playing at the nominal rate).
+ * Packets of the wrong length are counted once the first valid one came in (the
+ * Musonik PHASE X64 sends empty packets for more than 40 ms after a start; #97).
+ * Past @max_errors without a clean ring lap in between, feedback is ignored (the
+ * official Ploytec driver stops the stream after 40 there; this keeps playing at
+ * the nominal rate).
  *
  * The two sides share only the ring, with no lock: each side owns its own
  * index, and entries are single bytes. High Speed only.
@@ -103,6 +105,7 @@ struct isoc_fb {
 	uint32_t uframes;       /* microframes per feedback packet, 0 = feedback not used */
 	uint32_t lo, hi;        /* accepted frames per packet (COUNT) or per microframe (Q16_16) */
 	uint32_t q_acc;         /* Q16_16: fractional frames carried to the next microframe */
+	bool started;           /* a valid packet came in: wrong lengths count from now on */
 	uint32_t errors;        /* wrong-length packets since the last clean lap */
 	uint32_t lap_errors;    /* wrong-length packets in this lap */
 	bool broken;            /* errors passed the limit: feedback is ignored */
@@ -168,6 +171,7 @@ static inline bool isoc_fb_init(struct isoc_fb *fb, uint32_t rate,
 	fb->wr = 0;
 	fb->uframes = ok ? u : 0;
 	fb->q_acc = 0;
+	fb->started = false;
 	fb->errors = 0;
 	fb->lap_errors = 0;
 	fb->broken = false;
@@ -203,7 +207,7 @@ static inline bool isoc_fb_packet(struct isoc_fb *fb, const uint8_t *pkt, uint32
 	uint32_t v = valid ? isoc_fb_value(fb, pkt) : 0;
 	uint32_t whole = fb->cfg.format == ISOC_FB_Q16_16 ? v >> 16 : v;
 	uint32_t ok = valid & (whole >= fb->lo) & (whole <= fb->hi) & !fb->broken;
-	uint32_t k, n, lap_end;
+	uint32_t wrong, k, n, lap_end;
 	bool was_broken = fb->broken;
 
 	for (k = 0; k < u; k++) {
@@ -218,8 +222,10 @@ static inline bool isoc_fb_packet(struct isoc_fb *fb, const uint8_t *pkt, uint32
 	}
 	fb->wr += u;
 
-	fb->errors += !valid;
-	fb->lap_errors += !valid;
+	fb->started |= valid;
+	wrong = !valid & fb->started;
+	fb->errors += wrong;
+	fb->lap_errors += wrong;
 	lap_end = u && (fb->wr & (ISOC_FB_RING - 1)) < u;
 	fb->errors *= !(lap_end && fb->lap_errors == 0);
 	fb->lap_errors *= !lap_end;

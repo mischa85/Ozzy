@@ -45,10 +45,13 @@ ccflags-y += $(addprefix -DOZZY_DISABLE_,$(OZZY_DISABLE))
 # Commit the module is built from: logged at probe, shown by `modinfo -F version`
 # (common/ozzy_version.h). git describe only where the checkout is Ozzy's own, not a repository
 # the sources sit in; else the commit git archive / a GitHub ZIP wrote into ozzy_version.txt.
+# safe.directory: DKMS builds as root in a copy that keeps the user's ownership, which git
+# otherwise refuses to read.
 OZZY_ROOT := $(src)/..
+OZZY_GIT := git -c safe.directory='*' -C "$(OZZY_ROOT)"
 OZZY_GIT_VERSION := $(shell \
-	if [ "$$(git -C "$(OZZY_ROOT)" rev-parse --show-toplevel 2>/dev/null)" = "$$(cd "$(OZZY_ROOT)" && pwd -P)" ]; then \
-		git -C "$(OZZY_ROOT)" describe --always --dirty; \
+	if [ "$$($(OZZY_GIT) rev-parse --show-toplevel 2>/dev/null)" = "$$(cd "$(OZZY_ROOT)" && pwd -P)" ]; then \
+		$(OZZY_GIT) describe --always --dirty; \
 	else \
 		grep -sv Format "$(OZZY_ROOT)/common/ozzy_version.txt" || echo unknown; \
 	fi)

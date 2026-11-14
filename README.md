@@ -212,6 +212,8 @@ sudo dkms remove ozzy/1.0.0 --all
 sudo dkms install ./Ozzy
 ```
 
+`sudo dmesg | grep "ozzy] build"` (or `modinfo -F version snd-usb-ozzy`) shows which commit the loaded module was built from, so you can check that a reinstall actually picked up your `git pull`.
+
 **Manual build (no DKMS)**
 
 Without DKMS, the module must be rebuilt by hand after every kernel update.

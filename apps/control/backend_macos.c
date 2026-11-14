@@ -17,6 +17,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <fcntl.h>
+#include <sys/mman.h>
+#include <unistd.h>
 
 #include "ozzy_control.h"
 
@@ -288,11 +291,33 @@ static void read_clients(AudioObjectID dev, struct ozzy_control_host *h)
 	finish_clients(h->clients, sizeof(h->clients), undirected, hog_any);
 }
 
+/*
+ * Whether Ozzy's userspace daemon drives the devices instead of the kext (they are installed
+ * one or the other): its device table (macos/Shared/ozzy_daemon.h) exists and has its magic.
+ * Read once per call, never watched.
+ */
+static bool daemon_running(void)
+{
+	uint32_t magic = 0;
+	int fd = shm_open("/ozzy.devices", O_RDONLY);
+	void *p;
+
+	if (fd < 0)
+		return false;
+	p = mmap(NULL, sizeof(magic), PROT_READ, MAP_SHARED, fd, 0);
+	close(fd);
+	if (p == MAP_FAILED)
+		return false;
+	memcpy(&magic, p, sizeof(magic));
+	munmap(p, sizeof(magic));
+	return magic == 0x4F5A5A54;   /* OZZY_DAEMON_TABLE_MAGIC */
+}
+
 static void read_host(AudioObjectID dev, struct ozzy_control_device *out)
 {
 	struct ozzy_control_host *h = &out->host;
 
-	snprintf(h->driver, sizeof(h->driver), "Ozzy kext + OzzyHAL");
+	snprintf(h->driver, sizeof(h->driver), daemon_running() ? "Ozzy daemon + OzzyHAL" : "Ozzy kext + OzzyHAL");
 	h->running = get_u32(dev, kAudioDevicePropertyDeviceIsRunningSomewhere, kAudioObjectPropertyScopeGlobal) != 0;
 	h->buffer_frames = get_u32(dev, kAudioDevicePropertyBufferFrameSize, kAudioObjectPropertyScopeGlobal);
 	h->latency[0] = get_u32(dev, kAudioDevicePropertyLatency, kAudioObjectPropertyScopeOutput);

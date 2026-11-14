@@ -45,8 +45,8 @@ private:
     void ReleasePipes();
     bool CopyPipes();
 
-    // Stall watchdog: a PCM pipe without a completion for kWatchDeadMs while streaming has stopped
-    // the device (the WZ4 after OUT ran dry, #85); a reselect and a new start bring it back
+    // Stall watchdog: a stalled PCM pipe (ozzy_engine_watch) gets the device a recovery
+    // (ozzy_engine_recover: a reselect and a new start)
     static void WatchFired(thread_call_param_t driver, thread_call_param_t);
     void StartWatch();
     void StopWatch();
@@ -55,8 +55,6 @@ private:
     volatile bool mWatchOn = false;
     volatile bool mWatchArmed = false;   // as KextBus's timer: one of them set from enter to return
     volatile bool mWatchBusy = false;
-    uint64_t mRecoveredAt = 0;           // mach time of the last recovery (0: none)
-    bool mSleeping = false;              // suspended for system sleep (setPowerState)
     bool mPMInited = false;
     static const int kPowerStates = 2;
     static IOPMPowerState sPowerStates[kPowerStates];

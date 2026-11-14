@@ -250,7 +250,6 @@ bool OzzyKext::start(IOService* provider) {
         ozzy_log("engine start failed");
         return false;
     }
-    mBus->WatchReset();
 
     ozzy_log("driver ready");
 
@@ -309,10 +308,8 @@ IOReturn OzzyKext::SetRate(uint32_t rate) {
 }
 
 IOReturn OzzyKext::RestartLocked() {
-    if (ozzy_engine_restart(mEngine)) {
-        mBus->WatchReset();
+    if (ozzy_engine_restart(mEngine))
         return kIOReturnSuccess;
-    }
     // The device didn't take it: let the HAL drop it, as on a failed start
     mRunning = false;
     return kIOReturnIOError;
@@ -583,8 +580,6 @@ bool OzzyKext::Reselect(const uint8_t alts[4]) {
 /* --- Stall watchdog --- */
 
 static const uint32_t kWatchPeriodMs = 250;
-static const uint32_t kWatchDeadMs = 500;        // ~100 transfer periods: no late completion
-static const uint32_t kWatchRecoverS = 10;       // between recoveries: not forever on a dead device
 
 static uint64_t MsToAbs(uint64_t ms) {
     uint64_t abs = 0;
@@ -635,35 +630,12 @@ void OzzyKext::WatchFired(thread_call_param_t param, thread_call_param_t) {
     self->mWatchBusy = false;
 }
 
-/* Under mSettingsLock, so never in the middle of a restart: a PCM pipe that stopped completing
- * gets the device a reselect and a new start, counted in the stats (ozzy-cli shows it) */
+/* Under mSettingsLock, so never in the middle of a restart: a stalled PCM pipe gets the device a
+ * recovery (ozzy_engine_watch, ozzy_engine_recover); one that doesn't start again is dropped, as
+ * after a failed restart (the HAL lets it go) */
 void OzzyKext::WatchLocked() {
-    if (!mRunning || mSleeping || !mEngine || !mBus) return;
-    static const enum ozzy_pipe_role roles[] = { OZZY_PIPE_PCM_OUT, OZZY_PIPE_PCM_IN };
-    uint64_t now = mach_absolute_time();
-    uint8_t dead = 0;
-    for (unsigned i = 0; i < sizeof(roles) / sizeof(roles[0]) && !dead; i++) {
-        uint8_t address = mEngine->pipe[roles[i]].address;
-        if (address && mBus->Submitted(address) && now - mBus->LastCompletion(address) > MsToAbs(kWatchDeadMs))
-            dead = address;
-    }
-    if (!dead || (mRecoveredAt && now - mRecoveredAt < MsToAbs(kWatchRecoverS * 1000ULL))) return;
-
-    mRecoveredAt = now;
-    ozzy_log("pipe 0x%02x: no completion for %u ms, recovering the device", dead,
-             (unsigned)(kWatchDeadMs));
-    ozzy_engine_suspend(mEngine);
-    bool streaming = ozzy_engine_start(mEngine);   // a restart: it selects the interfaces again
-    ozzy_engine_stats_recovery(mEngine, streaming);
-    if (streaming) {
-        mBus->WatchReset();
-        ozzy_log("recovered: streaming");
-    } else {
-        // As a failed restart: the HAL drops the device
-        ozzy_log("recovered: start failed");
-        ozzy_engine_stop(mEngine);
-        mRunning = false;
-    }
+    if (mRunning && mEngine && ozzy_engine_watch(mEngine))
+        mRunning = ozzy_engine_recover(mEngine);
 }
 
 /* --- Sleep and wake --- */
@@ -673,27 +645,14 @@ IOPMPowerState OzzyKext::sPowerStates[kPowerStates] = {
     { kIOPMPowerStateVersion1, kIOPMDeviceUsable, kIOPMPowerOn, kIOPMPowerOn, 0, 0, 0, 0, 0, 0, 0, 0 },
 };
 
-/* Sleep: suspend (the HAL keeps the device). Wake: the transfers in flight across the sleep never
- * complete on some devices (the WZ4, #85), so the interfaces again and a new start. */
+/* Sleep and wake (ozzy_engine_sleep, ozzy_engine_wake): suspended over a sleep, the HAL keeping
+ * the device; on wake the interfaces again and a new start */
 IOReturn OzzyKext::setPowerState(unsigned long state, IOService*) {
     if (!mSettingsLock) return kIOPMAckImplied;
     IOLockLock(mSettingsLock);
-    if (state == 0 && mRunning && !mSleeping) {
-        ozzy_log("sleep: suspending");
-        ozzy_engine_suspend(mEngine);
-        mSleeping = true;
-    } else if (state != 0 && mSleeping) {
-        mSleeping = false;
-        if (mRunning) {
-            ozzy_log("wake: starting again");
-            if (ozzy_engine_start(mEngine)) {   // a restart: it selects the interfaces again
-                mBus->WatchReset();
-            } else {
-                ozzy_log("start after wake failed");
-                ozzy_engine_stop(mEngine);
-                mRunning = false;
-            }
-        }
+    if (mRunning && mEngine) {
+        if (state == 0) ozzy_engine_sleep(mEngine);
+        else mRunning = ozzy_engine_wake(mEngine);
     }
     IOLockUnlock(mSettingsLock);
     return kIOPMAckImplied;

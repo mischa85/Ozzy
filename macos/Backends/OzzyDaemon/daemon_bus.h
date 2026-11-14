@@ -46,11 +46,6 @@ struct daemon_bus {
 	uint64_t isoc_next_frame[DAEMON_BUS_PIPE_SLOTS];
 	volatile int32_t pending;       /* transfers submitted and not completed */
 
-	/* For the stall watchdog (daemon_device): when each pipe last completed, and whether the
-	 * engine submitted on it since daemon_bus_watch_reset */
-	volatile uint64_t last_done[DAEMON_BUS_PIPE_SLOTS];
-	volatile bool submitted[DAEMON_BUS_PIPE_SLOTS];
-
 	/* The engine's timer, on the USB thread's run loop */
 	CFRunLoopTimerRef timer;
 	volatile bool timer_on;
@@ -75,9 +70,5 @@ static inline int daemon_bus_slot(uint8_t address)
 {
 	return (address & 0x0F) | ((address & 0x80) >> 3);
 }
-
-/* Every pipe as if it just completed, none submitted: after a start, which takes longer than
- * the watchdog's limit */
-void daemon_bus_watch_reset(struct daemon_bus *b);
 
 #endif /* DAEMON_BUS_H */

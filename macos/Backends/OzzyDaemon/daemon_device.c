@@ -58,11 +58,9 @@ struct daemon_device {
 	bool attached;                       /* ozzy_engine_attach done: it can be stopped */
 	struct daemon_bus bus;
 	volatile bool running;               /* engine started and device present (the kext's mRunning) */
-	bool sleeping;                       /* suspended for system sleep (on @queue) */
 
-	/* Stall watchdog, on @queue (so never in the middle of a call): as the kext's */
+	/* Stall watchdog (ozzy_engine_watch), on @queue: never in the middle of a call */
 	dispatch_source_t watch;
-	uint64_t recovered_at;               /* mach time of the last recovery (0: none) */
 };
 
 static pthread_mutex_t devices_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -397,7 +395,6 @@ static bool engine_start(struct daemon_device *d)
 		ozzy_log("engine start failed");
 		return false;
 	}
-	daemon_bus_watch_reset(&d->bus);
 	d->running = true;
 	ozzy_log("driver ready: %u Hz, %u in / %u out", d->shm->audio.sample_rate, d->shm->audio.input_channels,
 		 d->shm->audio.output_channels);
@@ -408,66 +405,24 @@ static bool engine_start(struct daemon_device *d)
  * doesn't take it is dropped, as by the kext: the HAL lets it go. */
 static int engine_restart(struct daemon_device *d)
 {
-	if (ozzy_engine_restart(d->engine)) {
-		daemon_bus_watch_reset(&d->bus);
+	if (ozzy_engine_restart(d->engine))
 		return kIOReturnSuccess;
-	}
 	d->running = false;
 	return kIOReturnIOError;
 }
 
-/* --- Stall watchdog (OzzyKext::WatchLocked) --- */
+/* --- Stall watchdog --- */
 
-#define WATCH_PERIOD_MS   250
-#define WATCH_DEAD_MS     500     /* ~100 transfer periods: no late completion */
-#define WATCH_RECOVER_S   10      /* between recoveries: not forever on a dead device */
+#define WATCH_PERIOD_MS 250
 
-static uint64_t ms_to_abs(uint64_t ms)
-{
-	static mach_timebase_info_data_t tb;
-
-	if (!tb.denom)
-		mach_timebase_info(&tb);
-	return ms * 1000000ull * tb.denom / tb.numer;
-}
-
-/* On the queue: a PCM pipe that stopped completing gets the device a reselect and a new start,
- * counted in the stats (ozzy-cli shows it) */
+/* On the queue: a stalled PCM pipe (ozzy_engine_watch) gets the device a recovery; one that
+ * doesn't start again is dropped, as after a failed restart (the HAL lets it go) */
 static void watch_fired(void *ctx)
 {
-	static const enum ozzy_pipe_role roles[] = { OZZY_PIPE_PCM_OUT, OZZY_PIPE_PCM_IN };
 	struct daemon_device *d = ctx;
-	uint64_t now = mach_absolute_time();
-	uint8_t dead = 0;
-	unsigned int i;
-	bool streaming;
 
-	if (d->closing || !d->running || d->sleeping)
-		return;
-	for (i = 0; i < sizeof(roles) / sizeof(roles[0]) && !dead; i++) {
-		uint8_t address = d->engine->pipe[roles[i]].address;
-		int slot = daemon_bus_slot(address);
-
-		if (address && d->bus.submitted[slot] && now - d->bus.last_done[slot] > ms_to_abs(WATCH_DEAD_MS))
-			dead = address;
-	}
-	if (!dead || (d->recovered_at && now - d->recovered_at < ms_to_abs(WATCH_RECOVER_S * 1000ull)))
-		return;
-
-	d->recovered_at = now;
-	ozzy_log("pipe 0x%02x: no completion for %u ms, recovering the device", dead, WATCH_DEAD_MS);
-	ozzy_engine_suspend(d->engine);
-	streaming = ozzy_engine_start(d->engine);   /* a restart: it selects the interfaces again */
-	ozzy_engine_stats_recovery(d->engine, streaming);
-	if (streaming) {
-		daemon_bus_watch_reset(&d->bus);
-		ozzy_log("recovered: streaming");
-	} else {
-		/* As a failed restart: the HAL drops the device */
-		ozzy_log("recovered: start failed");
-		ozzy_engine_stop(d->engine);
-		d->running = false;
-	}
+	if (!d->closing && d->running && ozzy_engine_watch(d->engine))
+		d->running = ozzy_engine_recover(d->engine);
 }
 
 static void watch_start(struct daemon_device *d)
@@ -482,38 +437,22 @@ static void watch_start(struct daemon_device *d)
 	dispatch_resume(d->watch);
 }
 
-/* --- Sleep and wake (OzzyKext::setPowerState), on the queue --- */
+/* --- Sleep and wake (ozzy_engine_sleep, ozzy_engine_wake), on the queue --- */
 
 static void device_sleep(void *ctx)
 {
 	struct daemon_device *d = ctx;
 
-	if (d->closing || !d->running || d->sleeping)
-		return;
-	ozzy_log("sleep: suspending (%s)", d->shm_name);
-	ozzy_engine_suspend(d->engine);
-	d->sleeping = true;
+	if (!d->closing && d->running)
+		ozzy_engine_sleep(d->engine);
 }
 
-/* The interfaces again and a new start: the transfers in flight across the sleep never
- * complete on some devices (the WZ4, #85) */
 static void device_wake(void *ctx)
 {
 	struct daemon_device *d = ctx;
 
-	if (!d->sleeping)
-		return;
-	d->sleeping = false;
-	if (d->closing || !d->running)
-		return;
-	ozzy_log("wake: starting again (%s)", d->shm_name);
-	if (ozzy_engine_start(d->engine)) {   /* a restart: it selects the interfaces again */
-		daemon_bus_watch_reset(&d->bus);
-	} else {
-		ozzy_log("start after wake failed");
-		ozzy_engine_stop(d->engine);
-		d->running = false;
-	}
+	if (!d->closing && d->running)
+		d->running = ozzy_engine_wake(d->engine);
 }
 
 /* The main thread adds and removes devices, so the list holds still here without the lock */

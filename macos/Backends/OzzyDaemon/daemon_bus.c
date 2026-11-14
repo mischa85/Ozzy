@@ -51,9 +51,8 @@ static struct daemon_bus_pipe *find_pipe(struct daemon_bus *b, uint8_t address)
 	return p->intf ? p : NULL;
 }
 
-static void note_done(struct daemon_bus *b, uint8_t pipe)
+static void note_done(struct daemon_bus *b)
 {
-	b->last_done[daemon_bus_slot(pipe)] = mach_absolute_time();
 	__atomic_fetch_sub(&b->pending, 1, __ATOMIC_RELEASE);
 }
 
@@ -78,7 +77,7 @@ static void transfer_done(void *refcon, IOReturn result, void *arg0)
 		ozzy_log("pipe 0x%02x error: 0x%x", pipe, status);
 	if (b->engine)
 		ozzy_engine_complete(b->engine, pipe, xfer, status, (uint32_t)(uintptr_t)arg0);
-	note_done(b, pipe);
+	note_done(b);
 }
 
 static bool bus_submit(void *ctx, uint8_t pipe, void *buf, uint32_t size, void *xfer)
@@ -105,7 +104,6 @@ static bool bus_submit(void *ctx, uint8_t pipe, void *buf, uint32_t size, void *
 		ozzy_log("pipe 0x%02x submit failed: 0x%x", pipe, r);
 		return false;
 	}
-	b->submitted[daemon_bus_slot(pipe)] = true;
 	return true;
 }
 
@@ -178,7 +176,7 @@ static void isoc_done(void *refcon, IOReturn result, void *arg0)
 		ozzy_log("isoc pipe 0x%02x error: 0x%x", pipe, status);
 	if (b->engine)
 		ozzy_engine_isoc_complete(b->engine, pipe, xfer, status, packets, count);
-	note_done(b, pipe);
+	note_done(b);
 }
 
 /* Where a transfer of @count packets starts: where the pipe's previous one ended, the first
@@ -276,7 +274,6 @@ static bool bus_submit_isoc(void *ctx, uint8_t pipe, void *buf, uint32_t buf_siz
 		free(t);
 		return false;
 	}
-	b->submitted[daemon_bus_slot(pipe)] = true;
 	return true;
 }
 
@@ -522,17 +519,6 @@ enum ozzy_usb_speed daemon_bus_speed(struct daemon_bus *b)
 		return OZZY_USB_SPEED_HIGH;
 	default:
 		return OZZY_USB_SPEED_SUPER;
-	}
-}
-
-void daemon_bus_watch_reset(struct daemon_bus *b)
-{
-	uint64_t now = mach_absolute_time();
-	int i;
-
-	for (i = 0; i < DAEMON_BUS_PIPE_SLOTS; i++) {
-		b->last_done[i] = now;
-		b->submitted[i] = false;
 	}
 }
 

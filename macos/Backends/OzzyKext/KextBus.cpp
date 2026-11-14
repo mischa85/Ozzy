@@ -64,7 +64,6 @@ void KextBus_GlobalCompletion(void* owner, void* parameter, IOReturn status, uin
 
     // 4. NOTIFY ENGINE
     if (bus) {
-        bus->NoteCompletion(pipeID);
         struct ozzy_engine* engine = bus->GetEngine();
         if (engine) {
             ozzy_engine_complete(engine, pipeID, originalUserContext, status, bytesTransferred);
@@ -116,7 +115,6 @@ static void KextBus_IsocFinish(IsocContext* ctx, IOReturn status) {
     uint32_t count = ctx->count;
     delete ctx;
 
-    if (bus) bus->NoteCompletion(pipeID);
     struct ozzy_engine* engine = bus ? bus->GetEngine() : nullptr;
     if (engine) ozzy_engine_isoc_complete(engine, pipeID, userContext, status, packets, count);
 }
@@ -187,8 +185,6 @@ KextBus::KextBus(IOUSBHostDevice* device, IOService* driver)
     : mDevice(device), mDriver(driver), mPipes(nullptr), mPipeCount(0), mEngine(nullptr), mMainShmDesc(nullptr), mShmBase(0) {
     for (int i = 0; i < kPipeSlots; i++) mPipeByAddress[i] = nullptr;
     for (int i = 0; i < kPipeSlots; i++) mIsocNextFrame[i] = 0;
-    for (int i = 0; i < kPipeSlots; i++) mLastDone[i] = 0;
-    for (int i = 0; i < kPipeSlots; i++) mSubmitted[i] = false;
     mOzzyBus.ops = &sOps;
     mOzzyBus.ctx = this;
 }
@@ -269,12 +265,6 @@ bool KextBus::Reselect(const uint8_t alts[4]) {
     return driver && driver->Reselect(alts);
 }
 
-void KextBus::WatchReset() {
-    uint64_t now = mach_absolute_time();
-    for (int i = 0; i < kPipeSlots; i++) mLastDone[i] = now;
-    for (int i = 0; i < kPipeSlots; i++) mSubmitted[i] = false;
-}
-
 void KextBus::SetEngine(struct ozzy_engine* engine) {
     mEngine = engine;
 }
@@ -339,7 +329,6 @@ bool KextBus::SubmitUSBPacket(uint8_t pipeID, void* buffer, uint32_t size, void*
         delete ctx;
         return false;
     }
-    mSubmitted[PipeSlot(pipeID)] = true;
     return true;
 }
 
@@ -408,7 +397,6 @@ bool KextBus::SubmitIsoc(uint8_t pipeID, void* buffer, uint32_t bufferSize,
         delete ctx;
         return false;
     }
-    mSubmitted[PipeSlot(pipeID)] = true;
     return true;
 }
 

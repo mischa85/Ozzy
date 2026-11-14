@@ -252,7 +252,47 @@ else
     exit 1
 fi
 
-SDKROOT=$(xcrun --sdk macosx --show-sdk-path)
+# The kext is built against an SDK no newer than the running macOS. The 10.15 SDK turned a
+# reserved OSMetaClassBase vtable slot into Dispatch(), so a kext built with it doesn't link on
+# 10.14 or older ("super class vtable ... is out of date", #101). There, of the installed SDKs
+# (Xcode's and the Command Line Tools'), the newest one not newer than this macOS wins; from
+# 10.15 on, the default SDK as always. OZZY_KEXT_SDK=/path/to/MacOSX10.14.sdk picks one by hand.
+OS_VERSION=$(sw_vers -productVersion)
+version_number() { echo "$1" | awk -F. '{ print $1 * 100 + $2 }'; }
+sdk_version() { /usr/libexec/PlistBuddy -c "Print :Version" "$1/SDKSettings.plist" 2>/dev/null; }
+OS_NUMBER=$(version_number "$OS_VERSION")
+
+SDKROOT="${OZZY_KEXT_SDK:-}"
+DEFAULT_SDK=$(xcrun --sdk macosx --show-sdk-path)
+if [ -z "$SDKROOT" ] && [ "$OS_NUMBER" -lt 1015 ]; then
+    BEST_NUMBER=0
+    for SDK in "$DEFAULT_SDK" "$(xcode-select -p)"/Platforms/MacOSX.platform/Developer/SDKs/MacOSX*.sdk \
+               /Library/Developer/CommandLineTools/SDKs/MacOSX*.sdk; do
+        [ -d "$SDK/System/Library/Frameworks/Kernel.framework/Headers" ] || continue
+        SDK_NUMBER=$(version_number "$(sdk_version "$SDK")")
+        if [ "$SDK_NUMBER" -le "$OS_NUMBER" ] && [ "$SDK_NUMBER" -gt "$BEST_NUMBER" ]; then
+            SDKROOT="$SDK"
+            BEST_NUMBER=$SDK_NUMBER
+        fi
+    done
+fi
+SDKROOT=${SDKROOT:-$DEFAULT_SDK}
+SDK_VERSION=$(sdk_version "$SDKROOT")
+if [ -z "$SDK_VERSION" ]; then
+    echo "❌ Error: no macOS SDK at $SDKROOT"
+    exit 1
+fi
+echo "   🧰 Kernel SDK: $SDK_VERSION ($SDKROOT)"
+
+if [ "$OS_NUMBER" -lt 1015 ] && [ "$(version_number "$SDK_VERSION")" -ge 1015 ]; then
+    echo "❌ Error: the kext must be built with a macOS $(echo "$OS_VERSION" | cut -d. -f1-2) SDK (or older), but only the $SDK_VERSION SDK is installed."
+    echo "   A kext built with the 10.15 SDK or newer doesn't load on macOS 10.14 or older."
+    echo "   Install Command Line Tools with a 10.14 SDK or older (for 10.14: Command Line Tools"
+    echo "   for Xcode 10.3) from https://developer.apple.com/download/all/ and run this script again,"
+    echo "   or point OZZY_KEXT_SDK at an older SDK, e.g."
+    echo "   OZZY_KEXT_SDK=/Library/Developer/CommandLineTools/SDKs/MacOSX10.14.sdk ./install.command"
+    exit 1
+fi
 
 echo "   🏷️  Build: $GIT_VERSION"
 KERNEL_HEADERS="$SDKROOT/System/Library/Frameworks/Kernel.framework/Headers"
@@ -260,7 +300,7 @@ KERNEL_HEADERS="$SDKROOT/System/Library/Frameworks/Kernel.framework/Headers"
 # Built for the macOS it is installed on (or the SDK's, if older), never below 10.11
 # (IOUSBHostFamily); on older targets the SDK switches os_log to its 10.11 calls, which newer
 # systems no longer support
-MIN_MACOS=$(printf '%s\n%s\n' "$(sw_vers -productVersion)" "$(xcrun --sdk macosx --show-sdk-version)" |
+MIN_MACOS=$(printf '%s\n%s\n' "$OS_VERSION" "$SDK_VERSION" |
     awk -F. '{ v = $1 * 100 + $2; if (NR == 1 || v < m) { m = v; s = $1 "." $2 } } END { print s }')
 case "$MIN_MACOS" in 10.[0-9]|10.10) MIN_MACOS="10.11" ;; esac
 

@@ -177,6 +177,7 @@ The installer automatically:
 - macOS 10.11 El Capitan or later on Intel, 11 Big Sur or later on Apple Silicon
 - SIP modification: Run `csrutil enable --without kext` in Recovery Mode
 - Apple Developer certificate in Keychain (free Apple ID works)
+- macOS 10.14 or older: a macOS SDK no newer than your macOS (for 10.14: Command Line Tools for Xcode 10.3). A kext built with the 10.15 SDK or newer, which Xcode 11 and later ship, doesn't load there; the installer finds an older SDK by itself, or takes one from `OZZY_KEXT_SDK=/path/to/MacOSX10.14.sdk`
 
 **Leaving devices out:** `OZZY_DISABLE="TascamUS144 NumarkNS7" ./install.command` builds without those devices (names are the keys in [`common/ozzy_devices.def`](common/ozzy_devices.def)), so another driver can keep them.
 

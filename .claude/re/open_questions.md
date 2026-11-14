@@ -162,3 +162,9 @@ related to level metering or some control protocol. Has its own pipe assignment 
   (ploytec_decode_pcm_in; tests/test_short_in.c), and on macOS zeroes the rest of its place in
   the shared ring; the HAL still reads that transfer at its fixed place, so there the 72-frame
   offset stays for that session (rare: after a wake), without the stale data.
+  Windows (a1504bc, 2026-11-14): every attach (3 of 3 device restarts, and both attaches
+  earlier that day) logs "PCM in transfer 1 of the start short: 512 of 10240 bytes" (160-frame
+  transfers); its driver streams on from the attach with no restart, so before a1504bc the
+  input there ran 152 frames late for the whole session. The official driver waits ~610 ms
+  after its attach handshake before it streams (ploytec_sample_rates.md); whether that avoids
+  the half packet is untested.

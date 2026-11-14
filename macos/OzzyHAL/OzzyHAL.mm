@@ -2,6 +2,7 @@
 #include "../../common/devices/ploytec/ploytec_protocol.h"
 #include "../Shared/OzzyLog.h"
 #include "../Shared/OzzyKextClient.h"
+#include "../Shared/ozzy_daemon.h"
 #include "../../common/ozzy_version.h"
 #include <CoreAudio/CoreAudio.h>
 
@@ -131,16 +132,17 @@ bool OzzyHALDevice::HasDeviceUID(const char* uid) const {
     return CFStringGetCString(mDeviceUID, buf, sizeof(buf), kCFStringEncodingUTF8) && strcmp(buf, uid) == 0;
 }
 
-/* Take over a mapped kext connection. Returns false (and leaves it to the caller to close)
- * if the shared memory isn't usable. */
-bool OzzyHALDevice::Map(io_connect_t connect, mach_vm_address_t address, mach_vm_size_t size, uint64_t registryID, uint32_t locationID) {
+/* Take over a mapped kext connection or daemon device. Returns false (and leaves it to the
+ * caller to close) if the shared memory isn't usable. */
+bool OzzyHALDevice::Map(io_connect_t connect, mach_vm_address_t address, mach_vm_size_t size, uint64_t registryID, uint32_t locationID,
+                        uint32_t daemonPID) {
     ozzy_shared_memory* shm = (ozzy_shared_memory*)address;
     if (shm->magic != OZZY_MAGIC) {
         LogOzzyHALError("SHM magic mismatch");
         return false;
     }
     if (shm->version != OZZY_SHARED_VERSION) {
-        LogOzzyHALError("SHM version %{public}u, expected %{public}u: reinstall the kext and HAL together",
+        LogOzzyHALError("SHM version %{public}u, expected %{public}u: reinstall the driver and HAL together",
                         shm->version, OZZY_SHARED_VERSION);
         return false;
     }
@@ -152,8 +154,10 @@ bool OzzyHALDevice::Map(io_connect_t connect, mach_vm_address_t address, mach_vm
     mRegistryID = registryID;
     mLocationID = locationID;
     mSessionID = shm->session_id;
+    mDaemonPID = daemonPID;
     mSHM.store(shm, std::memory_order_release);
-    LogOzzyHAL("device %{public}u: attached to kext (session: 0x%{public}08X)", mSlot, mSessionID);
+    LogOzzyHAL("device %{public}u: attached to %{public}s (session: 0x%{public}08X)", mSlot,
+               daemonPID ? "the daemon" : "kext", mSessionID);
     return true;
 }
 
@@ -162,19 +166,26 @@ bool OzzyHALDevice::Map(io_connect_t connect, mach_vm_address_t address, mach_vm
 void OzzyHALDevice::Unmap() {
     if (!mSHM.exchange(nullptr, std::memory_order_seq_cst)) return;
     while (mSHMUsers.load(std::memory_order_seq_cst)) usleep(100);
-    IOConnectUnmapMemory(mKextConnect, 0, mach_task_self(), mKextMapAddress);
-    IOServiceClose(mKextConnect);
+    if (mDaemonPID) {
+        ozzy_daemon_unmap((ozzy_shared_memory*)mKextMapAddress);
+    } else {
+        IOConnectUnmapMemory(mKextConnect, 0, mach_task_self(), mKextMapAddress);
+        IOServiceClose(mKextConnect);
+    }
     mKextConnect = IO_OBJECT_NULL;
+    mDaemonPID = 0;
     mKextMapAddress = 0;
     mKextMapSize = 0;
     mRegistryID = 0;
 }
 
-/* Unmap if the kext went away or restarted. Returns true while still mapped. */
+/* Unmap if the kext or daemon went away or restarted (a daemon that crashed leaves its
+ * shared memory as it was: its pid tells). Returns true while still mapped. */
 bool OzzyHALDevice::CheckHealth() {
     ozzy_shared_memory* shm = mSHM.load(std::memory_order_relaxed);
     if (!shm) return false;
-    bool magicValid = (shm->magic == OZZY_MAGIC) && (shm->session_id == mSessionID);
+    bool magicValid = (shm->magic == OZZY_MAGIC) && (shm->session_id == mSessionID) &&
+                      (!mDaemonPID || ozzy_daemon_alive(mDaemonPID));
     bool hwPresent = magicValid && shm->audio.hardware_present.load(std::memory_order_acquire);
     if (magicValid && hwPresent) return true;
     LogOzzyHAL("device %{public}u: disconnected (magic: %{public}d, hw: %{public}d)", mSlot, magicValid, hwPresent);
@@ -273,7 +284,8 @@ void OzzyHALDevice::ApplyDeviceConfig() {
  * thread, which owns it. */
 kern_return_t OzzyHALDevice::CallApplySetting(unsigned int id, uint32_t value) {
     uint64_t in[2] = { id, value };
-    kern_return_t kr = IOConnectCallScalarMethod(mKextConnect, OZZY_METHOD_APPLY_SETTING, in, 2, nullptr, nullptr);
+    kern_return_t kr = mDaemonPID ? ozzy_daemon_call(mLocationID, mSessionID, OZZY_METHOD_APPLY_SETTING, in, 2, true)
+                                  : IOConnectCallScalarMethod(mKextConnect, OZZY_METHOD_APPLY_SETTING, in, 2, nullptr, nullptr);
     if (kr != KERN_SUCCESS)
         LogOzzyHALError("device %{public}u: %{public}s %{public}s failed (0x%{public}x)", mSlot,
                         ozzy_setting_descs[id].name, ozzy_setting_descs[id].value_names[value], kr);
@@ -457,7 +469,8 @@ OSStatus OzzyHALDevice::SetSampleRate(AudioServerPlugInHostRef host, Float64 rat
  * handshake). Call with the mapping held. */
 kern_return_t OzzyHALDevice::CallSetRate(uint32_t rate) {
     uint64_t in[1] = { rate };
-    kern_return_t kr = IOConnectCallScalarMethod(mKextConnect, OZZY_METHOD_SET_RATE, in, 1, nullptr, nullptr);
+    kern_return_t kr = mDaemonPID ? ozzy_daemon_call(mLocationID, mSessionID, OZZY_METHOD_SET_RATE, in, 1, true)
+                                  : IOConnectCallScalarMethod(mKextConnect, OZZY_METHOD_SET_RATE, in, 1, nullptr, nullptr);
     if (kr != KERN_SUCCESS)
         LogOzzyHALError("device %{public}u: %{public}u Hz failed (0x%{public}x)", mSlot, rate, kr);
     return kr;   // ApplyDeviceConfig logs the result
@@ -818,6 +831,8 @@ void OzzyHAL::Cleanup() {
     mMonitorRunning = false;
     pthread_join(mMonitorThread, NULL);
     for (uint32_t i = 0; i < kOzzyMaxDevices; i++) mDevices[i].Unmap();
+    ozzy_daemon_table_close(mDaemonTable);
+    mDaemonTable = nullptr;
 }
 
 OzzyHALDevice* OzzyHAL::DeviceForObject(AudioObjectID objectID) {
@@ -867,7 +882,7 @@ void OzzyHAL::ConnectService(io_service_t service, uint64_t registryID) {
     OzzyHALDevice::MakeDeviceUID((const ozzy_shared_memory*)address, locationID, uid, sizeof(uid));
     OzzyHALDevice* device = SlotForUID(uid);
     if (!device) LogOzzyHALError("too many devices, ignoring '%{public}s'", uid);
-    if (!device || !device->Map(connect, address, size, registryID, locationID)) {
+    if (!device || !device->Map(connect, address, size, registryID, locationID, 0)) {
         IOConnectUnmapMemory(connect, 0, mach_task_self(), address);
         IOServiceClose(connect);
     }
@@ -884,7 +899,10 @@ void OzzyHAL::ScanServices() {
     CFRelease(props);
 
     io_iterator_t it = IO_OBJECT_NULL;
-    if (IOServiceGetMatchingServices(MACH_PORT_NULL, matching, &it) != KERN_SUCCESS) return;
+    if (IOServiceGetMatchingServices(MACH_PORT_NULL, matching, &it) != KERN_SUCCESS) {
+        ScanDaemon();
+        return;
+    }
     io_service_t service;
     while ((service = IOIteratorNext(it))) {
         uint64_t registryID = 0;
@@ -896,6 +914,49 @@ void OzzyHAL::ScanServices() {
         IOObjectRelease(service);
     }
     IOObjectRelease(it);
+    ScanDaemon();
+}
+
+/* A device of the daemon's, as ConnectService one of the kext's */
+void OzzyHAL::ConnectDaemon(const ozzy_daemon_entry& entry) {
+    ozzy_shared_memory* shm = ozzy_daemon_map(&entry);
+    if (!shm) return;   // gone meanwhile, or replugged: the next scan has its new entry
+
+    char uid[128];
+    OzzyHALDevice::MakeDeviceUID(shm, entry.location_id, uid, sizeof(uid));
+    OzzyHALDevice* device = SlotForUID(uid);
+    if (!device) LogOzzyHALError("too many devices, ignoring '%{public}s'", uid);
+    if (!device || !device->Map(IO_OBJECT_NULL, (mach_vm_address_t)shm, sizeof(*shm), entry.registry_id,
+                                entry.location_id, mDaemonTable->daemon_pid))
+        ozzy_daemon_unmap(shm);
+}
+
+/* The userspace daemon's devices with audio that no device has yet: its table, kept mapped
+ * while the daemon runs (opened again after it restarted) */
+void OzzyHAL::ScanDaemon() {
+    if (mDaemonTable && !ozzy_daemon_table_valid(mDaemonTable)) {
+        ozzy_daemon_table_close(mDaemonTable);
+        mDaemonTable = nullptr;
+    }
+    if (!mDaemonTable) {
+        mDaemonTable = ozzy_daemon_table_open();
+        if (mDaemonTable && !ozzy_daemon_table_valid(mDaemonTable)) {
+            ozzy_daemon_table_close(mDaemonTable);
+            mDaemonTable = nullptr;
+        }
+        if (!mDaemonTable) return;
+        LogOzzyHAL("userspace daemon found (pid %{public}u)", mDaemonTable->daemon_pid);
+    }
+
+    ozzy_daemon_entry entries[OZZY_DAEMON_MAX_DEVICES];
+    if (!ozzy_daemon_table_read(mDaemonTable, entries)) return;
+    for (const ozzy_daemon_entry& e : entries) {
+        if (!e.used || !e.has_audio) continue;
+        bool known = false;
+        for (uint32_t i = 0; i < kOzzyMaxDevices; i++)
+            known |= (mDevices[i].IsMapped() && mDevices[i].GetRegistryID() == e.registry_id);
+        if (!known) ConnectDaemon(e);
+    }
 }
 
 void* OzzyHAL::MonitorEntry(void* arg) {

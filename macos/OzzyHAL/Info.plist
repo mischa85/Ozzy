@@ -4,6 +4,10 @@
 <dict>
 	<key>AudioServerPlugIn_FactoryFunction</key>
 	<string>OzzyPluginFactory</string>
+	<key>AudioServerPlugIn_MachServices</key>
+	<array>
+		<string>com.ozzy.daemon</string>
+	</array>
 	<key>CFBundleExecutable</key>
 	<string>OzzyHAL</string>
 	<key>CFBundleIdentifier</key>

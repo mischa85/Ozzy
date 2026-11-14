@@ -19,7 +19,8 @@
 #define kAudioObjectPropertyElementMain kAudioObjectPropertyElementMaster
 #endif
 
-// One audio device per OzzyKext instance with audio. Device slot i owns four object IDs:
+// One audio device per OzzyKext instance with audio, or per device with audio the userspace
+// daemon drives (macos/Shared/ozzy_daemon.h). Device slot i owns four object IDs:
 // the device (kOzzyObjectIDBase + 4i), its input stream (+1), its output stream (+2) and its
 // clock source control (+3, published only for devices with the Clock Source setting).
 // A slot keeps its IDs and UID when its device is replugged.
@@ -36,11 +37,14 @@ public:
     AudioObjectID GetOutputStreamID() const { return GetDeviceID() + 2; }
     AudioObjectID GetClockControlID() const { return GetDeviceID() + 3; }
 
-    // Connection to the kext (monitor thread)
+    // Connection to the kext or the daemon (monitor thread)
     bool IsMapped() const { return mSHM.load(std::memory_order_relaxed) != nullptr; }
     bool IsUsed() const { return mDeviceUID != nullptr; }   // has been published before
     uint64_t GetRegistryID() const { return mRegistryID; }
-    bool Map(io_connect_t connect, mach_vm_address_t address, mach_vm_size_t size, uint64_t registryID, uint32_t locationID);
+    // A kext connection (@connect, its mapping at @address) or a daemon's device (@connect
+    // IO_OBJECT_NULL, @address mapped by ozzy_daemon_map, @daemonPID the daemon's)
+    bool Map(io_connect_t connect, mach_vm_address_t address, mach_vm_size_t size, uint64_t registryID, uint32_t locationID,
+             uint32_t daemonPID);
     void Unmap();
     bool CheckHealth();
     bool UpdateConnectionState(AudioServerPlugInHostRef host);   // true if it changed
@@ -183,7 +187,7 @@ private:
     void NotifyClients(AudioServerPlugInHostRef host);
     uint32_t mTimestampSeed = 1;
 
-    // Kext connection. The monitor thread maps and unmaps; CoreAudio's threads use the
+    // Kext or daemon connection. The monitor thread maps and unmaps; CoreAudio's threads use the
     // mapping between AcquireSHM and ReleaseSHM, and Unmap waits for them to finish.
     std::atomic<ozzy_shared_memory*> mSHM { nullptr };
     std::atomic<uint32_t> mSHMUsers { 0 };
@@ -193,6 +197,7 @@ private:
     uint64_t mRegistryID = 0;
     uint32_t mLocationID = 0;   // USB port (IOUSBHostDevice locationID)
     uint32_t mSessionID = 0;
+    uint32_t mDaemonPID = 0;    // the daemon's device (no kext connection); 0: the kext's
 
     alignas(16) uint8_t mChannelLayoutBuffer[0x50C];
 
@@ -238,6 +243,10 @@ private:
     void MonitorLoop();
     void ScanServices();
     void ConnectService(io_service_t service, uint64_t registryID);
+    // The userspace daemon's devices (macos/Shared/ozzy_daemon.h), next to the kext's
+    const struct ozzy_daemon_table* mDaemonTable = nullptr;
+    void ScanDaemon();
+    void ConnectDaemon(const struct ozzy_daemon_entry& entry);
     OzzyHALDevice* SlotForUID(const char* uid);
 };
 

@@ -133,8 +133,8 @@ per microframe), starting at 48 kHz as Windows did.
 - Interfaces 0-3 claimed, alternate settings 0, 2, 2, 0 (interface 0 first: Linux probes it).
 - Handshake `ploytec_us3xx_handshake` (`common/devices/ploytec/ploytec_handshake.c`): 'V';
   'I' wIndex 1, 'I' wIndex 0 and the write of the selector with wIndex 1's bits 3-4 (0x02 → 0x0A);
-  GET_CUR; SET_CUR pair; 'M' and 'B' at the first start after the device comes (Ozzy sends 'B'
-  only at 48 kHz: wrong, it is the same at every rate, second capture); SET_CUR pair; the five 'A' S/PDIF registers (consumer); SET_CUR pair. A start
+  GET_CUR; SET_CUR pair; 'M' and 'B' at the first start after the device comes ('B' at every
+  rate since the second capture showed it is the same block); SET_CUR pair; the five 'A' S/PDIF registers (consumer); SET_CUR pair. A start
   refuses a mixer mode whose channels aren't 4 in / 6 out (`ploytec_us366_channels`): to fix,
   the 6 in / 4 out mode is the front panel's digital-in switch (second capture).
 - PCM out: `ozzy_isoc_output` with no feedback (nominal rate), 32-packet transfers, 3 in flight.

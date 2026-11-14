@@ -264,12 +264,12 @@ static void test_handshake(void)
 	free(e);
 	fclose(t);
 
-	/* A first start at 96 kHz: 'M', but no 48 kHz reverb block */
+	/* A first start at 96 kHz: 'M' and the same 'B' as at 48 kHz (Windows sends it at every rate) */
 	t = tmpfile();
 	e = make(&fb, &shm, false, t);
 	ozzy_engine_set_rate(e, 96000);
 	CHECK(ozzy_engine_start(e), "start at 96 kHz");
-	CHECK(count_requests(t, "40 4d") == 1 && count_requests(t, "40 42") == 0, "96 kHz: 'M' without 'B'");
+	CHECK(count_requests(t, "40 4d") == 1 && count_requests(t, "40 42 0000 0000 256") == 1, "96 kHz: 'M' and 'B'");
 	ozzy_engine_stop(e);
 	free(e);
 	fclose(t);

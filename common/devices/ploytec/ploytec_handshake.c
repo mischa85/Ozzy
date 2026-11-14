@@ -650,8 +650,9 @@ const struct ploytec_rate_endpoints ploytec_us3xx_rate_endpoints = { PLOYTEC_US3
 /*
  * What Tascam's Windows driver 1.04 sent a US-366 (firmware 1.03) at its first start, at 48 kHz
  * (.claude/re/tascam_us366.md): the 'M' mixer / routing table (Q15 gains: 0x7FFF, 0x4000,
- * 0x3E8B) and the 'B' reverb coefficients, which the official kext keeps one block of per rate.
- * Sent as captured; what each value does is open.
+ * 0x3E8B; byte 56 the output routing) and the 'B' reverb coefficients. The official kext keeps
+ * a 'B' block per rate, but the Windows driver sent this same block at 44.1, 48, 88.2 and 96 kHz
+ * (d-hey's second capture). Sent as captured; what most values do is open.
  */
 static const uint8_t us366_mixer[64] = {
 	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -660,7 +661,7 @@ static const uint8_t us366_mixer[64] = {
 	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x24, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 };
 
-static const uint8_t us366_reverb_48k[256] = {
+static const uint8_t us366_reverb[256] = {
 	0x7f, 0xff, 0x7f, 0xff, 0x7f, 0xff, 0x7f, 0xff, 0x0c, 0x30, 0x1b, 0x36, 0x1b, 0x00, 0x18, 0x00,
 	0x27, 0x8c, 0x13, 0x80, 0x0c, 0x30, 0x1b, 0x10, 0x1b, 0x00, 0x18, 0x00, 0x27, 0xbe, 0x13, 0x80,
 	0x16, 0xed, 0xac, 0x78, 0xd6, 0x0c, 0x18, 0x9f, 0x13, 0x23, 0x35, 0x54, 0x3b, 0x42, 0x84, 0x8a,
@@ -743,16 +744,13 @@ int ploytec_us3xx_handshake(const struct ploytec_host_ops *ops, void *ctx, uint3
 		goto err;
 
 	if (mixer) {
-		hs_log(ops, ctx, false, "[%d/6] mixer table%s...", ++step,
-		       rate == 48000 ? " and reverb coefficients" : " (no reverb coefficients for this rate)");
+		hs_log(ops, ctx, false, "[%d/6] mixer table and reverb coefficients...", ++step);
 		ret = hs_write_block(ops, ctx, PLOYTEC_CMD_MIXER, us366_mixer, sizeof(us366_mixer));
 		if (ret < 0)
 			goto err;
-		if (rate == 48000) {
-			ret = hs_write_block(ops, ctx, PLOYTEC_CMD_REVERB, us366_reverb_48k, sizeof(us366_reverb_48k));
-			if (ret < 0)
-				goto err;
-		}
+		ret = hs_write_block(ops, ctx, PLOYTEC_CMD_REVERB, us366_reverb, sizeof(us366_reverb));
+		if (ret < 0)
+			goto err;
 	} else {
 		++step;
 	}

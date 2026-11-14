@@ -85,9 +85,44 @@ microframe (no feedback), MIDI as USB-MIDI packets on 0x83 / 0x04 (common/usb_mi
 handshake above (with the 'M' and 'B' blocks sent as captured, without knowing their meaning),
 and the rate on both endpoints.
 
-Open: 44.1 kHz (whether packets then alternate 5/6 frames and how the device keeps time without
-feedback), the mixer modes (input count 2/4/6, what 'I' wIndex 1 and 'M'/'B' change), what the
-CCs on 0x83 report, the US-322 (0644:8040).
+Open: the US-322 (0644:8040); the rest of the 'M' block; what the 'A' 0x0D read-back means in
+input mode.
+
+## Second capture (d-hey, 2026-11-01, `captures/us366_dhey_2026-11-01/`, #91)
+
+Output session (all Interface tab options, 44.1/48/88.2/96 kHz, video alongside: capture time =
+video time - 22.6 s) and an input session (optical S/PDIF in, 6 inputs). Confirmed unless marked.
+
+- **44.1 kHz:** packets alternate 5/6 frames, plus one extra 6 every 80 microframes (a 6,6,6 run):
+  441 frames per 10 ms, 5.5125 per microframe. **88.2 kHz:** 11 frames, a 12 every 40
+  microframes. IN carries the same pattern (99.9% of microframes match); the host computes OUT's
+  own pattern, about 6 ms ahead. No traffic on feedback EP 0x85 at any rate. Ozzy's nominal
+  accumulator gives the same averages, and the device takes any nominal distribution.
+- **Rate requests** as at 48/96: SET_CUR (`22 01 0100`) to 0x81 then 0x02, three pairs per
+  session with 'A' between the second and third (44100 `44ac00`, 88200 `885801`). S/PDIF
+  register 0x10 rate code 0x00 / 0x02 / 0x08 / 0x0A at 44.1 / 48 / 88.2 / 96, as `hs_spdif_regs`.
+  A rate change is SET_CONFIGURATION 0 then 1 and the handshake again without 'M'/'B'.
+- **'B' is the same 256 bytes at every rate** (also sent at 96 kHz), not a 48 kHz block.
+- **Clock source:** 'I' wIndex 0 bit 1: set = automatic (0x0A), clear = internal (0x08). The
+  stream stops, one GET_CUR/SET_CUR pair, the stream restarts without SET_CONFIGURATION.
+- **Digital Output Format:** 'A' 0x0D-0x11 written live: AES/EBU `41 00 2C 00 00` (professional,
+  = Ozzy's table and the device's own read-back at every rate), S/PDIF `04 00 00 00 0B`.
+- **Output routing: 'M' byte 56**, rewritten live, nothing else in the block changes. Inferred
+  layout: bits 0-1 line out 1-2, bits 2-3 digital out, bits 4-5 line out 3-4; each 0 = mixer,
+  1 = PCM 1-2, 2 = PCM 3-4, 3 = PCM 5-6. Seen: 0x24 → 0x25 → 0x29 → 0x39. The default 0x24
+  (line 1-2 mixer, digital PCM 1-2, line 3-4 PCM 3-4) routes **PCM 5-6 nowhere**, which is why
+  5-6 were silent in the first capture. 0x2D would give 1-2 / 3-4 / 5-6 straight (untested).
+- **'I' wIndex 1 is the front-panel switch status**, not a mode the host writes (the panel never
+  writes it): 0x0F = coax + digital out (4 in / 6 out); 0x03 = optical + digital in (**6 in /
+  4 out**: PCM in 108 B = 6 frames x 18 B per microframe at 48 kHz, PCM out 72 B). Bits 0x04 and
+  0x08 changed together (coax, output select: inferred, the switches moved at once). In input mode
+  'M' words 4 and 13 are 0x5A80 and byte 56 is 0x34; signal came in on 1-2 and 5-6 (5-6 probably
+  the S/PDIF input).
+- **CCs on 0x83:** 0x68 every 512 ms carries the switch byte (0x0F / 0x03); 0x66/0x67 = 0x7F;
+  0x6B/0x6C every 64 ms with 0-127 (meters, inferred).
+- **Host only, nothing on the wire:** Audio Performance (transfers of 8/16/24/32 packets, the
+  "low" one 16 packets with 2 OUT in flight) and the foot switch settings. Stream start: IN 0x81
+  first, 9 IN / 3-4 OUT transfers in flight.
 
 ## What Ozzy does (2026-11-01, untested on hardware)
 
@@ -98,9 +133,10 @@ per microframe), starting at 48 kHz as Windows did.
 - Interfaces 0-3 claimed, alternate settings 0, 2, 2, 0 (interface 0 first: Linux probes it).
 - Handshake `ploytec_us3xx_handshake` (`common/devices/ploytec/ploytec_handshake.c`): 'V';
   'I' wIndex 1, 'I' wIndex 0 and the write of the selector with wIndex 1's bits 3-4 (0x02 → 0x0A);
-  GET_CUR; SET_CUR pair; 'M' and (48 kHz only, the only block captured) 'B' at the first start after
-  the device comes; SET_CUR pair; the five 'A' S/PDIF registers (consumer); SET_CUR pair. A start
-  refuses a mixer mode whose channels aren't 4 in / 6 out (`ploytec_us366_channels`).
+  GET_CUR; SET_CUR pair; 'M' and 'B' at the first start after the device comes (Ozzy sends 'B'
+  only at 48 kHz: wrong, it is the same at every rate, second capture); SET_CUR pair; the five 'A' S/PDIF registers (consumer); SET_CUR pair. A start
+  refuses a mixer mode whose channels aren't 4 in / 6 out (`ploytec_us366_channels`): to fix,
+  the 6 in / 4 out mode is the front panel's digital-in switch (second capture).
 - PCM out: `ozzy_isoc_output` with no feedback (nominal rate), 32-packet transfers, 3 in flight.
 - PCM in: `ozzy_isoc_input` (new), 16-packet transfers of 512-byte packets, 4 in flight; frames
   copied to the HAL's plain ring (`OZZY_DEVICE_FLAG_PLAIN_INPUT`) or the attached ring; a failed
@@ -108,5 +144,5 @@ per microframe), starting at 48 kHz as Windows did.
 - MIDI: 2 bulk reads of 256 bytes on 0x83 (USB-MIDI packets into the MIDI in ring); MIDI out as
   USB-MIDI packets on 0x04, up to four (16 bytes) per transfer, one transfer in flight.
 
-To find out on hardware: whether the device streams without 'M' / 'B' state from Windows, 44.1 and
-88.2 kHz, the input's offset against the output, other mixer modes, what the CCs on 0x83 mean.
+To find out on hardware: whether the device streams without 'M' / 'B' state from Windows, the
+input's offset against the output, whether 'M' byte 56 = 0x2D gives six straight outputs.

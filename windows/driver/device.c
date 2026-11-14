@@ -28,33 +28,15 @@ static void wdev_bus_dead(void* ctx) {
     WdfWorkItemEnqueue(((struct wdev*)ctx)->recover);
 }
 
-/* A wedged pipe (the DB4's IN side after a long gap in completions: only a reset of the device
- * brings it back): the engine stopped, the port reset (the USB stack keeps the configuration and
- * the pipes), then a new start with its handshake. The streams stay; they miss what came between. */
+/* A wedged pipe (ozzy_engine_watch): suspend, the port reset (kbus_reset: the USB stack keeps the
+ * configuration and the pipes), then a new start with its handshake (ozzy_engine_recover). The
+ * streams stay; they miss what came between. */
 static void wdev_recover(WDFWORKITEM item) {
     struct wdev* ctx = wdev_get(WdfWorkItemGetParentObject(item));
     WdfWaitLockAcquire(ctx->lock, NULL);
     if (ctx->started) {
-        ozzy_engine_suspend(ctx->engine);
-        kbus_stop_io(&ctx->bus);
-        NTSTATUS status = STATUS_UNSUCCESSFUL;
-        for (int k = 0; k < 3 && !NT_SUCCESS(status); k++) {
-            if (k) {
-                LARGE_INTEGER delay;
-                delay.QuadPart = -100 * 10000;   /* 100 ms */
-                KeDelayExecutionThread(KernelMode, FALSE, &delay);
-            }
-            status = WdfUsbTargetDeviceResetPortSynchronously(ctx->bus.usb);
-            kbus_log("[Ozzy] port reset %d: 0x%08x", k + 1, status);
-        }
-        kbus_start_io(&ctx->bus);
-        ctx->started = ozzy_engine_start(ctx->engine);
-        if (!ctx->started) {
-            ozzy_engine_stop(ctx->engine);
-            kbus_stop_io(&ctx->bus);
-        }
-        kbus_log("[Ozzy] recovered: %s", ctx->started ? "streaming" : "start failed");
-        ozzy_engine_stats_recovery(ctx->engine, ctx->started);
+        ctx->started = ozzy_engine_recover(ctx->engine);
+        if (!ctx->started) kbus_stop_io(&ctx->bus);
     }
     InterlockedExchange(&ctx->bus.recovering, 0);
     WdfWaitLockRelease(ctx->lock);

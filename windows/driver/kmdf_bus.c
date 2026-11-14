@@ -140,8 +140,8 @@ static bool kbus_submit_isoc(void* ctx, uint8_t address, void* buf, uint32_t buf
 }
 
 /* DISPATCH_LEVEL: @p completed. Another PCM pipe without a completion for 100 ms (they come every
- * transfer period) is logged as stalled, once, with its requests in flight; for KBUS_DEAD_MS it
- * is dead, and the owner recovers the device (at most every KBUS_RECOVER_S) */
+ * transfer period) is logged as stalled, once, with its requests in flight; whether it is dead
+ * is the engine's call (kbus_check_dead, after the engine has seen this completion) */
 static void kbus_watch(struct kmdf_bus* kb, struct kbus_pipe* p) {
     LONGLONG now = KeQueryPerformanceCounter(NULL).QuadPart;
     InterlockedExchange64(&p->last_done, now);
@@ -156,17 +156,14 @@ static void kbus_watch(struct kmdf_bus* kb, struct kbus_pipe* p) {
                        "[Ozzy] pipe 0x%02x stalled: no completion for %u ms, requests in flight 0x%02x\n",
                        q->address, (unsigned)(idle * 1000 / kb->qpc_freq), (unsigned)q->busy);
         }
-        if (idle < kb->qpc_freq * KBUS_DEAD_MS / 1000 || !kb->dead ||
-            (kb->recovered_at && now - kb->recovered_at < kb->qpc_freq * KBUS_RECOVER_S))
-            continue;
-        if (!InterlockedExchange(&kb->recovering, 1)) {
-            kb->recovered_at = now;
-            DbgPrintEx(DPFLTR_IHVAUDIO_ID, DPFLTR_ERROR_LEVEL,
-                       "[Ozzy] pipe 0x%02x dead for %u ms: recovering the device\n", q->address,
-                       (unsigned)(idle * 1000 / kb->qpc_freq));
-            kb->dead(kb->dead_ctx);
-        }
     }
+}
+
+/* DISPATCH_LEVEL, after the engine saw a completion: a stalled PCM pipe (ozzy_engine_watch) has
+ * the owner recover the device, once at a time */
+static void kbus_check_dead(struct kmdf_bus* kb) {
+    if (!kb->dead || kb->stopping || kb->recovering || !kb->engine || !ozzy_engine_watch(kb->engine)) return;
+    if (!InterlockedExchange(&kb->recovering, 1)) kb->dead(kb->dead_ctx);
 }
 
 /* DISPATCH_LEVEL: release the request, then hand the result to the engine, which resubmits and
@@ -208,6 +205,7 @@ static void kbus_completion(WDFREQUEST request, WDFIOTARGET target, PWDF_REQUEST
     if (kb->engine) {
         if (p->type == 1) ozzy_engine_isoc_complete(kb->engine, p->address, xfer, (int)status, packets, count);
         else ozzy_engine_complete(kb->engine, p->address, xfer, (int)status, bytes);
+        kbus_check_dead(kb);
     }
     if (kb->service) kb->service(kb->service_ctx);
     InterlockedDecrement(&kb->in_completion);
@@ -288,6 +286,25 @@ static void kbus_abort(void* ctx) {
     kbus_start_io(kb);
 }
 
+/* PASSIVE_LEVEL, a recovery (ozzy_engine_recover), the engine suspended: a reset of the port
+ * (the DB4's IN side wedged after a long gap in completions: only a reset brings it back). The
+ * USB stack keeps the configuration and the pipes. */
+static void kbus_reset(void* ctx) {
+    struct kmdf_bus* kb = ctx;
+    NTSTATUS status = STATUS_UNSUCCESSFUL;
+    kbus_stop_io(kb);
+    for (int k = 0; k < 3 && !NT_SUCCESS(status); k++) {
+        if (k) {
+            LARGE_INTEGER delay;
+            delay.QuadPart = -100 * 10000;   /* 100 ms */
+            KeDelayExecutionThread(KernelMode, FALSE, &delay);
+        }
+        status = WdfUsbTargetDeviceResetPortSynchronously(kb->usb);
+        kbus_log("[Ozzy] port reset %d: 0x%08x", k + 1, status);
+    }
+    kbus_start_io(kb);
+}
+
 static const struct ozzy_bus_ops kbus_ops = {
     .submit = kbus_submit,
     .submit_isoc = kbus_submit_isoc,
@@ -301,6 +318,7 @@ static const struct ozzy_bus_ops kbus_ops = {
     .abort = kbus_abort,
     .time_hz = kbus_time_hz,
     .stats_changed = kbus_stats_changed,
+    .reset = kbus_reset,
 };
 
 /* PASSIVE_LEVEL (PrepareHardware): a nonpaged buffer for the engine, with its WDFMEMORY */

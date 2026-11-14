@@ -17,8 +17,6 @@
 struct wstream;
 
 enum {
-    KBUS_DEAD_MS = 500,           /* a wedged pipe; a ~110 ms gap in completions can come back on its own */
-    KBUS_RECOVER_S = 10,          /* between recoveries: a device a reset doesn't help isn't reset forever */
     KBUS_MAX_PIPES = 8,
     KBUS_REQUESTS_PER_PIPE = 8,   /* the engines keep at most 4 per pipe in flight */
     KBUS_MAX_BLOCKS = 24,         /* transfer buffers (ozzy_engine_alloc_memory: 14) */
@@ -72,16 +70,15 @@ struct kmdf_bus {
     void* service_ctx;
     volatile LONG in_completion;
     volatile LONG stopping;       /* kbus_stop_io cancels: STATUS_CANCELLED expected */
-    /* DISPATCH_LEVEL: a PCM pipe has had no completion for KBUS_DEAD_MS while another one
-     * completes (the DB4's IN side wedged): the owner recovers it at PASSIVE_LEVEL and clears
-     * recovering when done */
+    /* DISPATCH_LEVEL: a PCM pipe stalled while another one completes (ozzy_engine_watch: the
+     * DB4's IN side wedged): the owner recovers the device at PASSIVE_LEVEL (ozzy_engine_recover,
+     * which resets the port through the bus) and clears recovering when done */
     void (*dead)(void* ctx);
     void* dead_ctx;
     /* DISPATCH_LEVEL: the engine's stats had an incident (ozzy_bus_ops.stats_changed) */
     void (*stats_changed)(void* ctx);
     void* stats_ctx;
     volatile LONG recovering;
-    LONGLONG recovered_at;        /* QPC of the last recovery's start (0: none) */
     LONGLONG qpc_freq;
     PEX_TIMER timer;
 };

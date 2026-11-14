@@ -5,7 +5,8 @@
  * The device's family engine (engine/) says which interfaces and endpoints it needs; this
  * claims them, gives the engine its bus and memory, runs the handshake and puts ALSA PCM,
  * rawmidi and the settings controls on top. The device streams from probe to disconnect; a
- * rate change or a device setting restarts the engine (ozzy_engine_restart: no USB reset).
+ * rate change or a device setting restarts the engine (ozzy_engine_restart: no USB reset), a PCM
+ * pipe that stops completing gets a recovery (ozzy_chip_watch).
  *
  * Copyright (C) 2024 Marcel Bierling <marcel@hackerman.art>
  */
@@ -84,6 +85,36 @@ int ozzy_chip_restart(struct ozzy_chip *chip)
 	chip_err(chip, "restart failed, resetting the device");
 	usb_queue_reset_device(chip->intf[0]);
 	return -EIO;
+}
+
+#define OZZY_WATCH_PERIOD_MS 250
+
+/*
+ * The stall watchdog, every OZZY_WATCH_PERIOD_MS while the device is there: a PCM pipe that
+ * stopped completing (ozzy_engine_watch) gets the device a recovery (ozzy_engine_recover: a new
+ * start), the running streams stopping with an xrun as for a restart. A device that doesn't
+ * start again gets a USB reset, as after a failed restart.
+ */
+static void ozzy_chip_watch(struct work_struct *work)
+{
+	struct ozzy_chip *chip = container_of(to_delayed_work(work), struct ozzy_chip, watch_work);
+
+	mutex_lock(&chip->lock);
+	if (chip->gone) {
+		mutex_unlock(&chip->lock);
+		return;
+	}
+	if (chip->running && ozzy_engine_watch(chip->engine)) {
+		ozzy_pcm_stop_streams(chip);
+		chip->running = ozzy_engine_recover(chip->engine);
+		ozzy_controls_handshake(chip);
+		if (!chip->running) {
+			chip_err(chip, "recovery failed, resetting the device");
+			usb_queue_reset_device(chip->intf[0]);
+		}
+	}
+	mutex_unlock(&chip->lock);
+	schedule_delayed_work(&chip->watch_work, msecs_to_jiffies(OZZY_WATCH_PERIOD_MS));
 }
 
 /* Claim the profile's interfaces (the probed one is interface 0) and select its alternate setting */
@@ -222,6 +253,7 @@ static int ozzy_chip_probe(struct usb_interface *intf, const struct usb_device_i
 	spin_lock_init(&chip->stream[OZZY_PCM_IN].lock);
 	spin_lock_init(&chip->midi.lock);
 	INIT_DELAYED_WORK(&chip->stats_work, ozzy_controls_stats_work);
+	INIT_DELAYED_WORK(&chip->watch_work, ozzy_chip_watch);
 	card->private_free = ozzy_chip_card_free;
 	strscpy(card->driver, DRIVER_NAME, sizeof(card->driver));
 	strscpy(card->shortname, dev->product ?: model->name, sizeof(card->shortname));
@@ -282,6 +314,7 @@ static int ozzy_chip_probe(struct usb_interface *intf, const struct usb_device_i
 		goto err_stop;
 
 	usb_set_intfdata(intf, chip);
+	schedule_delayed_work(&chip->watch_work, msecs_to_jiffies(OZZY_WATCH_PERIOD_MS));
 	return 0;
 
 err_stop:
@@ -307,6 +340,7 @@ static void ozzy_chip_disconnect(struct usb_interface *intf)
 	chip->running = false;
 	ozzy_engine_stop(chip->engine);
 	mutex_unlock(&chip->lock);
+	cancel_delayed_work_sync(&chip->watch_work);
 	cancel_delayed_work_sync(&chip->stats_work);
 
 	snd_card_disconnect(chip->card);

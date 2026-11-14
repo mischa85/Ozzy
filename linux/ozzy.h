@@ -115,6 +115,7 @@ struct ozzy_chip {
 	struct snd_kcontrol *info_kctl;
 	struct snd_kcontrol *stats_kctl;
 	struct delayed_work stats_work;    /* a stats incident: clients hear of it once it settles */
+	struct delayed_work watch_work;    /* the stall watchdog (ozzy_engine_watch), while connected */
 };
 
 /* bus.c */

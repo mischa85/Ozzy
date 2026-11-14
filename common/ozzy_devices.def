@@ -376,13 +376,18 @@ OZZY_DEVICE(TascamUS366, 0x0644, 0x8041, "Tascam US-366", PLOYTEC_US3XX, 4, 6,
 
 /*
  * Smyth Research Realiser A16 3.4.13 kext (Ploytec, no kConfigurationData): 2 in / 16 out from the
- * fallback table (dmaEncode16). Only the boot rate is known. No device-specific requests that
- * change Ozzy's handshake (the official configurationDone skips its first selector call, the
- * second still runs).
+ * fallback table (dmaEncode16). No device-specific requests that change Ozzy's handshake (the
+ * official configurationDone skips its first selector call, the second still runs).
+ *
+ * 48 kHz only. Smyth documents 44.1-96k over USB, and clhodapp checked all four on hardware
+ * through Ozzy's engine (#102, firmware 2.17: rate readback, duplex streaming, tones), but the
+ * A16 renders at 48 kHz (its manual's SVS rendering), so any other rate is only resampled inside
+ * the unit. Offering 48 kHz alone keeps the conversion on the host, if there is one, and makes
+ * it the rate the device starts at.
  */
 #ifndef OZZY_DISABLE_SmythRealiserA16
 OZZY_DEVICE(SmythRealiserA16, 0x0A4A, 0x5A16, "Smyth Research Realiser A16", PLOYTEC_XONE, 2, 16,
-	    OZZY_RATE_44K1, EXPERIMENTAL, 0, OZZY_NO_LATENCY)
+	    OZZY_RATE_48K, EXPERIMENTAL, 0, OZZY_NO_LATENCY)
 #endif
 
 /*

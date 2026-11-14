@@ -81,7 +81,7 @@ These use the same Ploytec chip. Their channels, rates and setup requests come f
 | **Reloop IQ2 MIDI** | 4 / 4 | 44.1–96 kHz |  |
 | **Reloop Jockey 3 Master Edition** | 6 / 4 | 44.1–96 kHz |  |
 | **Reloop Jockey 3 Remix** | 6 / 4 | 44.1–96 kHz |  |
-| **Smyth Research Realiser A16** | 2 / 16 | 44.1 kHz |  |
+| **Smyth Research Realiser A16** | 2 / 16 | 48 kHz | Renders at 48 kHz, so Ozzy offers only that |
 | **Tascam US-144** | 4 / 4 | 44.1–96 kHz | Not in the Linux build by default: Linux has its own drivers |
 | **Tascam US-144MKII** | 4 / 4 | 44.1–96 kHz | Not in the Linux build by default: Linux has its own driver |
 | **Tascam US-200** | 2 / 4 | 44.1–96 kHz |  |

@@ -47,7 +47,7 @@ rates and a few vendor extras (listed per device).
 | 1ACC:0103 | Midiplus AudioLink PLUS 4x4 ("Plus II") | 6 / 6 | 24/96 (spec) | fallback | none | in Ozzy (experimental; no device-specific requests); class-compliant mode? (?); Interspock's Ozzy fork adds it |
 | 1ACC:0102 | unidentified Midiplus | 4 / 4 | | fallback | | identify (#93) |
 | 1D03:005C | unidentified iCON | 2 / 2 | 44.1k | fallback | | identify (#93) |
-| 0A4A:5A16 | Smyth Research Realiser A16 | 2 / 16 | 44.1k boot rate, others ? | fallback (3.4.13 kext has no PtSpecific) | ? | in Ozzy (experimental, 44.1k only; 16-lane encoder `dmaEncode16` added) |
+| 0A4A:5A16 | Smyth Research Realiser A16 | 2 / 16 | 44.1–96k over USB (Smyth FAQ; all four checked by clhodapp on firmware 2.17 through Ozzy's engine in a libusb harness, #102: rate readback, duplex, tones; PCM out interrupt EP 0x05 964 B, PCM in interrupt EP 0x86 1024 B); renders at 48k (manual: SVS rendering) | fallback (3.4.13 kext has no PtSpecific) | ? | in Ozzy (experimental, 48k only: other rates are only resampled inside the unit; 16-lane encoder `dmaEncode16` added) |
 | 0A4A:D064 | D.O.Tec EXBOX.UMA (?) ("DOTEC" in the kext) | 16 / 16 | default 88.2k, channels vary with rate | fallback | adiknoth/exboxuma (GPL, 2015 alpha) | not added: packed 24-bit frames (`dmaEncode08/16/32_DOTEC`, not bit-interleaved), 32 / 16 / 8 channels at ≤48k / 88.2–96k / 176.4–192k, per-rate sub-packet counts (`bulkAudioRun`); needs per-rate channel counts and a new packet layout; no known owner |
 | 0A4A:2416 | Ploytec JCT 24x16 reference board (?) | 24 / 16 | | fallback | | probably not a product |
 | 0A4A:DA01 | unidentified (A&H ICE-16?) | 16 / 16 | | fallback | | identify |

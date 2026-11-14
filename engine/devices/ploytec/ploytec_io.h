@@ -113,9 +113,16 @@ static inline void ploytec_midi_in_to_ring(const struct ploytec_midi *midi, vola
 }
 
 /*
- * PCM in into the attached ring (ploytec_io.c): the @frames frames of completed IN transfer @t,
- * decoded straight from the shared memory into the ring with the input routing. A short (or
- * failed, @bytes 0) transfer leaves silence, so the ring keeps the device's clock.
+ * PCM in into the attached ring (ploytec_io.c): the frames of completed IN transfer @t (asked
+ * for @frames, @bytes came), decoded straight from the shared memory into the ring with the
+ * input routing.
+ * - A failed transfer (@bytes 0) leaves @frames of silence: the device's time went by.
+ * - A short one that came through is the frames it carried and no more: the DB4 starts its IN
+ *   stream with half a packet at some starts (.claude/re/open_questions.md), and the next
+ *   transfer goes on from there, so silence for the rest would put the input that much late.
+ * Without a ring (macOS: the HAL reads the transfers in the shared memory as they are) the part
+ * of the transfer's place that no frame reached is zeroed (silence in the device's encoding),
+ * so the HAL never reads what an earlier start left there.
  */
 void ploytec_decode_pcm_in(struct ozzy_engine *e, ploytec_frame_fn decode, uint32_t frames, uint32_t t, uint32_t bytes);
 

@@ -9,17 +9,25 @@
 
 void ploytec_decode_pcm_in(struct ozzy_engine *e, ploytec_frame_fn decode, uint32_t frames, uint32_t t, uint32_t bytes)
 {
-	const struct ozzy_pcm_ring *ring = ozzy_engine_take_pcm_ring(e, OZZY_PCM_IN);
-	const uint8_t *packet;
-	uint32_t frame_bytes, got, r, f;
+	const struct ozzy_pcm_ring *ring;
+	uint8_t *packet = ozzy_engine_pcm_in_slot(e, t);
+	uint32_t frame_bytes, got, n, r, f;
 
+	got = bytes / PLOYTEC_IN_FRAME_SIZE;
+	if (got > frames)
+		got = frames;
+	if (!ozzy_engine_ring_platform(e)) {
+		if (got < frames)
+			memset(packet + got * PLOYTEC_IN_FRAME_SIZE, 0, (frames - got) * PLOYTEC_IN_FRAME_SIZE);
+		return;
+	}
+	ring = ozzy_engine_take_pcm_ring(e, OZZY_PCM_IN);
 	if (!ring || !decode)
 		return;
-	packet = ozzy_engine_pcm_in_slot(e, t);
+	n = got ? got : frames;   /* what came, or the failed transfer's time as silence */
 	frame_bytes = ring->channels * 3;
-	got = bytes / PLOYTEC_IN_FRAME_SIZE;
 	r = ozzy_mod_u64(e->pcm_pos[OZZY_PCM_IN], ring->frames);
-	for (f = 0; f < frames; f++) {
+	for (f = 0; f < n; f++) {
 		uint8_t *dst = ring->base + r * frame_bytes;
 		uint8_t decoded[PLOYTEC_MAX_IN_CHANNELS * 3];
 
@@ -36,6 +44,6 @@ void ploytec_decode_pcm_in(struct ozzy_engine *e, ploytec_frame_fn decode, uint3
 			r = 0;
 	}
 
-	e->pcm_pos[OZZY_PCM_IN] += frames;
+	e->pcm_pos[OZZY_PCM_IN] += n;
 	ozzy_bus_pcm_progress(e->bus, OZZY_PCM_IN, e->pcm_pos[OZZY_PCM_IN]);
 }

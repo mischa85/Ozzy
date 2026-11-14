@@ -141,3 +141,24 @@ related to level metering or some control protocol. Has its own pipe assignment 
   `tools/linux_usbmon/in_glitch.c` in the investigation folder). nkurence's kext run didn't report
   it either. So most likely the userspace reading path (buffer reuse, a read completing early),
   not the device; open until a kext or Linux run on a WZ4 or CMS 600-3 shows it.
+
+- **One short PCM IN transfer at some starts: the DB4 starts its IN stream with half a packet**
+  (fw 1.4.1, Linux usbmon, 2026-11-14, log line from 022bed5). On an attach, with Ozzy's 4 IN
+  transfers queued 2 ms after the handshake's last request, the first one sometimes (1 of 3
+  replugs) completes after ~5 ms with one 512-byte packet: one sub-packet, 8 whole frames; every
+  later packet is a full 1024 bytes, and it was the only normal (status 0) IN completion of the
+  session that wasn't 5120 bytes. 30 restarts (with the 120 ms quiet, ploytec_sample_rates.md)
+  had none. Seen on the kext after a wake and on Windows after the attach and after a recovery
+  (port reset). The engine counts it as short and, as for a failed transfer, decodes the 8 frames,
+  fills 72 with silence and moves the input on by the full 80 frames (ploytec_decode_pcm_in); on
+  macOS the rest of that transfer's place in the shared ring isn't written. If the device's
+  stream really began with those 8 frames, input then sits 72 frames late against output for
+  the whole session. A round-trip measurement can't show it: on Linux WirePlumber opens a fresh
+  DB4 at 48 kHz and so restarts it right after every attach (12 re-enumerations with PipeWire
+  forced to 96 kHz: 2 starts each, none short), and between starts the round trip moves by whole
+  transfers anyway (below). In the capture full packets follow at once and nothing points to lost
+  frames (the samples weren't checked for continuity), so the engine now takes a successful short
+  transfer as the frames it carried
+  (ploytec_decode_pcm_in; tests/test_short_in.c), and on macOS zeroes the rest of its place in
+  the shared ring; the HAL still reads that transfer at its fixed place, so there the 72-frame
+  offset stays for that session (rare: after a wake), without the stale data.

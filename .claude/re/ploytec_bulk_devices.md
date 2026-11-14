@@ -223,7 +223,9 @@ sample-exact in JACK time; every click of a run gave the same number. 48 kHz unl
 Above 2 quanta, about 200-240 frames (4-5 ms) are fixed: the driver's 36 (20 out + 16 in), the
 rest PipeWire's ALSA side and the DB4's own buffer and mixer, not separated (that needs a raw
 ALSA measurement with PipeWire off the device). The numbers move by ~10-30 frames between
-restarts (the phase of the transfers to the graph's cycle).
+restarts (the phase of the transfers to the graph's cycle). With 80-frame transfers (96 kHz, quantum 2048,
+2026-11-14, 12 re-enumerations) they move by whole transfers: 4499, 4575-4576 (3x), 4654-4660
+(8x), each run sample-exact: the input's position is only known per transfer.
 
 So the host's latency is transfers in flight × transfer size, in steps of one packet each way
 (DB4: 20 frames out, 16 in)

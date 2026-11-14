@@ -11,6 +11,7 @@
 #include "check.h"
 #include "common/devices/ploytec/ploytec_protocol.h"
 #include "common/devices/ploytec/ploytec_codec.h"
+#include <math.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -48,6 +49,27 @@ static void record_out(const struct fake_xfer *x)
 	}
 }
 
+/* One float through the plain codec, back as a signed 24-bit sample */
+static int32_t f32_to_s24(float sample)
+{
+	uint8_t b[3];
+
+	ploytec_f32_to_s24(b, sample);
+	return (int32_t)((uint32_t)(b[0] | (b[1] << 8) | (b[2] << 16)) << 8) >> 8;
+}
+
+/* What the HAL hands the plain codec: NaN is silence, the rest clamps to 24 bits */
+static void check_f32_clamp(void)
+{
+	CHECK(f32_to_s24(NAN) == 0, "NaN encodes as %d", f32_to_s24(NAN));
+	CHECK(f32_to_s24(-NAN) == 0, "-NaN encodes as %d", f32_to_s24(-NAN));
+	CHECK(f32_to_s24(INFINITY) == 8388607, "+inf encodes as %d", f32_to_s24(INFINITY));
+	CHECK(f32_to_s24(-INFINITY) == -8388608, "-inf encodes as %d", f32_to_s24(-INFINITY));
+	CHECK(f32_to_s24(1.0f) == 8388607, "1.0 encodes as %d", f32_to_s24(1.0f));
+	CHECK(f32_to_s24(-1.0f) == -8388608, "-1.0 encodes as %d", f32_to_s24(-1.0f));
+	CHECK(f32_to_s24(0.5f) == 4194304, "0.5 encodes as %d", f32_to_s24(0.5f));
+}
+
 int main(void)
 {
 	const struct ozzy_device *model = ozzy_device_lookup(0x0644, 0x8020);
@@ -59,6 +81,7 @@ int main(void)
 	struct ozzy_engine *e;
 	unsigned int i, ins = 0, wrong = 0, wrong_in = 0;
 
+	check_f32_clamp();
 	CHECK(model && model->family == OZZY_FAMILY_PLOYTEC_ISOC, "US-144MKII in the device list");
 	for (i = 0; i < sizeof(out_ring); i++)
 		out_ring[i] = (uint8_t)(i * 7 + 3);

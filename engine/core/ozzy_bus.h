@@ -79,6 +79,10 @@ enum ozzy_pcm_dir {
  *                stalled request asked again. Interfaces at 0 are left alone. A restart's start
  *                does it before its handshake (ozzy_engine_reselect). Process context, nothing
  *                in flight. Optional.
+ * @reset:        reset the device, between the suspend and the new start of a recovery
+ *                (ozzy_engine_recover): the Windows driver resets the port (the DB4's IN side
+ *                wedged, which only a reset brings back), the pipes usable afterwards. Process
+ *                context, nothing in flight. Optional.
  */
 struct ozzy_bus_ops {
 	bool (*submit)(void *ctx, uint8_t pipe, void *buf, uint32_t size, void *xfer);
@@ -96,6 +100,7 @@ struct ozzy_bus_ops {
 	uint64_t (*time_hz)(void *ctx);
 	void (*stats_changed)(void *ctx);
 	bool (*reselect)(void *ctx, const uint8_t alt_settings[4]);
+	void (*reset)(void *ctx);
 };
 
 struct ozzy_bus {

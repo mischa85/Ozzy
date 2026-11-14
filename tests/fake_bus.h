@@ -35,6 +35,7 @@ struct fake_bus {
 	uint64_t hz;                       /* 0: the clock ticks once per call; else it reads @now */
 	uint64_t now;                      /* the clock, in @hz ticks a second, as the test sets it */
 	unsigned int stats_changed;        /* stats_changed calls */
+	unsigned int resets;               /* reset calls (ozzy_engine_recover) */
 	bool timer_on;
 	uint64_t progress[OZZY_PCM_DIRS];  /* last pcm_progress */
 	bool rings;                        /* has pcm_progress (a ring platform) */

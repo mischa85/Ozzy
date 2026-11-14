@@ -240,6 +240,10 @@ struct ozzy_engine_report {
  * @stats_last/@stats_late: per PCM direction, the bus time of the last completion (0: none
  *                since the start) and the gap past which a completion is late (the queued
  *                transfers' time, in bus ticks; 0: not measured), for the shared memory's stats
+ * @streaming:    started, and not stopped or suspended since (ozzy_engine_start, _stop, _suspend)
+ * @sleeping:     suspended for system sleep (ozzy_engine_sleep), to start again on wake
+ * @watch_start/@watch_recovered: the stall watchdog's: the bus time of the last start and of the
+ *                last recovery it asked for (0: none)
  */
 struct ozzy_engine {
 	const struct ozzy_engine_ops *ops;
@@ -265,6 +269,10 @@ struct ozzy_engine {
 	uint32_t starts;
 	uint64_t stats_last[OZZY_PCM_DIRS];
 	uint64_t stats_late[OZZY_PCM_DIRS];
+	volatile bool streaming;
+	bool sleeping;
+	uint64_t watch_start;
+	uint64_t watch_recovered;
 };
 
 /* Bytes to allocate for @model's engine (0 if Ozzy has none for its family) */
@@ -383,6 +391,8 @@ static inline void ozzy_engine_set_driver_version(struct ozzy_engine *e, const c
  * HAL the device is gone. Process context. */
 static inline void ozzy_engine_stop(struct ozzy_engine *e)
 {
+	e->streaming = false;
+	e->sleeping = false;
 	e->ops->stop(e);
 	if (e->bus)
 		ozzy_bus_abort(e->bus);
@@ -395,6 +405,7 @@ static inline void ozzy_engine_stop(struct ozzy_engine *e)
  */
 static inline void ozzy_engine_suspend(struct ozzy_engine *e)
 {
+	e->streaming = false;
 	e->ops->suspend(e);
 	if (e->bus)
 		ozzy_bus_abort(e->bus);
@@ -407,6 +418,46 @@ static inline void ozzy_engine_suspend(struct ozzy_engine *e)
  * concurrently with itself or stop.
  */
 bool ozzy_engine_restart(struct ozzy_engine *e);
+/* Whether the engine streams: started, and not stopped or suspended since */
+static inline bool ozzy_engine_streaming(const struct ozzy_engine *e)
+{
+	return e->streaming;
+}
+
+/*
+ * --- Stall watchdog ---
+ * A PCM pipe completes every transfer period while the engine streams. One that stopped for
+ * OZZY_WATCH_DEAD_MS has stopped the device (the WZ4 after OUT ran dry, #85; the DB4's IN side
+ * on Windows), which a recovery brings back. A ~110 ms gap can come back on its own.
+ */
+#define OZZY_WATCH_DEAD_MS      500
+#define OZZY_WATCH_RECOVER_S    10      /* between recoveries: not forever on a dead device */
+
+/*
+ * ozzy_engine_watch - The PCM pipe (its address) without a completion for OZZY_WATCH_DEAD_MS
+ * while streaming, which the platform recovers (ozzy_engine_recover); 0 if there is none, or if
+ * the last one it reported was less than OZZY_WATCH_RECOVER_S ago. From a timer (macOS, a few
+ * times a second) or the completion path (Windows: a pipe completes while another is dead).
+ */
+uint8_t ozzy_engine_watch(struct ozzy_engine *e);
+
+/*
+ * ozzy_engine_recover - Bring back a device ozzy_engine_watch reported: suspend, the bus's reset
+ * if it has one (ozzy_bus_ops.reset), a new start (a restart: it selects the interfaces again),
+ * counted in the stats. False if it didn't start: the engine is stopped then. Process context,
+ * not concurrently with a start, restart or stop.
+ */
+bool ozzy_engine_recover(struct ozzy_engine *e);
+
+/*
+ * System sleep: ozzy_engine_sleep suspends a streaming engine (hardware_present stays, so the HAL
+ * keeps the device); ozzy_engine_wake starts it again (the transfers in flight across a sleep
+ * never complete on some devices, the WZ4 in #85), stopped if it doesn't start. Wake returns
+ * whether it streams. Process context, as ozzy_engine_recover.
+ */
+void ozzy_engine_sleep(struct ozzy_engine *e);
+bool ozzy_engine_wake(struct ozzy_engine *e);
+
 /*
  * The bus's reselect (SET_INTERFACE 0, then the profile's alternate setting, on each interface
  * that has one), from a family's start when it is a restart. The WZ4 stops streaming for good when a

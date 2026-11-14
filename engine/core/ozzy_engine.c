@@ -287,13 +287,87 @@ void ozzy_engine_stats_recovery(struct ozzy_engine *e, bool streaming)
 
 bool ozzy_engine_start(struct ozzy_engine *e)
 {
+	e->streaming = false;
 	memset(&e->report, 0, sizeof(e->report));
 	if (!e->ops->start(e))
 		return false;
 	e->starts++;
 	ozzy_engine_publish_info(e);
 	stats_start(e);
+	/* A start takes longer than the watchdog's limit: it counts from here */
+	e->watch_start = ozzy_bus_time(e->bus);
+	e->streaming = true;
 	return true;
+}
+
+/* --- Stall watchdog, sleep and wake --- */
+
+uint8_t ozzy_engine_watch(struct ozzy_engine *e)
+{
+	static const enum ozzy_pipe_role roles[OZZY_PCM_DIRS] = { OZZY_PIPE_PCM_OUT, OZZY_PIPE_PCM_IN };
+	uint64_t now, hz, last;
+	unsigned int dir;
+
+	if (!e->streaming || !e->bus)
+		return 0;
+	hz = ozzy_bus_time_hz(e->bus);
+	if (!hz)
+		return 0;
+	now = ozzy_bus_time(e->bus);
+	for (dir = 0; dir < OZZY_PCM_DIRS; dir++) {
+		uint8_t address = e->pipe[roles[dir]].address;
+
+		if (!address)
+			continue;
+		/* The last completion since the start (another CPU may just have made one later than @now) */
+		last = e->stats_last[dir] > e->watch_start ? e->stats_last[dir] : e->watch_start;
+		if (last >= now || now - last <= ozzy_div_u64(hz * OZZY_WATCH_DEAD_MS, 1000))
+			continue;
+		if (e->watch_recovered && now - e->watch_recovered < hz * OZZY_WATCH_RECOVER_S)
+			return 0;
+		e->watch_recovered = now;
+		ozzy_log("pipe 0x%02x: no completion for %u ms, recovering the device", address,
+			 (unsigned int)ozzy_div_u64((now - last) * 1000, hz));
+		return address;
+	}
+	return 0;
+}
+
+bool ozzy_engine_recover(struct ozzy_engine *e)
+{
+	bool streaming;
+
+	ozzy_engine_suspend(e);
+	if (e->bus->ops->reset)
+		e->bus->ops->reset(e->bus->ctx);
+	streaming = ozzy_engine_start(e);
+	ozzy_log("recovered: %s", streaming ? "streaming" : "start failed");
+	if (!streaming)
+		ozzy_engine_stop(e);
+	ozzy_engine_stats_recovery(e, streaming);
+	return streaming;
+}
+
+void ozzy_engine_sleep(struct ozzy_engine *e)
+{
+	if (!e->streaming)
+		return;
+	ozzy_log("sleep: suspending");
+	ozzy_engine_suspend(e);
+	e->sleeping = true;
+}
+
+bool ozzy_engine_wake(struct ozzy_engine *e)
+{
+	if (!e->sleeping)
+		return e->streaming;
+	e->sleeping = false;
+	ozzy_log("wake: starting again");
+	if (ozzy_engine_start(e))   /* a restart: it selects the interfaces again */
+		return true;
+	ozzy_log("start after wake failed");
+	ozzy_engine_stop(e);
+	return false;
 }
 
 void ozzy_engine_publish_info(struct ozzy_engine *e)

@@ -135,6 +135,16 @@ static void fb_abort(void *ctx)
 		fprintf(fb->trace, "abort %u\n", n);
 }
 
+/* A device reset (ozzy_engine_recover): counted */
+static void fb_reset(void *ctx)
+{
+	struct fake_bus *fb = ctx;
+
+	fb->resets++;
+	if (fb->trace)
+		fprintf(fb->trace, "reset\n");
+}
+
 static const struct ozzy_bus_ops fake_ops = {
 	.submit = fb_submit,
 	.submit_isoc = fb_submit_isoc,
@@ -148,6 +158,7 @@ static const struct ozzy_bus_ops fake_ops = {
 	.abort = fb_abort,
 	.time_hz = fb_time_hz,
 	.stats_changed = fb_stats_changed,
+	.reset = fb_reset,
 };
 
 static const struct ozzy_bus_ops fake_ops_no_rings = {
@@ -162,6 +173,7 @@ static const struct ozzy_bus_ops fake_ops_no_rings = {
 	.abort = fb_abort,
 	.time_hz = fb_time_hz,
 	.stats_changed = fb_stats_changed,
+	.reset = fb_reset,
 };
 
 void fake_bus_init(struct fake_bus *fb, struct ozzy_shared_memory *shm, bool rings, FILE *trace)

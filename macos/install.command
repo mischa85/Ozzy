@@ -489,6 +489,17 @@ build_app() {
         PATH="$venv/bin:$PATH"
     fi
     unset CFLAGS CPPFLAGS CXXFLAGS OBJCFLAGS LDFLAGS
+    # libui-ng's archive fetched by the system's curl into meson's package cache: a Python
+    # without certificates (old macOS, python.org's before Install Certificates) can't fetch it,
+    # and meson checks the hash in the wrap either way
+    local wrap="$DIR/../apps/gui/subprojects/libui-ng.wrap" cache="$DIR/../apps/gui/subprojects/packagecache"
+    local url file
+    url=$(sed -n 's/^source_url *= *//p' "$wrap")
+    file=$(sed -n 's/^source_filename *= *//p' "$wrap")
+    if [ -n "$url" ] && [ -n "$file" ] && [ ! -f "$cache/$file" ]; then
+        mkdir -p "$cache" && curl -fsSL -o "$cache/$file.part" "$url" && mv "$cache/$file.part" "$cache/$file" ||
+            rm -f "$cache/$file.part"
+    fi
     if [ -f "$gui_build/build.ninja" ]; then
         CC=clang OBJC=clang MACOSX_DEPLOYMENT_TARGET="$MIN_MACOS" meson setup --reconfigure "$gui_build" "$DIR/../apps/gui" || return 1
     else

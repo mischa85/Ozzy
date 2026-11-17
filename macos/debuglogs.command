@@ -14,7 +14,9 @@ cd "$DIR"
 TIMESTAMP=$(date "+%Y-%m-%d_%H-%M-%S")
 LOGFILE="$HOME/Desktop/Ozzy_Debug_Log_$TIMESTAMP.txt"
 
-PREDICATE='(process == "kernel" AND (composedMessage CONTAINS "[OzzyKext]" OR composedMessage CONTAINS "[Ploytec]")) OR subsystem == "OzzyHAL" OR subsystem == "OzzyMIDI" OR subsystem == "OzzyDaemon"'
+# The kext's lines by their prefix and by the kext's binary (what a macOS keeps of an IOLog line
+# differs between versions), the plugins' and the daemon's by subsystem
+PREDICATE='(process == "kernel" AND (composedMessage CONTAINS "[OzzyKext]" OR composedMessage CONTAINS "[Ploytec]" OR composedMessage CONTAINS "[UsbMidi]" OR senderImagePath CONTAINS "OzzyKext")) OR subsystem == "OzzyHAL" OR subsystem == "OzzyMIDI" OR subsystem == "OzzyDaemon"'
 
 clear
 echo "====================================================="
@@ -30,8 +32,15 @@ echo ""
 echo "⏳ Reading system log database (last 2h)..."
 echo "   (This may take a few seconds)"
 
+# What happened, in the reporter's words, so it travels with the log
+echo "Before the logs: what happened? What did you do right before it went wrong,"
+echo "and did the Mac crash or restart? (one line, Enter when done)"
+read -r -p "> " REPORT_NOTE
+echo ""
+
 echo "-----------------------------------------------------" >> "$LOGFILE"
 echo "OZZY DEBUG LOG - $(date)" >> "$LOGFILE"
+echo "What happened (reporter): ${REPORT_NOTE:-(nothing entered)}" >> "$LOGFILE"
 
 # What runs here, so a report doesn't depend on what gets pasted
 {
@@ -44,6 +53,22 @@ echo "OZZY DEBUG LOG - $(date)" >> "$LOGFILE"
     echo "Installed kext UUID: $(dwarfdump --uuid /Library/Extensions/OzzyKext.kext/Contents/MacOS/OzzyKext 2>/dev/null | awk '{ print $2; exit }')"
     echo "USB devices:"
     ioreg -p IOUSB -w0 | sed 's/^/   /'
+    echo "OzzyKext in the I/O Registry (whether the kext attached to a device):"
+    OZZY_IOREG=$(ioreg -p IOService -w0 -r -c OzzyKext -l 2>/dev/null)
+    if [ -n "$OZZY_IOREG" ]; then echo "$OZZY_IOREG" | sed 's/^/   /'; else echo "   (none)"; fi
+    echo "-----------------------------------------------------"
+    # A kernel panic in the last 2 days: 10.14 and older name them Kernel_*.panic, 11 and later
+    # panic-full-*.panic (JSON with a large stackshot, so only the start, which holds the panic
+    # string and the backtrace)
+    PANIC=$(find /Library/Logs/DiagnosticReports -maxdepth 1 -name "*.panic" ! -name ".*" -mtime -2 2>/dev/null |
+        xargs ls -t 2>/dev/null | head -n 1)
+    if [ -n "$PANIC" ]; then
+        echo "LATEST KERNEL PANIC ($PANIC)"
+        head -c 20000 "$PANIC" 2>/dev/null || echo "   (not readable)"
+        echo ""
+    else
+        echo "No kernel panic in the last 2 days"
+    fi
     echo "-----------------------------------------------------"
     INSTALL_LOG=$(ls -t "$HOME"/Desktop/Ozzy_Install_Log_*.txt 2>/dev/null | head -n 1)
     if [ -n "$INSTALL_LOG" ]; then

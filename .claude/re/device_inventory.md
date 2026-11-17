@@ -60,6 +60,20 @@ Not Xone protocol despite Ploytec's VID or driver: SPL Crimson (0A4A:C150; flags
 UAC2 class compliant, Ploytec driver needed for 176.4/192k), Ploytec's generic `PGUSBAudio.kext`
 (113 class-compliant devices, plus 0A4A:0002 Audio Junction).
 
+### Realiser A16: USB around its boot (#102)
+
+From clhodapp's own libusb driver on Linux, one A16 whose Ploytec interface reports firmware 1.0.0 (chip ID 0x31) in `'V'`, not from Ozzy (their run tables: clhodapp/open-realiser-a16-driver, `docs/development/boot-usb-drop.md`). All earlier checks (rates, duplex) were on an A16 that had finished booting.
+
+- **Playback at the end of the boot drops it off USB.** About 43.5 s after a power-up enumerates it (43.1–44.1 s over 10 runs), the A16 goes from its boot splash to the main menu. If playback transfers are reaching EP 0x05 then, it disconnects and re-enumerates 0.3–0.7 s later. The content doesn't matter (all-zero transfers drop it too). It does **not** drop on: Ozzy's handshake alone (`'V'`, `'I'` reads, rate GET_CUR/SET_CUR 48k, `'I'` write 0xFFB2) without transfers; both interfaces at alt 1 without transfers; reads pending on 0x83 or 0x86; no host activity; a cable replug of a booted A16.
+- **Playback resumed too soon drops it again.** Streaming 1.0–1.4 s after each re-enumeration: drops at 43.6, 46.1, 48.2, 50.2 s.
+- **After the drop it needs a port reset and quiet.** For several seconds after re-enumerating it doesn't answer control requests reliably; a handshake 3.9 s after the drop went unanswered until another `USBDEVFS_RESET`. Worked in two boots: port reset right after re-enumeration, no requests until 9 s after the drop, then the handshake and streaming (sound at ~53 s after power-up, no further drop). A port reset never took it off the bus (same device number).
+- **Control requests during the boot can wedge it too.** Reads 4×/s from 11.8 s stopped being answered at 43.3 s, without a disconnect, for over 13 minutes until a port reset.
+- **No register shows the boot state.** Unchanged across the boot: `'I'` status (same byte for wIndex 0/1/2), `'V'`, rate GET_CUR (index 0, 0x86, 0x05), GET_STATUS. Return transfers during the boot are full length, all samples zero.
+- MIDI IN (0x83) never returned data (60 s streaming, 48 s direct polling).
+- Right after a cable replug, the first return transfer on 0x86 was short (512 of 5120 bytes); compare the DB4's half-packet start (a1504bc).
+
+What it means for Ozzy (?, untested on an A16): Ozzy streams from attach, so a power-up with the cable connected should hit the drop, and the re-attach starts streaming again within about a second, which the second point says drops it again. A fix would be an A16-only rule after a disconnect in its first minute (port reset, ~9 s quiet, then handshake); not written, waiting for an Ozzy run on an A16.
+
 ## Bulk in / isoc out (`isPloytecBulkInIsocOutDevice`, the EIE path)
 
 All have flags 0x139 = 0, 0x13A = 1 where a plist exists. Mainline Linux's new us144mkii driver

@@ -115,12 +115,17 @@ fi
 
 # The manufacturer's Ploytec driver (Allen & Heath's, ESI's, ...) takes the device before Ozzy can,
 # so Ozzy never sees it (#101). Found by bundle ID, installed or loaded; a driver for another
-# device can stay, so this asks instead of stopping.
+# device can stay, so this asks instead of stopping. The bundle's own identifier counts, not a
+# mention: Apple's AppleKextExcludeList.kext lists Ploytec's IDs too (#101).
 PLOYTEC_DRIVERS=$(
     grep -il "<string>com\.ploytec" /Library/Extensions/*.kext/Contents/Info.plist \
         /System/Library/Extensions/*.kext/Contents/Info.plist \
         /Library/Audio/Plug-Ins/HAL/*.driver/Contents/Info.plist \
-        "/Library/Audio/MIDI Drivers/"*.plugin/Contents/Info.plist 2>/dev/null | sed 's|/Contents/Info.plist$||'
+        "/Library/Audio/MIDI Drivers/"*.plugin/Contents/Info.plist 2>/dev/null |
+    while read -r plist; do
+        /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$plist" 2>/dev/null | grep -qi "^com\.ploytec" &&
+            echo "${plist%/Contents/Info.plist}"
+    done
     { kmutil showloaded 2>/dev/null || kextstat 2>/dev/null; } | grep -io "com\.ploytec[^ ]*" | sed 's/^/loaded: /'
 )
 if [ -n "$PLOYTEC_DRIVERS" ]; then

@@ -869,8 +869,14 @@ void OzzyHAL::ConnectService(io_service_t service, uint64_t registryID) {
     mach_vm_address_t address = 0;
     mach_vm_size_t size = 0;
 
-    if (IOServiceOpen(service, mach_task_self(), 0, &connect) != KERN_SUCCESS) return;
-    kern_return_t kr = IOConnectMapMemory(connect, 0, mach_task_self(), &address, &size, kIOMapAnywhere);
+    kern_return_t kr = IOServiceOpen(service, mach_task_self(), 0, &connect);
+    if (kr != KERN_SUCCESS) {
+        // Once per kext instance: the monitor retries every 100 ms (coreaudiod's sandbox, #101)
+        if (registryID != mLoggedOpenFailure) LogOzzyHALError("can't open the kext (0x%{public}x)", kr);
+        mLoggedOpenFailure = registryID;
+        return;
+    }
+    kr = IOConnectMapMemory(connect, 0, mach_task_self(), &address, &size, kIOMapAnywhere);
     if (kr != KERN_SUCCESS) {
         LogOzzyHALError("failed to map kext memory (0x%{public}x)", kr);
         IOServiceClose(connect);

@@ -51,23 +51,6 @@ if [ -f "/usr/local/bin/Ozzy" ]; then
     echo "✅ Ozzy binary removed"
 fi
 
-# Unload and remove Kernel Extension
-if { kmutil showloaded 2>/dev/null || kextstat 2>/dev/null; } | grep -q "OzzyKext"; then
-    echo "🔄 Unloading Kernel Extension..."
-    sudo killall -9 coreaudiod 2>/dev/null || true
-    sleep 1
-    sudo kextunload -b "com.ozzy.kext.OzzyKext" 2>/dev/null || true
-    sleep 1
-    echo "✅ Kext unloaded"
-fi
-
-if [ -d "/Library/Extensions/OzzyKext.kext" ]; then
-    echo "🗑️  Removing Kernel Extension..."
-    sudo rm -rf /Library/Extensions/OzzyKext.kext
-    sudo touch /Library/Extensions
-    echo "✅ Kext removed"
-fi
-
 # Remove HAL Driver
 if [ -d "/Library/Audio/Plug-Ins/HAL/OzzyHAL.driver" ]; then
     echo "🗑️  Removing HAL Driver..."
@@ -96,6 +79,24 @@ if [ -d "/Library/Audio/MIDI Drivers/OzzyMIDI.plugin" ]; then
     sudo rm -rf "/Library/Audio/MIDI Drivers/OzzyMIDI.plugin"
     sudo touch "/Library/Audio/MIDI Drivers"
     echo "✅ MIDI Driver removed"
+fi
+
+# Unload and remove Kernel Extension, after the HAL and MIDI plugins are gone: coreaudiod and
+# MIDIServer restart without them, so nothing holds the kext while it unloads (#101)
+if { kmutil showloaded 2>/dev/null || kextstat 2>/dev/null; } | grep -q "OzzyKext"; then
+    echo "🔄 Unloading Kernel Extension..."
+    sudo killall -9 coreaudiod MIDIServer 2>/dev/null || true
+    sleep 2
+    sudo kextunload -b "com.ozzy.kext.OzzyKext" 2>/dev/null || true
+    sleep 1
+    echo "✅ Kext unloaded"
+fi
+
+if [ -d "/Library/Extensions/OzzyKext.kext" ]; then
+    echo "🗑️  Removing Kernel Extension..."
+    sudo rm -rf /Library/Extensions/OzzyKext.kext
+    sudo touch /Library/Extensions
+    echo "✅ Kext removed"
 fi
 
 # Remove DriverKit Extension (if installed)

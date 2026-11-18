@@ -28,6 +28,16 @@ public:
         return IOUserClient::start(provider);
     }
 
+    /* IOServiceClose, the client process's exit (clientDied) and an open the kernel refuses after
+     * newUserClient (a sandbox's iokit-open check, coreaudiod's on 10.14, #101) all end here.
+     * IOUserClient's own does nothing, which left every such client attached to the kext: one
+     * per HAL retry, and a kext that couldn't be unloaded (terminate timeout panic). */
+    virtual IOReturn clientClose() override {
+        mOwner = nullptr;
+        terminate();
+        return kIOReturnSuccess;
+    }
+
     // This is triggered by OzzyHAL calling IOConnectMapMemory
     virtual IOReturn clientMemoryForType(UInt32 type, IOOptionBits* options, 
                                          IOMemoryDescriptor** memory) override {
@@ -77,8 +87,8 @@ IOReturn OzzyKext::newUserClient(task_t owningTask, void* securityID,
                                  UInt32 type, OSDictionary* properties, 
                                  IOUserClient** handler) {
     OzzyUserClient* client = new OzzyUserClient;
-    
-    if (!client || !client->init()) {
+
+    if (!client || !client->initWithTask(owningTask, securityID, type, properties)) {
         if (client) client->release();
         return kIOReturnNoMemory;
     }

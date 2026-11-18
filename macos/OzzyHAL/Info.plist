@@ -4,6 +4,10 @@
 <dict>
 	<key>AudioServerPlugIn_FactoryFunction</key>
 	<string>OzzyPluginFactory</string>
+	<key>AudioServerPlugIn_IOKitUserClients</key>
+	<array>
+		<string>OzzyUserClient</string>
+	</array>
 	<key>AudioServerPlugIn_MachServices</key>
 	<array>
 		<string>com.ozzy.daemon</string>

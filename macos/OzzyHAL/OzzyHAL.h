@@ -238,6 +238,7 @@ private:
     pthread_t mMonitorThread;
     std::atomic<bool> mMonitorRunning { false };
     bool mLoggedWaitingForDriver = false;
+    uint64_t mLoggedOpenFailure = 0;   // registry ID of the kext instance whose open failure was logged
 
     static void* MonitorEntry(void* arg);
     void MonitorLoop();

@@ -113,6 +113,35 @@ if $KEXT_INSTALLED || $DEXT_INSTALLED || $DAEMON_INSTALLED || $LEGACY_HAL; then
     exit 1
 fi
 
+# The manufacturer's Ploytec driver (Allen & Heath's, ESI's, ...) takes the device before Ozzy can,
+# so Ozzy never sees it (#101). Found by bundle ID, installed or loaded; a driver for another
+# device can stay, so this asks instead of stopping.
+PLOYTEC_DRIVERS=$(
+    grep -il "<string>com\.ploytec" /Library/Extensions/*.kext/Contents/Info.plist \
+        /System/Library/Extensions/*.kext/Contents/Info.plist \
+        /Library/Audio/Plug-Ins/HAL/*.driver/Contents/Info.plist \
+        "/Library/Audio/MIDI Drivers/"*.plugin/Contents/Info.plist 2>/dev/null | sed 's|/Contents/Info.plist$||'
+    { kmutil showloaded 2>/dev/null || kextstat 2>/dev/null; } | grep -io "com\.ploytec[^ ]*" | sed 's/^/loaded: /'
+)
+if [ -n "$PLOYTEC_DRIVERS" ]; then
+    echo "======================================================"
+    echo "     ⚠️  THE MANUFACTURER'S PLOYTEC DRIVER IS INSTALLED"
+    echo "======================================================"
+    echo ""
+    echo "$PLOYTEC_DRIVERS" | sed 's/^/  /'
+    echo ""
+    echo "It takes your device before Ozzy can, so Ozzy never sees it (and the"
+    echo "old driver may be what crashes or hangs). Remove it first: run its"
+    echo "uninstaller, or delete the files above with sudo rm -rf, then restart."
+    echo "Keep it only if it's for a different device than the one Ozzy is for."
+    echo ""
+    read -p "Install Ozzy anyway? [y/N] " PLOYTEC_ANSWER
+    case "$PLOYTEC_ANSWER" in
+        [yY]*) echo "" ;;
+        *) exit 1 ;;
+    esac
+fi
+
 echo "======================================================"
 echo "          Ozzy Audio Engine - Full Install"
 echo "======================================================"

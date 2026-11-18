@@ -48,7 +48,11 @@ echo "What happened (reporter): ${REPORT_NOTE:-(nothing entered)}" >> "$LOGFILE"
     echo "SIP: $(csrutil status 2>/dev/null | head -n 1)"
     echo "Loaded kext:"
     { kmutil showloaded 2>/dev/null || kextstat 2>/dev/null; } | grep -i "ozzy" || echo "   (none)"
-    echo "Userspace daemon: $(launchctl print system/com.ozzy.daemon 2>/dev/null | grep -E "^\s+(state|pid) =" | head -n 2 | tr -s ' \t' ' ' | tr '\n' ';' || true)"
+    echo "Other loaded kexts (not Apple's; another driver can take the device first):"
+    OTHER_KEXTS=$({ kmutil showloaded 2>/dev/null || kextstat 2>/dev/null; } | grep -v "com\.apple\.\|com\.ozzy\." |
+        grep -o "[a-zA-Z0-9-]*\.[a-zA-Z0-9.-]* ([^)]*)")
+    if [ -n "$OTHER_KEXTS" ]; then echo "$OTHER_KEXTS" | sed 's/^/   /'; else echo "   (none)"; fi
+    echo "Userspace daemon:$(launchctl print system/com.ozzy.daemon 2>/dev/null | grep -E "^\s+(state|pid) =" | head -n 2 | tr -s ' \t' ' ' | tr '\n' ';' || true)"
     [ -f /usr/local/bin/OzzyDaemon ] || echo "   (not installed)"
     echo "Installed kext UUID: $(dwarfdump --uuid /Library/Extensions/OzzyKext.kext/Contents/MacOS/OzzyKext 2>/dev/null | awk '{ print $2; exit }')"
     echo "USB devices:"

@@ -500,6 +500,13 @@ build_app() {
         mkdir -p "$cache" && curl -fsSL -o "$cache/$file.part" "$url" && mv "$cache/$file.part" "$cache/$file" ||
             rm -f "$cache/$file.part"
     fi
+    # meson patches libui-ng only when it unpacks it: a patch newer than the unpacked tree
+    # (a git pull) unpacks it again, and the build directory starts over
+    local src patch="$DIR/../apps/gui/subprojects/packagefiles/libui-ng-subproject.patch"
+    src="$DIR/../apps/gui/subprojects/$(sed -n 's/^directory *= *//p' "$wrap")"
+    if [ -d "$src" ] && [ "$patch" -nt "$src" ]; then
+        rm -rf "$src" "$gui_build"
+    fi
     if [ -f "$gui_build/build.ninja" ]; then
         CC=clang OBJC=clang MACOSX_DEPLOYMENT_TARGET="$MIN_MACOS" meson setup --reconfigure "$gui_build" "$DIR/../apps/gui" || return 1
     else

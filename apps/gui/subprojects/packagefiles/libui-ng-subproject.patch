@@ -1,6 +1,6 @@
 --- a/meson.build
 +++ b/meson.build
-@@ -70,12 +70,12 @@
+@@ -70,12 +70,10 @@
  	libui_darwin_langs = ['c', 'objc']
  
  	libui_macosx_version_min = '-mmacosx-version-min=10.8'
@@ -9,15 +9,14 @@
 +	add_project_arguments(libui_macosx_version_min, language: libui_darwin_langs)
 +	add_project_link_arguments(libui_macosx_version_min, language: libui_darwin_langs)
  
- 	libui_arch = ['-arch', 'x86_64', '-arch', 'arm64']
+-	libui_arch = ['-arch', 'x86_64', '-arch', 'arm64']
 -	add_global_arguments(libui_arch, language: libui_darwin_langs)
 -	add_global_link_arguments(libui_arch, language: libui_darwin_langs)
-+	add_project_arguments(libui_arch, language: libui_darwin_langs)
-+	add_project_link_arguments(libui_arch, language: libui_darwin_langs)
++	# the host's architecture only, as the app it's linked into (SDKs before 11 have no arm64)
  endif
  
  if libui_MSVC
-@@ -149,26 +149,34 @@
+@@ -149,26 +147,34 @@
  subdir('common')
  if libui_OS == 'windows'
  	subdir('windows')

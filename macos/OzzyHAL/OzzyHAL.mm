@@ -179,16 +179,18 @@ void OzzyHALDevice::Unmap() {
     mRegistryID = 0;
 }
 
-/* Unmap if the kext or daemon went away or restarted (a daemon that crashed leaves its
- * shared memory as it was: its pid tells). Returns true while still mapped. */
+/* Unmap if the kext or daemon went away or restarted (the kext's stop clears the magic; a
+ * daemon that crashed leaves its shared memory as it was: its pid tells). Returns true while
+ * still mapped. Hardware that is down while the kext stays (a restart that failed, #101) keeps
+ * the mapping: UpdateConnectionState takes the device down and up again with the flag.
+ * Unmapping then would map it again at the next scan, four times a second. */
 bool OzzyHALDevice::CheckHealth() {
     ozzy_shared_memory* shm = mSHM.load(std::memory_order_relaxed);
     if (!shm) return false;
     bool magicValid = (shm->magic == OZZY_MAGIC) && (shm->session_id == mSessionID) &&
                       (!mDaemonPID || ozzy_daemon_alive(mDaemonPID));
-    bool hwPresent = magicValid && shm->audio.hardware_present.load(std::memory_order_acquire);
-    if (magicValid && hwPresent) return true;
-    LogOzzyHAL("device %{public}u: disconnected (magic: %{public}d, hw: %{public}d)", mSlot, magicValid, hwPresent);
+    if (magicValid) return true;
+    LogOzzyHAL("device %{public}u: disconnected", mSlot);
     Unmap();
     return false;
 }
